@@ -8,7 +8,7 @@ const LOGIN_PATHS = ['/MANAK/eBISLogin', '/MANAK/login', '/MANAK/HallmarkingLogi
 /** Real Manak AHC receive flow (user-confirmed path) */
 const RECEIVE_ACTION = 'AHCReceivingUIDJewellerRequest.do'
 
-const MAX_DETAIL_PAGES = 40
+export const SCRAP_TOOL_VERSION = '1.2.0'
 
 export type ScrapFetchInput = {
   username: string
@@ -17,8 +17,8 @@ export type ScrapFetchInput = {
   /** Max seconds to wait for user to solve captcha / finish login */
   loginTimeoutSec?: number
   /**
-   * After login, do NOT auto-navigate. Wait this many seconds for the user
-   * to open Receiving / pending request tab manually.
+   * After login, wait for user to open Receiving page and click "Scrape now".
+   * No automatic page.goto after login.
    */
   postLoginWaitSec?: number
   headed?: boolean
@@ -30,6 +30,7 @@ export type ScrapFetchResult = {
   requests: ManakRequestRow[]
   message: string
   pagesTried: string[]
+  version?: string
 }
 
 function abs(base: string, path: string) {
@@ -107,9 +108,6 @@ export function parseReceiveDetailPage(html: string, pageUrl: string): ManakRequ
     if (!row.requestNo) row.requestNo = requestIdFromReceiveUrl(pageUrl)
     if (!row.cml) row.cml = cmlFromReceiveUrl(pageUrl)
     return row
-  }
-  if (fromTable.length > 1) {
-    // Prefer first data-looking row; caller may also merge table list separately
   }
 
   const requestNo =
@@ -216,12 +214,8 @@ async function waitUntilLoggedIn(page: Page, timeoutMs: number) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const url = page.url()
-    const html = await page.content().catch(() => '')
-    const stillLogin =
-      /eBISLogin|\/login/i.test(url) ||
-      (/password/i.test(html) && /captcha/i.test(html) && html.length < 200_000)
-
-    if (!stillLogin && (/table/i.test(html) || /hallmark|logout|sign out|ahc/i.test(html))) {
+    // Only treat as logged-in when we left the login URL — never navigate
+    if (!/eBISLogin|\/login|HallmarkingLogin/i.test(url)) {
       return true
     }
     await page.waitForTimeout(1500)
@@ -229,59 +223,70 @@ async function waitUntilLoggedIn(page: Page, timeoutMs: number) {
   return false
 }
 
-async function collectReceiveLinks(page: Page, base: string): Promise<string[]> {
-  const hrefs = await page.$$eval('a[href]', (as) => as.map((a) => (a as HTMLAnchorElement).href))
-  const out = new Set<string>()
-  for (const href of hrefs) {
-    if (/AHCReceivingUIDJewellerRequest/i.test(href)) {
-      out.add(href.startsWith('http') ? href : abs(base, href))
-    }
-  }
-  // Also scan raw HTML for encoded links
-  const html = await page.content()
-  const re = /AHCReceivingUIDJewellerRequest\.do\?[^"'>\s]+/gi
-  let m: RegExpExecArray | null
-  while ((m = re.exec(html))) {
-    out.add(abs(base, `/MANAK/${m[0]}`))
-  }
-  return [...out]
-}
-
-async function showUserBanner(page: Page, text: string) {
+/** Sticky banner + green button. Does not navigate. Re-injects after user navigates. */
+async function ensureControlBanner(page: Page, phase: 'login' | 'ready') {
   await page
-    .evaluate((msg) => {
-      let el = document.getElementById('shrija-scrap-banner')
-      if (!el) {
-        el = document.createElement('div')
-        el.id = 'shrija-scrap-banner'
-        el.style.cssText =
-          'position:fixed;z-index:2147483647;left:0;right:0;top:0;padding:14px 18px;' +
-          'background:#1a365d;color:#fff;font:600 15px/1.4 system-ui,sans-serif;' +
-          'box-shadow:0 4px 16px rgba(0,0,0,.35);text-align:center'
-        document.body.appendChild(el)
+    .evaluate((p) => {
+      const w = window as unknown as { __shrijaScrapReady?: boolean }
+      let root = document.getElementById('shrija-scrap-root')
+      if (!root) {
+        root = document.createElement('div')
+        root.id = 'shrija-scrap-root'
+        root.style.cssText =
+          'position:fixed;z-index:2147483647;left:12px;right:12px;top:12px;' +
+          'font:600 14px/1.35 system-ui,sans-serif;pointer-events:auto'
+        document.body.appendChild(root)
       }
-      el.textContent = msg
-    }, text)
+
+      if (p === 'login') {
+        root.innerHTML =
+          '<div style="background:#1a365d;color:#fff;padding:12px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)">' +
+          '<div>Shrija Scrap v1.2 — enter captcha, then click Login.</div>' +
+          '<div style="font-weight:500;opacity:.9;margin-top:4px">Tool will NOT auto-refresh. After login, open Receiving tab yourself.</div>' +
+          '</div>'
+        return
+      }
+
+      root.innerHTML =
+        '<div style="background:#14532d;color:#fff;padding:12px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);display:flex;gap:12px;align-items:center;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:220px">' +
+        '<div>Login OK — open <b>Receiving / Jeweller Request</b> (no auto refresh).</div>' +
+        '<div style="font-weight:500;opacity:.95;margin-top:4px">When the list/detail is visible, click the button →</div>' +
+        '</div>' +
+        '<button id="shrija-scrap-go" type="button" style="background:#fbbf24;color:#111;border:0;border-radius:8px;padding:10px 16px;font:700 14px system-ui;cursor:pointer">Scrape this page</button>' +
+        '</div>'
+
+      const btn = document.getElementById('shrija-scrap-go')
+      if (btn) {
+        btn.onclick = () => {
+          w.__shrijaScrapReady = true
+          btn.textContent = 'Scraping…'
+          ;(btn as HTMLButtonElement).disabled = true
+        }
+      }
+    }, phase)
     .catch(() => {})
 }
 
-function isReceivePage(url: string, html: string) {
-  return (
-    /AHCReceivingUIDJewellerRequest/i.test(url) ||
-    /AHCReceivingUIDJewellerRequest/i.test(html) ||
-    (/receiv/i.test(html) && /jeweller/i.test(html) && /<table/i.test(html))
-  )
+async function userClickedScrape(page: Page): Promise<boolean> {
+  return page
+    .evaluate(() => Boolean((window as unknown as { __shrijaScrapReady?: boolean }).__shrijaScrapReady))
+    .catch(() => false)
+}
+
+function urlLooksLikeReceive(url: string) {
+  return /AHCReceivingUIDJewellerRequest/i.test(url)
 }
 
 /**
- * Opens a real Chromium window. User solves captcha, then opens Receiving tab
- * manually — tool does not auto-refresh through menus after login.
+ * Passive mode: after login the tool NEVER calls page.goto.
+ * User navigates to Receiving, then clicks "Scrape this page".
  */
 export async function fetchManakWithBrowser(input: ScrapFetchInput): Promise<ScrapFetchResult> {
   const base = (input.baseUrl || DEFAULT_BASE).replace(/\/$/, '')
   const headed = input.headed !== false
   const loginTimeoutMs = Math.max(30, input.loginTimeoutSec || 180) * 1000
-  const postLoginWaitMs = Math.max(30, input.postLoginWaitSec || 150) * 1000
+  const postLoginWaitMs = Math.max(60, input.postLoginWaitSec || 300) * 1000
   const pagesTried: string[] = []
 
   const browser = await chromium.launch({
@@ -296,6 +301,11 @@ export async function fetchManakWithBrowser(input: ScrapFetchInput): Promise<Scr
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     })
     const page = await context.newPage()
+
+    // Re-inject banner after every user navigation (no tool navigation)
+    page.on('load', () => {
+      void ensureControlBanner(page, /eBISLogin|\/login/i.test(page.url()) ? 'login' : 'ready')
+    })
 
     let opened = false
     for (const path of LOGIN_PATHS) {
@@ -319,14 +329,13 @@ export async function fetchManakWithBrowser(input: ScrapFetchInput): Promise<Scr
         requests: [],
         message: 'Could not open Manak login page. Check internet / base URL.',
         pagesTried,
+        version: SCRAP_TOOL_VERSION,
       }
     }
 
     await fillLogin(page, input.username, input.password)
-    await showUserBanner(
-      page,
-      'Shrija Scrap: enter captcha → Login. After login, OPEN Receiving / Jeweller Request tab. Do not close this window.',
-    )
+    await ensureControlBanner(page, 'login')
+
     const hasCaptcha = await page.locator('img[src*="captcha" i], img[alt*="captcha" i]').count()
     if (!hasCaptcha) {
       await clickLogin(page)
@@ -339,92 +348,60 @@ export async function fetchManakWithBrowser(input: ScrapFetchInput): Promise<Scr
         source: 'scrap-tool',
         requests: [],
         message:
-          'Login not completed in time. Enter captcha in the browser window, click Login, then try Fetch again.',
+          'Login not completed in time. Enter captcha, click Login, then try Fetch again.',
         pagesTried,
+        version: SCRAP_TOOL_VERSION,
       }
     }
 
-    // --- Critical: NO auto page.goto loop here (that caused the refresh) ---
-    await showUserBanner(
-      page,
-      'Login OK — now open AHC Receiving / pending Jeweller Request. Waiting… (tool will scrape when that page loads)',
-    )
-    console.log('[shrija-scrap] Login OK. Waiting for you to open Receiving / pending tab…')
+    console.log(`[shrija-scrap ${SCRAP_TOOL_VERSION}] Login OK. Passive wait — no auto navigation.`)
+    await ensureControlBanner(page, 'ready')
 
-    const collected: ManakRequestRow[] = []
-    const detailUrls = new Set<string>()
     const waitStart = Date.now()
-    let ready = false
-
+    let scrapeNow = false
     while (Date.now() - waitStart < postLoginWaitMs) {
-      const url = page.url()
-      pagesTried.push(`wait:${url}`)
-      const html = await page.content().catch(() => '')
-
-      for (const link of await collectReceiveLinks(page, base)) {
-        detailUrls.add(link)
-      }
-
-      const tables = parseHtmlTables(html)
-      if (tables.length) collected.push(...tables)
-
-      if (isReceivePage(url, html) || detailUrls.size > 0 || tables.length > 0) {
-        ready = true
+      // Only check flags / URL — never goto, never click menus, never crawl links
+      if (await userClickedScrape(page)) {
+        scrapeNow = true
         break
       }
-
-      const remaining = Math.ceil((postLoginWaitMs - (Date.now() - waitStart)) / 1000)
-      await showUserBanner(
-        page,
-        `Shrija: open Receiving / Jeweller Request tab now (${remaining}s left). No auto-refresh — navigate yourself.`,
-      )
-      await page.waitForTimeout(2000)
+      // Optional: if user already opened the exact receive URL, still require button
+      // (avoids false start on dashboard). Re-inject banner if Manak wiped DOM.
+      if (!(await page.evaluate(() => Boolean(document.getElementById('shrija-scrap-root'))).catch(() => false))) {
+        await ensureControlBanner(page, 'ready')
+      }
+      await page.waitForTimeout(800)
     }
 
-    // Scrape whatever page the user is on
-    {
-      const html = await page.content()
-      pagesTried.push(page.url())
-      collected.push(...parseHtmlTables(html))
-      const detail = parseReceiveDetailPage(html, page.url())
-      if (detail) collected.push(detail)
-      for (const link of await collectReceiveLinks(page, base)) {
-        detailUrls.add(link)
+    if (!scrapeNow) {
+      return {
+        ok: false,
+        source: 'scrap-tool',
+        requests: [],
+        message:
+          'Timed out waiting. Open Receiving / Jeweller Request, then click the yellow "Scrape this page" button.',
+        pagesTried,
+        version: SCRAP_TOOL_VERSION,
       }
     }
 
-    // Soft fallback once only — if user never opened receive page
-    if (!ready && !detailUrls.size && !collected.length) {
-      const fallback = abs(base, `/MANAK/${RECEIVE_ACTION}`)
-      pagesTried.push(fallback)
-      await showUserBanner(page, 'Opening Receiving page once (fallback)…')
-      try {
-        await page.goto(fallback, { waitUntil: 'domcontentloaded', timeout: 30000 })
-        await page.waitForTimeout(1200)
-        const html = await page.content()
-        collected.push(...parseHtmlTables(html))
-        for (const link of await collectReceiveLinks(page, base)) detailUrls.add(link)
-      } catch {
-        /* ignore */
-      }
-    }
+    const url = page.url()
+    pagesTried.push(`scrape:${url}`)
+    const html = await page.content()
+    const collected: ManakRequestRow[] = []
+    collected.push(...parseHtmlTables(html))
+    const detail = parseReceiveDetailPage(html, url)
+    if (detail) collected.push(detail)
 
-    // Open detail links found on list (capped) — only after user/list ready
-    const details = [...detailUrls].slice(0, MAX_DETAIL_PAGES)
-    if (details.length) {
-      await showUserBanner(page, `Reading ${details.length} jeweller request page(s)…`)
-    }
-    for (const detailUrl of details) {
-      pagesTried.push(detailUrl)
-      try {
-        await page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-        await page.waitForTimeout(400)
-        const html = await page.content()
-        const detail = parseReceiveDetailPage(html, detailUrl)
-        if (detail) collected.push(detail)
-        collected.push(...parseHtmlTables(html))
-      } catch {
-        /* next */
+    // If still empty and URL is not receive page, tell user clearly — do NOT navigate
+    if (!collected.length && !urlLooksLikeReceive(url)) {
+      return {
+        ok: false,
+        source: 'scrap-tool',
+        requests: [],
+        message: `Scraped current page but found no request rows. URL was not ${RECEIVE_ACTION}. Open that page, then click Scrape again.`,
+        pagesTried,
+        version: SCRAP_TOOL_VERSION,
       }
     }
 
@@ -441,9 +418,10 @@ export async function fetchManakWithBrowser(input: ScrapFetchInput): Promise<Scr
       source: 'scrap-tool',
       requests,
       message: requests.length
-        ? `Scrap tool fetched ${requests.length} request(s) via AHCReceivingUIDJewellerRequest`
-        : 'Login OK, but no request rows found. After login, open Receiving / Jeweller Request, wait until the list shows, then Fetch again.',
+        ? `Scraped ${requests.length} request(s) from current Manak page (v${SCRAP_TOOL_VERSION})`
+        : 'Page scraped but no rows parsed. Stay on Receiving list/detail and try again.',
       pagesTried,
+      version: SCRAP_TOOL_VERSION,
     }
   } finally {
     await browser.close().catch(() => {})

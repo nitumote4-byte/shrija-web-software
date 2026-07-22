@@ -1,7 +1,7 @@
 import cors from 'cors'
 import express from 'express'
 import { listMacAddresses, machineLabel, primaryMac } from './mac.js'
-import { fetchManakWithBrowser } from './manakPlaywright.js'
+import { fetchManakWithBrowser, SCRAP_TOOL_VERSION } from './manakPlaywright.js'
 
 export const DEFAULT_PORT = Number(process.env.SHRIJA_SCRAP_PORT || 19876)
 
@@ -33,7 +33,7 @@ export function createScrapServer() {
     res.json({
       ok: true,
       service: 'shrija-scrap',
-      version: '1.0.0',
+      version: SCRAP_TOOL_VERSION,
       busy,
       mac: primaryMac(),
       macs: listMacAddresses(),
@@ -57,7 +57,7 @@ export function createScrapServer() {
     const baseUrl = String(req.body?.baseUrl || 'https://huid.manakonline.in').trim()
     const night = String(req.body?.night || 'Night')
     const loginTimeoutSec = Number(req.body?.loginTimeoutSec || 180)
-    const postLoginWaitSec = Number(req.body?.postLoginWaitSec || 150)
+    const postLoginWaitSec = Number(req.body?.postLoginWaitSec || 300)
     const headed = req.body?.headed !== false
 
     if (!username || !password) {

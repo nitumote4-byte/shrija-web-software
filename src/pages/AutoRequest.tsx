@@ -38,6 +38,7 @@ type ManakFetchResponse = {
 
 type ScrapHealth = {
   ok: boolean
+  version?: string
   mac?: string
   macs?: string[]
   machine?: string
@@ -163,7 +164,7 @@ export function AutoRequest() {
   }
 
   const runLocalScrapFetch = async (): Promise<ManakFetchResponse> => {
-    setStatusMsg('Scrap tool: Manak browser — login, then open Receiving tab yourself…')
+    setStatusMsg('Scrap tool: login → open Receiving → click yellow "Scrape this page"')
     const bundle = await api<{
       username: string
       password: string
@@ -181,7 +182,7 @@ export function AutoRequest() {
         night,
         allowedMacs: bundle.allowedMacs,
         loginTimeoutSec: 180,
-        postLoginWaitSec: 150,
+        postLoginWaitSec: 300,
         headed: true,
       }),
     })
@@ -314,7 +315,7 @@ export function AutoRequest() {
           <option value="Day">Day</option>
         </select>
         <span className={`scrap-pill ${scrapOnline ? 'scrap-on' : 'scrap-off'}`}>
-          Scrap tool: {scrapOnline ? 'Online' : 'Offline'}
+          Scrap tool: {scrapOnline ? `Online v${scrapInfo?.version || '?'}` : 'Offline'}
           {scrapOnline && scrapInfo?.mac ? ` · ${scrapInfo.mac}` : ''}
         </span>
         {fetching && <span className="fetching-pill">Fetching…</span>}
