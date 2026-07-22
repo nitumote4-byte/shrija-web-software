@@ -1,0 +1,3 @@
+# Shrija API data (SQLite)
+*.sqlite
+*.sqlite-*
