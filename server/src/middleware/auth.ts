@@ -69,6 +69,30 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** After requireAuth — block API if centre licence expired */
+export async function requireValidLicense(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { getTenantLicense } = await import('../license.js')
+    const license = await getTenantLicense(req.user!.tenantId)
+    if (!license) {
+      res.status(404).json({ error: 'Centre not found', code: 'MISSING' })
+      return
+    }
+    if (!license.ok) {
+      res.status(403).json({
+        error: license.reason || 'Licence expired',
+        code: license.code || 'EXPIRED',
+        license,
+      })
+      return
+    }
+    next()
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Licence check failed' })
+  }
+}
+
 /** Reject any client-supplied tenant_id that does not match the JWT */
 export function enforceTenantBody(req: Request, res: Response, next: NextFunction) {
   const bodyTenant =

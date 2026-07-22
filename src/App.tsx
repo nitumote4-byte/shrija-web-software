@@ -59,6 +59,7 @@ import {
   TouchFundEntry,
 } from './pages/OthersPages'
 import { DataBackup } from './pages/DataBackup'
+import { LicensePage } from './pages/License'
 
 export default function App() {
   return (
@@ -70,6 +71,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<AnalyticsDashboard />} />
+            <Route path="license" element={<LicensePage />} />
             <Route path="manual-request" element={<ManualRequest />} />
             <Route path="auto-request" element={<AutoRequest />} />
             <Route path="rough-sheet" element={<RoughSheet />} />
@@ -128,6 +130,7 @@ export default function App() {
             <Route path="others/staff-attendance" element={<StaffAttendance />} />
             <Route path="others/invoice-settings" element={<InvoiceSettings />} />
             <Route path="others/backup" element={<DataBackup />} />
+            <Route path="others/license" element={<LicensePage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Route>

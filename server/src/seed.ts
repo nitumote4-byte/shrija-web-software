@@ -5,6 +5,7 @@
 import 'dotenv/config'
 import bcrypt from 'bcryptjs'
 import { emptyStorePayload, initDb, nowIso, pool, uid, withTransaction } from './db.js'
+import { addDaysIso } from './license.js'
 
 await initDb()
 
@@ -22,12 +23,13 @@ const createdAt = nowIso()
 const firmName = 'Shrija Hallmarking Centre A'
 const hash = bcrypt.hashSync('admin123', 10)
 const labHash = bcrypt.hashSync('smg123', 10)
+const demoExpires = addDaysIso(new Date(), 365)
 
 await withTransaction(async (client) => {
   await client.query(
-    `INSERT INTO tenants (id, slug, firm_name, gstin, plan, status, created_at)
-     VALUES ($1, 'centre-a', $2, '', 'demo', 'active', $3)`,
-    [tenantId, firmName, createdAt],
+    `INSERT INTO tenants (id, slug, firm_name, gstin, plan, status, created_at, license_expires_at, max_users)
+     VALUES ($1, 'centre-a', $2, '', 'demo', 'active', $3, $4, 20)`,
+    [tenantId, firmName, createdAt, demoExpires],
   )
   await client.query(
     `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at)

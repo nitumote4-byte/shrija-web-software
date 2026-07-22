@@ -11,6 +11,7 @@ import {
   withTransaction,
 } from '../db.js'
 import { requireAuth, signToken, type AuthUser } from '../middleware/auth.js'
+import { evaluateLicense, getTenantLicense, trialExpiryIso } from '../license.js'
 
 export const authRouter = Router()
 
@@ -75,6 +76,7 @@ authRouter.post('/register', authLimiter, async (req, res) => {
   const userId = uid('usr')
   const labId = uid('usr')
   const createdAt = nowIso()
+  const trialEnds = trialExpiryIso(14)
   const hash = bcrypt.hashSync(adminPassword, 10)
   const labHash = bcrypt.hashSync('smg123', 10)
   const role = adminRole || 'quality_manager'
@@ -82,9 +84,9 @@ authRouter.post('/register', authLimiter, async (req, res) => {
   try {
     await withTransaction(async (client) => {
       await client.query(
-        `INSERT INTO tenants (id, slug, firm_name, gstin, plan, status, created_at)
-         VALUES ($1, $2, $3, $4, 'trial', 'active', $5)`,
-        [tenantId, slug, firmName, gstin || '', createdAt],
+        `INSERT INTO tenants (id, slug, firm_name, gstin, plan, status, created_at, license_expires_at, max_users)
+         VALUES ($1, $2, $3, $4, 'trial', 'active', $5, $6, 5)`,
+        [tenantId, slug, firmName, gstin || '', createdAt, trialEnds],
       )
       await client.query(
         `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at)
@@ -140,6 +142,7 @@ authRouter.post('/register', authLimiter, async (req, res) => {
       plan: 'trial',
       status: 'active',
       createdAt,
+      licenseExpiresAt: trialEnds,
     },
   })
 })
@@ -160,19 +163,30 @@ authRouter.post('/login', authLimiter, async (req, res) => {
   const { tenantId, username, password, asAdmin } = parsed.data
 
   const tenantRes = await pool.query(
-    `SELECT id, firm_name AS "firmName", status FROM tenants WHERE id = $1`,
+    `SELECT id, firm_name AS "firmName", status, plan,
+            license_expires_at AS "licenseExpiresAt"
+     FROM tenants WHERE id = $1`,
     [tenantId],
   )
-  const tenant = tenantRes.rows[0] as { id: string; firmName: string; status: string } | undefined
+  const tenant = tenantRes.rows[0] as
+    | { id: string; firmName: string; status: string; plan: string; licenseExpiresAt: string | null }
+    | undefined
 
   if (!tenant) {
     res.status(404).json({ error: 'Centre not found' })
     return
   }
   if (tenant.status !== 'active') {
-    res.status(403).json({ error: 'This centre is suspended' })
+    res.status(403).json({ error: 'This centre is suspended', code: 'SUSPENDED' })
     return
   }
+
+  const license = evaluateLicense({
+    plan: tenant.plan,
+    status: tenant.status,
+    licenseExpiresAt: tenant.licenseExpiresAt,
+  })
+  // Expired centres can still log in to activate a new key (blocked from data APIs)
 
   const userRes = await pool.query(
     `SELECT id, username, role, password_hash AS "passwordHash", is_admin AS "isAdmin"
@@ -213,11 +227,13 @@ authRouter.post('/login', authLimiter, async (req, res) => {
       tenantId: authUser.tenantId,
       tenantName: authUser.tenantName,
     },
+    license,
   })
 })
 
-authRouter.get('/me', requireAuth, (req, res) => {
+authRouter.get('/me', requireAuth, async (req, res) => {
   assertTenantId(req.user?.tenantId)
+  const license = await getTenantLicense(req.user!.tenantId)
   res.json({
     session: {
       username: req.user!.username,
@@ -227,6 +243,7 @@ authRouter.get('/me', requireAuth, (req, res) => {
       tenantId: req.user!.tenantId,
       tenantName: req.user!.tenantName,
     },
+    license,
   })
 })
 
@@ -255,6 +272,16 @@ authRouter.put('/users', requireAuth, async (req, res) => {
   const parsed = upsertUsersSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid users payload' })
+    return
+  }
+
+  const lic = await getTenantLicense(tenantId)
+  const maxUsers = lic?.maxUsers ?? 10
+  if (parsed.data.users.length > maxUsers) {
+    res.status(403).json({
+      error: `Licence allows max ${maxUsers} users (trying to save ${parsed.data.users.length})`,
+      code: 'USER_LIMIT',
+    })
     return
   }
 

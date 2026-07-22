@@ -1,5 +1,14 @@
-import { api, clearAuth, getToken, readStoredSession, setAuth, type ApiSession } from '../api/client'
+import {
+  api,
+  ApiRequestError,
+  clearAuth,
+  getToken,
+  readStoredSession,
+  setAuth,
+  type ApiSession,
+} from '../api/client'
 import { hydrateTenantData, resetTenantCache } from './tenantCache'
+import { setCachedLicense, type LicenseStatus } from './license'
 
 export type AuthSession = ApiSession
 
@@ -14,6 +23,7 @@ export function isAuthenticated(): boolean {
 export function clearSession() {
   clearAuth()
   resetTenantCache()
+  setCachedLicense(null)
 }
 
 export function setSession(session: AuthSession) {
@@ -26,16 +36,28 @@ export async function login(
   password: string,
   tenantId: string,
   asAdmin = false,
-): Promise<{ ok: true; session: AuthSession } | { ok: false; error: string }> {
+): Promise<{ ok: true; session: AuthSession; licenseExpired?: boolean } | { ok: false; error: string }> {
   try {
-    const result = await api<{ token: string; session: AuthSession }>('/api/auth/login', {
-      method: 'POST',
-      json: { tenantId, username, password, asAdmin },
-    })
+    const result = await api<{ token: string; session: AuthSession; license?: LicenseStatus }>(
+      '/api/auth/login',
+      {
+        method: 'POST',
+        json: { tenantId, username, password, asAdmin },
+      },
+    )
     setAuth(result.token, result.session)
+    if (result.license) setCachedLicense(result.license)
+
+    if (result.license && !result.license.ok) {
+      return { ok: true, session: result.session, licenseExpired: true }
+    }
+
     await hydrateTenantData()
     return { ok: true, session: result.session }
   } catch (e) {
+    if (e instanceof ApiRequestError) {
+      return { ok: false, error: e.message }
+    }
     return { ok: false, error: e instanceof Error ? e.message : 'Login failed' }
   }
 }

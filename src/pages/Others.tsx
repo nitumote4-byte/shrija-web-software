@@ -140,6 +140,13 @@ const links: OtherLink[] = [
     icon: Database,
     color: '#0f766e',
   },
+  {
+    title: 'Licence',
+    description: 'Activate or renew centre software licence.',
+    path: '/others/license',
+    icon: KeyRound,
+    color: '#b45309',
+  },
 ]
 
 export function Others() {

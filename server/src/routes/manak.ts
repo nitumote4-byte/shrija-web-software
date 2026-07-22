@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { decryptSecret, encryptSecret } from '../crypto.js'
 import { assertTenantId, nowIso, pool } from '../db.js'
-import { enforceTenantBody, requireAuth } from '../middleware/auth.js'
+import { enforceTenantBody, requireAuth, requireValidLicense } from '../middleware/auth.js'
 import {
   completePortalFetch,
   demoRequests,
@@ -16,6 +16,7 @@ export const manakRouter = Router()
 
 manakRouter.use(requireAuth)
 manakRouter.use(enforceTenantBody)
+manakRouter.use(requireValidLicense)
 
 const KV_KEY = 'manak_credentials'
 

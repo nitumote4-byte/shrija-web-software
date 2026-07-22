@@ -47,6 +47,7 @@ export function canAccessPath(pathname: string): boolean {
   // Map path prefix to module id loosely
   const path = pathname.replace(/\/$/, '') || '/'
   if (path === '/' || path === '') return allowed.includes('dashboard')
+  if (path === '/license' || path.startsWith('/others/license')) return true
   if (path.startsWith('/reports')) return allowed.includes('reports')
   if (path.startsWith('/others')) return session.isAdmin || role === 'quality_manager' || role === 'admin'
   if (path.startsWith('/create-fire-assay') || path.startsWith('/view-fire-assay')) {

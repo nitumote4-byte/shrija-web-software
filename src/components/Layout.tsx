@@ -5,6 +5,7 @@ import { CENTRE_NAME, PRODUCT_NAME, USER_NAME, USER_ROLE, allModules, modules } 
 import { clearSession, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getFirmName } from '../data/firmProfile'
 import { canAccessPath } from '../data/roles'
+import { getCachedLicense } from '../data/license'
 
 export function Layout() {
   const [query, setQuery] = useState('')
@@ -17,6 +18,13 @@ export function Layout() {
   const displayName = session?.username || USER_NAME
   const displayRole = (session?.role || USER_ROLE).replace(/\s+/g, '_').toLowerCase()
   const tenantLabel = session?.tenantName || centreName
+  const license = getCachedLicense()
+  const licenseWarn =
+    license && license.ok && license.daysLeft !== null && license.daysLeft <= 14
+      ? `${license.daysLeft}d left`
+      : license && !license.ok
+        ? 'Licence expired'
+        : null
 
   const visibleModules = modules.filter((m) => canAccessPath(m.path))
   const visibleAll = allModules.filter((m) => canAccessPath(m.path))
@@ -101,6 +109,17 @@ export function Layout() {
             <span>{tenantLabel}</span>
           </div>
         )}
+        {licenseWarn && (
+          <button
+            type="button"
+            className="tenant-chip"
+            style={{ cursor: 'pointer', borderColor: '#b45309', color: '#92400e' }}
+            onClick={() => navigate('/license')}
+            title="Open licence page"
+          >
+            {licenseWarn}
+          </button>
+        )}
 
         <div className="header-actions">
           <div className="search-box">
@@ -165,6 +184,16 @@ export function Layout() {
                     <span>{displayRole}</span>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className="user-dropdown-item"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    navigate('/license')
+                  }}
+                >
+                  <Settings size={16} /> Licence
+                </button>
                 <button
                   type="button"
                   className="user-dropdown-item"

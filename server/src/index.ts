@@ -4,6 +4,7 @@ import cors from 'cors'
 import { authRouter } from './routes/auth.js'
 import { dataRouter } from './routes/data.js'
 import { manakRouter } from './routes/manak.js'
+import { licenseRouter } from './routes/license.js'
 import { initDb, isDbReady, getLastDbError, ensureDb, databaseUrlPreview } from './db.js'
 
 const app = express()
@@ -63,6 +64,17 @@ app.use('/api/auth', (req, res, next) => {
   next()
 })
 app.use('/api/auth', authRouter)
+
+app.use('/api/license', (req, res, next) => {
+  if (!isDbReady()) {
+    res.status(503).json({
+      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
+    })
+    return
+  }
+  next()
+})
+app.use('/api/license', licenseRouter)
 
 app.use('/api/data', (req, res, next) => {
   if (!isDbReady()) {

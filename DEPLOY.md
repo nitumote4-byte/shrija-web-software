@@ -53,6 +53,17 @@ Creates **Centre A** → `qm_admin` / `admin123`.
 5. Redeploy after setting env (Vite inlines `VITE_*` at build time).
 6. Update Railway `CORS_ORIGIN` to the final Vercel URL if it changed.
 
+### Licence system (Railway)
+
+| Variable | Value |
+|----------|--------|
+| `LICENSE_MASTER_SECRET` | Strong secret used only to **issue** keys (Licence page → Issue keys) |
+| `JWT_SECRET` | Already required; also fallback for master if `LICENSE_MASTER_SECRET` unset |
+
+- New centres get a **14-day trial**.
+- Centre admin activates keys at `/license` or **Others → Licence**.
+- Expired centres can still log in only to activate a new key; data APIs are blocked until then.
+
 ---
 
 ## 3. Local development

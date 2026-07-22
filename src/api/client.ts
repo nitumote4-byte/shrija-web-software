@@ -38,7 +38,20 @@ export function readStoredSession(): ApiSession | null {
   }
 }
 
-type ApiError = { error?: string }
+type ApiError = { error?: string; code?: string }
+
+export class ApiRequestError extends Error {
+  status: number
+  code?: string
+  body?: unknown
+  constructor(message: string, status: number, code?: string, body?: unknown) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+    this.code = code
+    this.body = body
+  }
+}
 
 /** Prefer same-origin /api (Vercel rewrite → Railway). Set VITE_API_URL only for direct API calls. */
 function apiUrl(path: string) {
@@ -77,7 +90,8 @@ export async function api<T>(
 
   if (!res.ok) {
     const msg = (body as ApiError)?.error || `Request failed (${res.status})`
-    throw new Error(msg)
+    const code = (body as ApiError)?.code
+    throw new ApiRequestError(msg, res.status, code, body)
   }
   return body as T
 }

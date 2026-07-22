@@ -75,6 +75,10 @@ export function Login() {
       setError(result.error)
       return
     }
+    if (result.licenseExpired) {
+      window.location.assign('/license')
+      return
+    }
     window.location.assign('/')
   }
 

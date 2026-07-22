@@ -1,12 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { assertTenantId, emptyStorePayload, nowIso, pool } from '../db.js'
-import { enforceTenantBody, requireAuth } from '../middleware/auth.js'
+import { enforceTenantBody, requireAuth, requireValidLicense } from '../middleware/auth.js'
 
 export const dataRouter = Router()
 
 dataRouter.use(requireAuth)
 dataRouter.use(enforceTenantBody)
+dataRouter.use(requireValidLicense)
 
 function asJson(value: unknown): unknown {
   if (value == null) return null

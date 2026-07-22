@@ -192,6 +192,30 @@ export async function initDb(retries = 8, delayMs = 2000) {
       `)
       await p.query(`CREATE INDEX IF NOT EXISTS idx_jobs_tenant_status ON job_docs(tenant_id, status)`)
 
+      // Licence columns + license_keys table
+      await p.query(`
+        ALTER TABLE tenants
+          ADD COLUMN IF NOT EXISTS license_key TEXT,
+          ADD COLUMN IF NOT EXISTS license_expires_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS license_activated_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS max_users INTEGER NOT NULL DEFAULT 10
+      `)
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS license_keys (
+          code TEXT PRIMARY KEY,
+          plan TEXT NOT NULL DEFAULT 'standard',
+          duration_days INTEGER NOT NULL DEFAULT 365,
+          max_users INTEGER NOT NULL DEFAULT 10,
+          note TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          used_by_tenant_id TEXT REFERENCES tenants(id) ON DELETE SET NULL,
+          used_at TIMESTAMPTZ
+        )
+      `)
+      await p.query(
+        `CREATE INDEX IF NOT EXISTS idx_license_keys_unused ON license_keys(used_by_tenant_id) WHERE used_by_tenant_id IS NULL`,
+      )
+
       dbReady = true
       lastDbError = null
       console.log(`PostgreSQL ready (attempt ${attempt})`)
