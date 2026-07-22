@@ -5,9 +5,14 @@ const { Pool } = pg
 
 let _pool: pg.Pool | null = null
 let dbReady = false
+let lastDbError: string | null = null
 
 export function isDbReady() {
   return dbReady
+}
+
+export function getLastDbError() {
+  return lastDbError
 }
 
 function databaseUrl() {
@@ -54,6 +59,7 @@ export const pool = new Proxy({} as pg.Pool, {
 export async function initDb(retries = 20, delayMs = 3000) {
   const url = databaseUrl()
   if (!url) {
+    lastDbError = 'DATABASE_URL is not set'
     throw new Error(
       'DATABASE_URL is required. On Railway: add a PostgreSQL service and reference DATABASE_URL on this service.',
     )
@@ -63,6 +69,7 @@ export async function initDb(retries = 20, delayMs = 3000) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const p = getPool()
+      // node-pg does NOT allow multiple statements in one query — run separately
       await p.query(`
         CREATE TABLE IF NOT EXISTS tenants (
           id TEXT PRIMARY KEY,
@@ -72,8 +79,9 @@ export async function initDb(retries = 20, delayMs = 3000) {
           plan TEXT NOT NULL DEFAULT 'trial',
           status TEXT NOT NULL DEFAULT 'active',
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-
+        )
+      `)
+      await p.query(`
         CREATE TABLE IF NOT EXISTS users (
           id TEXT PRIMARY KEY,
           tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -83,8 +91,9 @@ export async function initDb(retries = 20, delayMs = 3000) {
           is_admin BOOLEAN NOT NULL DEFAULT FALSE,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           UNIQUE (tenant_id, username)
-        );
-
+        )
+      `)
+      await p.query(`
         CREATE TABLE IF NOT EXISTS firm_profiles (
           tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
           firm_name TEXT NOT NULL,
@@ -97,31 +106,35 @@ export async function initDb(retries = 20, delayMs = 3000) {
           city TEXT NOT NULL DEFAULT '',
           state TEXT NOT NULL DEFAULT '',
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-
+        )
+      `)
+      await p.query(`
         CREATE TABLE IF NOT EXISTS store_docs (
           tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
           payload JSONB NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-
+        )
+      `)
+      await p.query(`
         CREATE TABLE IF NOT EXISTS kv_docs (
           tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           key TEXT NOT NULL,
           value JSONB NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (tenant_id, key)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
-        CREATE INDEX IF NOT EXISTS idx_kv_tenant ON kv_docs(tenant_id);
+        )
       `)
+      await p.query(`CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)`)
+      await p.query(`CREATE INDEX IF NOT EXISTS idx_kv_tenant ON kv_docs(tenant_id)`)
+
       dbReady = true
+      lastDbError = null
       console.log(`PostgreSQL ready (attempt ${attempt})`)
       return
     } catch (e) {
       lastError = e
-      console.error(`DB init attempt ${attempt}/${retries} failed:`, e instanceof Error ? e.message : e)
+      lastDbError = e instanceof Error ? e.message : String(e)
+      console.error(`DB init attempt ${attempt}/${retries} failed:`, lastDbError)
       if (attempt < retries) {
         await new Promise((r) => setTimeout(r, delayMs))
       }
