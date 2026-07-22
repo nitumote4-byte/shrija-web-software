@@ -6241,6 +6241,24 @@ table.data-table tr:hover td {
   min-width: 0;
 }
 
+.scrap-pill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.scrap-pill.scrap-on {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.scrap-pill.scrap-off {
+  color: #9a3412;
+  background: #ffedd5;
+}
+
 .auto-settings-btn {
   margin-left: auto;
   font-size: 0.85rem;

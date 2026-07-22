@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { decryptSecret, encryptSecret } from '../crypto.js'
 import { assertTenantId, nowIso, pool } from '../db.js'
@@ -17,6 +18,14 @@ manakRouter.use(requireAuth)
 manakRouter.use(enforceTenantBody)
 
 const KV_KEY = 'manak_credentials'
+
+const scrapBundleLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many scrap-bundle requests. Try again later.' },
+})
 
 async function loadCreds(tenantId: string): Promise<ManakCredentialsStored | null> {
   const { rows } = await pool.query(
@@ -37,6 +46,14 @@ async function saveCreds(tenantId: string, creds: ManakCredentialsStored) {
   )
 }
 
+function normalizeMacs(raw: string) {
+  return raw
+    .split(',')
+    .map((s) => s.trim().toUpperCase().replace(/:/g, '-'))
+    .filter(Boolean)
+    .join(', ')
+}
+
 manakRouter.get('/credentials', async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
@@ -45,6 +62,7 @@ manakRouter.get('/credentials', async (req, res) => {
     username: creds?.username || '',
     baseUrl: creds?.baseUrl || 'https://huid.manakonline.in',
     bridgeUrl: creds?.bridgeUrl || '',
+    allowedMacs: creds?.allowedMacs || '',
     hasPassword: Boolean(creds?.passwordEnc),
   })
 })
@@ -54,6 +72,7 @@ const putSchema = z.object({
   password: z.string().max(200).optional(),
   baseUrl: z.string().max(300).optional(),
   bridgeUrl: z.string().max(500).optional(),
+  allowedMacs: z.string().max(500).optional(),
   clearPassword: z.boolean().optional(),
 })
 
@@ -82,6 +101,7 @@ manakRouter.put('/credentials', async (req, res) => {
     passwordEnc,
     baseUrl: (parsed.data.baseUrl || 'https://huid.manakonline.in').trim().replace(/\/$/, ''),
     bridgeUrl: (parsed.data.bridgeUrl || '').trim(),
+    allowedMacs: normalizeMacs(parsed.data.allowedMacs ?? existing?.allowedMacs ?? ''),
     updatedAt: nowIso(),
   }
   await saveCreds(tenantId, creds)
@@ -90,8 +110,35 @@ manakRouter.put('/credentials', async (req, res) => {
     username: creds.username,
     baseUrl: creds.baseUrl,
     bridgeUrl: creds.bridgeUrl,
+    allowedMacs: creds.allowedMacs,
     hasPassword: true,
   })
+})
+
+/**
+ * Authenticated desk helper: returns decrypted Manak login for local scrap tool only.
+ * Never expose this without JWT. Rate-limited.
+ */
+manakRouter.post('/scrap-bundle', scrapBundleLimiter, async (req, res) => {
+  const tenantId = req.user!.tenantId
+  assertTenantId(tenantId)
+  const creds = await loadCreds(tenantId)
+  if (!creds?.username || !creds.passwordEnc) {
+    res.status(400).json({ error: 'Save Manak credentials first.' })
+    return
+  }
+  try {
+    const password = decryptSecret(creds.passwordEnc)
+    res.json({
+      username: creds.username,
+      password,
+      baseUrl: creds.baseUrl || 'https://huid.manakonline.in',
+      allowedMacs: creds.allowedMacs || '',
+      bridgeUrl: creds.bridgeUrl || '',
+    })
+  } catch {
+    res.status(500).json({ error: 'Could not decrypt Manak password. Re-save credentials.' })
+  }
 })
 
 const fetchSchema = z.object({
@@ -101,13 +148,6 @@ const fetchSchema = z.object({
   demo: z.boolean().optional(),
 })
 
-/**
- * Fetch flow:
- * 1) If demo=true → sample rows (testing only)
- * 2) If bridgeUrl set → POST bridge (Gold Shark PHP compatible)
- * 3) If sessionId + captcha → complete portal login & scrape tables
- * 4) Else start portal session (may return captcha image)
- */
 manakRouter.post('/fetch', async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)

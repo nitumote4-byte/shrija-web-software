@@ -1,0 +1,17 @@
+Windows Registry Editor Version 5.00
+
+; Optional: register shrija-scrap:// protocol (edit InstallPath before importing)
+; 1. Edit the path below to your tools\shrija-scrap folder
+; 2. Double-click this .reg file
+; 3. Browser can open shrija-scrap://start
+
+[HKEY_CURRENT_USER\Software\Classes\shrija-scrap]
+@="URL:Shrija Scrap Protocol"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\shrija-scrap\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\shrija-scrap\shell\open]
+
+[HKEY_CURRENT_USER\Software\Classes\shrija-scrap\shell\open\command]
+@="cmd /c cd /d \"C:\\path\\to\\shrija-web-software\\tools\\shrija-scrap\" && start.bat"

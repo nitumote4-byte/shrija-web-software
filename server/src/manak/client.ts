@@ -304,7 +304,8 @@ export async function startPortalSession(opts: {
   if (!html) {
     throw Object.assign(
       new Error(
-        `Could not open Manak login page (${lastErr || 'no response'}). Try Bridge URL with Gold Shark PHP, or check base URL.`,
+        `Could not open Manak login page from cloud (${lastErr || 'no response'}). ` +
+          `Start Shrija Scrap Tool on this PC (tools\\shrija-scrap\\start.bat), wait for "Scrap tool: Online", then Fetch again.`,
       ),
       { status: 502 },
     )
@@ -391,8 +392,10 @@ export async function completePortalFetch(opts: {
     )
   }
 
-  // Candidate AHC pending-request pages (Gold Shark PHP often hits one of these)
+  // Candidate AHC pending-request pages
   const candidatePaths = [
+    '/MANAK/AHCReceivingUIDJewellerRequest.do',
+    '/MANAK/AHCReceivingUIDJewellerRequest',
     '/MANAK/AHCReceiveRequest',
     '/MANAK/AHCPendingRequest',
     '/MANAK/AHCPendingRequests',

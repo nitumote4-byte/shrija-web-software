@@ -92,9 +92,10 @@ Vite proxies `/api` → `http://localhost:8787` when `VITE_API_URL` is unset.
 ## Auto Request → Manak Online
 
 1. Open **Auto Request → Manak Settings**.
-2. Save AHC Manak username/password (optional Bridge URL if you host Gold Shark `automate_request.php`).
-3. **Fetch Request** talks to `/api/data/manak/fetch` (captcha supported for direct portal login).
-4. Example PHP bridge contract: `server/manak-bridge.example.php`.
-5. **Demo Fetch** loads sample rows only (not Manak).
+2. Save AHC Manak username/password + optional **Allowed MAC(s)**.
+3. On the reception PC run **`tools/shrija-scrap/start.bat`** (Shrija Scrap Tool — Gold Shark–style local agent).
+4. When the pill shows **Scrap tool: Online**, click **Fetch Request** — Chromium opens Manak; enter captcha if needed.
+5. Example PHP bridge (optional): `server/manak-bridge.example.php`.
+6. **Demo Fetch** = sample rows only. **Cloud Fetch** = server-side fallback without local tool.
 
-For exact Gold Shark behaviour, paste `automate_request.php` (or set Bridge URL to a host running it).
+Scrap tool listens on `http://127.0.0.1:19876` only (see `tools/shrija-scrap/README.md`).

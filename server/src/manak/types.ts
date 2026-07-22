@@ -10,6 +10,8 @@ export type ManakCredentialsStored = {
   passwordEnc: string
   baseUrl: string
   bridgeUrl: string
+  /** Comma-separated MACs allowed for scrap tool, e.g. 28-D0-43-20-EB-D6 */
+  allowedMacs: string
   updatedAt: string
 }
 

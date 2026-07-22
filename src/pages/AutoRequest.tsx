@@ -4,10 +4,13 @@ import { api } from '../api/client'
 import { useToast } from '../components/ui'
 import { store, type PendingRoughRequest } from '../data/store'
 
+const SCRAP_BASE = 'http://127.0.0.1:19876'
+
 type ManakCreds = {
   username: string
   baseUrl: string
   bridgeUrl: string
+  allowedMacs: string
   hasPassword: boolean
 }
 
@@ -33,6 +36,14 @@ type ManakFetchResponse = {
   error?: string
 }
 
+type ScrapHealth = {
+  ok: boolean
+  mac?: string
+  macs?: string[]
+  machine?: string
+  busy?: boolean
+}
+
 export function AutoRequest() {
   const { toast, Toast } = useToast()
   const [night, setNight] = useState('Night')
@@ -47,6 +58,7 @@ export function AutoRequest() {
   const [password, setPassword] = useState('')
   const [baseUrl, setBaseUrl] = useState('https://huid.manakonline.in')
   const [bridgeUrl, setBridgeUrl] = useState('')
+  const [allowedMacs, setAllowedMacs] = useState('')
   const [hasPassword, setHasPassword] = useState(false)
   const [savingCreds, setSavingCreds] = useState(false)
 
@@ -54,6 +66,23 @@ export function AutoRequest() {
   const [captchaImage, setCaptchaImage] = useState<string | null>(null)
   const [captchaText, setCaptchaText] = useState('')
   const [statusMsg, setStatusMsg] = useState('')
+  const [scrapOnline, setScrapOnline] = useState(false)
+  const [scrapInfo, setScrapInfo] = useState<ScrapHealth | null>(null)
+
+  const probeScrap = async () => {
+    try {
+      const res = await fetch(`${SCRAP_BASE}/health`, { signal: AbortSignal.timeout(1500) })
+      if (!res.ok) throw new Error('offline')
+      const data = (await res.json()) as ScrapHealth
+      setScrapOnline(Boolean(data.ok))
+      setScrapInfo(data)
+      return data
+    } catch {
+      setScrapOnline(false)
+      setScrapInfo(null)
+      return null
+    }
+  }
 
   useEffect(() => {
     void api<ManakCreds>('/api/data/manak/credentials')
@@ -61,12 +90,17 @@ export function AutoRequest() {
         setUsername(c.username || '')
         setBaseUrl(c.baseUrl || 'https://huid.manakonline.in')
         setBridgeUrl(c.bridgeUrl || '')
+        setAllowedMacs(c.allowedMacs || '')
         setHasPassword(Boolean(c.hasPassword))
         if (!c.hasPassword) setShowSettings(true)
       })
       .catch(() => {
         setShowSettings(true)
       })
+
+    void probeScrap()
+    const t = window.setInterval(() => void probeScrap(), 5000)
+    return () => window.clearInterval(t)
   }, [])
 
   const applyFetched = (list: NonNullable<ManakFetchResponse['requests']>) => {
@@ -75,6 +109,23 @@ export function AutoRequest() {
     setRows(pending)
     setSelected((prev) => [...new Set([...prev, ...created.map((r) => r.id)])])
     return created.length
+  }
+
+  const useDetectedMac = () => {
+    const mac = scrapInfo?.mac || scrapInfo?.macs?.[0]
+    if (!mac) {
+      toast('Start Shrija Scrap Tool first to detect MAC')
+      return
+    }
+    const set = new Set(
+      allowedMacs
+        .split(',')
+        .map((s) => s.trim().toUpperCase().replace(/:/g, '-'))
+        .filter(Boolean),
+    )
+    set.add(mac.toUpperCase().replace(/:/g, '-'))
+    setAllowedMacs([...set].join(', '))
+    toast(`MAC added: ${mac}`)
   }
 
   const saveCredentials = async () => {
@@ -92,6 +143,7 @@ export function AutoRequest() {
         username: username.trim(),
         baseUrl: baseUrl.trim() || 'https://huid.manakonline.in',
         bridgeUrl: bridgeUrl.trim(),
+        allowedMacs: allowedMacs.trim(),
       }
       if (password) body.password = password
       const res = await api<ManakCreds>('/api/data/manak/credentials', {
@@ -99,6 +151,7 @@ export function AutoRequest() {
         json: body,
       })
       setHasPassword(Boolean(res.hasPassword))
+      setAllowedMacs(res.allowedMacs || allowedMacs)
       setPassword('')
       setShowSettings(false)
       toast('Manak credentials saved')
@@ -109,19 +162,73 @@ export function AutoRequest() {
     }
   }
 
-  const runFetch = async (opts?: { sessionId?: string; captchaText?: string; demo?: boolean }) => {
+  const runLocalScrapFetch = async (): Promise<ManakFetchResponse> => {
+    setStatusMsg('Scrap tool: opening Manak browser…')
+    const bundle = await api<{
+      username: string
+      password: string
+      baseUrl: string
+      allowedMacs: string
+    }>('/api/data/manak/scrap-bundle', { method: 'POST', json: {} })
+
+    const res = await fetch(`${SCRAP_BASE}/fetch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: bundle.username,
+        password: bundle.password,
+        baseUrl: bundle.baseUrl,
+        night,
+        allowedMacs: bundle.allowedMacs,
+        loginTimeoutSec: 180,
+        headed: true,
+      }),
+    })
+    const body = (await res.json()) as ManakFetchResponse & { error?: string }
+    if (!res.ok) throw new Error(body.error || `Scrap tool error (${res.status})`)
+    return body
+  }
+
+  const runCloudFetch = async (opts?: {
+    sessionId?: string
+    captchaText?: string
+    demo?: boolean
+  }): Promise<ManakFetchResponse> => {
+    setStatusMsg(opts?.demo ? 'Demo fetch…' : 'Cloud Manak fetch…')
+    return api<ManakFetchResponse>('/api/data/manak/fetch', {
+      method: 'POST',
+      json: {
+        night,
+        sessionId: opts?.sessionId,
+        captchaText: opts?.captchaText,
+        demo: opts?.demo,
+      },
+    })
+  }
+
+  const runFetch = async (opts?: {
+    sessionId?: string
+    captchaText?: string
+    demo?: boolean
+    forceCloud?: boolean
+  }) => {
     setFetching(true)
-    setStatusMsg('Contacting Manak…')
     try {
-      const res = await api<ManakFetchResponse>('/api/data/manak/fetch', {
-        method: 'POST',
-        json: {
-          night,
-          sessionId: opts?.sessionId,
-          captchaText: opts?.captchaText,
-          demo: opts?.demo,
-        },
-      })
+      let res: ManakFetchResponse
+
+      if (opts?.demo) {
+        res = await runCloudFetch({ demo: true })
+      } else if (opts?.sessionId || opts?.forceCloud) {
+        res = await runCloudFetch(opts)
+      } else {
+        const health = await probeScrap()
+        if (health?.ok) {
+          res = await runLocalScrapFetch()
+        } else {
+          toast('Scrap tool offline — using cloud fetch. Start tools/shrija-scrap/start.bat for best results.')
+          res = await runCloudFetch()
+        }
+      }
 
       if (res.needsCaptcha && res.sessionId) {
         setSessionId(res.sessionId)
@@ -140,7 +247,7 @@ export function AutoRequest() {
       if (list.length) {
         const n = applyFetched(list)
         setStatusMsg(res.message || `Loaded ${n} new request(s)`)
-        toast(n ? `${n} new request(s) from Manak` : 'No new requests (already loaded)')
+        toast(n ? `${n} new request(s)` : 'No new requests (already loaded)')
       } else {
         setStatusMsg(res.message || 'No pending requests')
         toast(res.message || 'No pending requests from Manak')
@@ -171,7 +278,7 @@ export function AutoRequest() {
       toast('Session expired — click Fetch Request again')
       return
     }
-    void runFetch({ sessionId, captchaText })
+    void runFetch({ sessionId, captchaText, forceCloud: true })
   }
 
   const toggleRow = (id: string) => {
@@ -205,6 +312,10 @@ export function AutoRequest() {
           <option value="Night">Night</option>
           <option value="Day">Day</option>
         </select>
+        <span className={`scrap-pill ${scrapOnline ? 'scrap-on' : 'scrap-off'}`}>
+          Scrap tool: {scrapOnline ? 'Online' : 'Offline'}
+          {scrapOnline && scrapInfo?.mac ? ` · ${scrapInfo.mac}` : ''}
+        </span>
         {fetching && <span className="fetching-pill">Fetching…</span>}
         {statusMsg && !fetching && <span className="auto-status-msg">{statusMsg}</span>}
         <button
@@ -218,10 +329,11 @@ export function AutoRequest() {
 
       {showSettings && (
         <div className="panel auto-manak-settings">
-          <h3>Manak Online (BIS) credentials</h3>
+          <h3>Manak Online (BIS) + Scrap Tool</h3>
           <p className="auto-manak-hint">
-            Same AHC login as Manak portal. Password is encrypted per centre. Prefer Bridge URL if
-            you have Gold Shark <code>automate_request.php</code>.
+            Gold Shark jaisa: reception PC par <strong>Shrija Scrap Tool</strong> chalao (
+            <code>tools/shrija-scrap/start.bat</code>). Fetch pehle local tool use karega — Manak
+            browser khulega, captcha aap enter karoge.
           </p>
           <div className="auto-manak-grid">
             <label>
@@ -243,7 +355,15 @@ export function AutoRequest() {
               <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
             </label>
             <label>
-              Bridge URL (optional — PHP / Gold Shark)
+              Allowed MAC(s) — desk PC
+              <input
+                value={allowedMacs}
+                onChange={(e) => setAllowedMacs(e.target.value)}
+                placeholder="28-D0-43-20-EB-D6"
+              />
+            </label>
+            <label>
+              Bridge URL (optional PHP)
               <input
                 value={bridgeUrl}
                 onChange={(e) => setBridgeUrl(e.target.value)}
@@ -255,16 +375,28 @@ export function AutoRequest() {
             <button type="button" className="btn btn-navy" disabled={savingCreds} onClick={() => void saveCredentials()}>
               {savingCreds ? 'Saving…' : 'Save credentials'}
             </button>
+            <button type="button" className="btn btn-ghost" onClick={useDetectedMac}>
+              Use this PC MAC
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => void probeScrap()}>
+              Refresh scrap status
+            </button>
             <button type="button" className="btn btn-ghost" onClick={() => setShowSettings(false)}>
               Close
             </button>
           </div>
+          {!scrapOnline && (
+            <p className="auto-manak-hint" style={{ marginTop: '0.85rem', marginBottom: 0 }}>
+              Scrap tool offline. PC par folder kholo → <code>tools\shrija-scrap\start.bat</code> →
+              window khula rakho → yahan Offline se Online ho jayega.
+            </p>
+          )}
         </div>
       )}
 
       {captchaImage && sessionId && (
         <div className="panel auto-captcha-panel">
-          <h3>Manak captcha</h3>
+          <h3>Manak captcha (cloud fallback)</h3>
           <div className="auto-captcha-row">
             <img src={captchaImage} alt="Manak captcha" className="auto-captcha-img" />
             <div className="auto-captcha-fields">
@@ -352,8 +484,17 @@ export function AutoRequest() {
             type="button"
             className="btn btn-ghost"
             disabled={fetching}
+            onClick={() => void runFetch({ forceCloud: true })}
+            title="Skip local scrap tool"
+          >
+            Cloud Fetch
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={fetching}
             onClick={() => void runFetch({ demo: true })}
-            title="Sample rows only — not Manak"
+            title="Sample rows only"
           >
             Demo Fetch
           </button>
