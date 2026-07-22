@@ -40,10 +40,11 @@ export function readStoredSession(): ApiSession | null {
 
 type ApiError = { error?: string }
 
-/** Production: set VITE_API_URL to Railway API origin (no trailing slash). Local: leave empty (Vite proxy). */
+/** Prefer same-origin /api (Vercel rewrite → Railway). Set VITE_API_URL only for direct API calls. */
 function apiUrl(path: string) {
   const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || ''
   const p = path.startsWith('/api') ? path : `/api${path}`
+  // Empty base = browser calls /api on current host (works with Vercel proxy + local Vite proxy)
   return `${base}${p}`
 }
 

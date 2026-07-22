@@ -121,7 +121,7 @@ export function Login() {
           <h1>Multi-centre</h1>
           <p className="login-tagline">{PRODUCT_TAGLINE}</p>
           <p className="login-tenant-note">
-            Each centre is isolated in SQLite with server-side tenant_id enforcement.
+            Each centre is isolated in PostgreSQL with server-side tenant_id enforcement.
           </p>
           <ul className="login-pillars">
             <li>
