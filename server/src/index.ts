@@ -3,7 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import { authRouter } from './routes/auth.js'
 import { dataRouter } from './routes/data.js'
-import { initDb, isDbReady, getLastDbError } from './db.js'
+import { initDb, isDbReady, getLastDbError, ensureDb, databaseUrlPreview } from './db.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
@@ -33,18 +33,18 @@ app.get('/', (_req, res) => {
 </body></html>`)
 })
 
-/** Always 200 once HTTP is up — Railway healthcheck must not wait on Postgres */
-app.get('/api/health', (_req, res) => {
+/** Always 200 once HTTP is up — also tries DB connect so status is fresh */
+app.get('/api/health', async (_req, res) => {
+  if (!isDbReady()) {
+    await ensureDb()
+  }
   res.json({
     ok: true,
     service: 'shrija-api',
     tenantEnforcement: true,
     dbReady: isDbReady(),
-    hasDatabaseUrl: Boolean(
-      process.env.DATABASE_URL ||
-        process.env.DATABASE_PUBLIC_URL ||
-        process.env.POSTGRES_URL,
-    ),
+    hasDatabaseUrl: Boolean(databaseUrlPreview()),
+    databaseUrlPreview: databaseUrlPreview(),
     dbError: isDbReady() ? null : getLastDbError(),
   })
 })

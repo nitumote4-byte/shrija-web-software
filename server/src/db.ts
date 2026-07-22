@@ -15,14 +15,26 @@ export function getLastDbError() {
   return lastDbError
 }
 
+/** Redacted preview for health diagnostics */
+export function databaseUrlPreview() {
+  const url = databaseUrl()
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    return `${u.protocol}//${u.username ? '***' : ''}@${u.hostname}:${u.port || '5432'}${u.pathname}`
+  } catch {
+    return url.slice(0, 32) + (url.length > 32 ? '…' : '')
+  }
+}
+
 function databaseUrl() {
-  return (
+  const raw =
     process.env.DATABASE_URL ||
     process.env.DATABASE_PUBLIC_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
     ''
-  )
+  return raw.trim().replace(/^["']|["']$/g, '')
 }
 
 export function getPool(): pg.Pool {
@@ -31,20 +43,63 @@ export function getPool(): pg.Pool {
   if (!url) {
     throw Object.assign(new Error('DATABASE_URL is not configured'), { status: 503 })
   }
+  if (url.includes('${') || url.includes('{{')) {
+    throw Object.assign(
+      new Error(
+        'DATABASE_URL still has unexpanded ${{VAR}} placeholders. Use Railway Variable Reference or paste a full postgresql:// URL.',
+      ),
+      { status: 503 },
+    )
+  }
+  if (!/^postgres(ql)?:\/\//i.test(url)) {
+    throw Object.assign(
+      new Error('DATABASE_URL must start with postgresql:// or postgres://'),
+      { status: 503 },
+    )
+  }
   // Railway Postgres expects SSL
-  if (/railway|amazonaws|render|neon|supabase/i.test(url) && !/[?&]sslmode=/i.test(url)) {
+  if (/railway|amazonaws|render|neon|supabase|rlwy/i.test(url) && !/[?&]sslmode=/i.test(url)) {
     url += (url.includes('?') ? '&' : '?') + 'sslmode=require'
   }
   _pool = new Pool({
     connectionString: url,
+    connectionTimeoutMillis: 8000,
     ssl:
       process.env.PGSSL === 'false'
         ? false
-        : process.env.NODE_ENV === 'production' || /railway|amazonaws|render|neon|supabase/i.test(url)
+        : process.env.NODE_ENV === 'production' || /railway|amazonaws|render|neon|supabase|rlwy/i.test(url)
           ? { rejectUnauthorized: false }
           : undefined,
   })
   return _pool
+}
+
+export function resetPool() {
+  if (_pool) {
+    void _pool.end().catch(() => {})
+    _pool = null
+  }
+  dbReady = false
+}
+
+/** Call from health / requests — creates schema if needed */
+export async function ensureDb() {
+  if (dbReady) {
+    try {
+      await getPool().query('SELECT 1')
+      return true
+    } catch (e) {
+      lastDbError = e instanceof Error ? e.message : String(e)
+      resetPool()
+    }
+  }
+  try {
+    await initDb(2, 1000)
+    return true
+  } catch (e) {
+    lastDbError = e instanceof Error ? e.message : String(e)
+    return false
+  }
 }
 
 /** Lazy proxy so routes can `import { pool }` before DB is ready */
