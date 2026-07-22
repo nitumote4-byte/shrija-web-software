@@ -29,8 +29,8 @@ server/data/*.sqlite-*
 *.sln
 *.sw?
 
-# Local / generated data
-data/
+# Local / generated data (repo root only — do not ignore src/data)
+/data/
 *.sqlite
 *.sqlite-*
 server/data/*.sqlite
