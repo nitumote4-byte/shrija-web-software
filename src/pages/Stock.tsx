@@ -11,6 +11,7 @@ import {
 import { useMemo, useState } from 'react'
 import { useToast } from '../components/ui'
 import { tenantGet, tenantSet } from '../data/tenant'
+import { store } from '../data/store'
 
 type StockKind =
   | 'gold'
@@ -365,6 +366,14 @@ function loadLedger(kind: StockKind, scope: 'qm' | 'lab' = 'qm'): LedgerEntry[] 
 
 function saveLedger(kind: StockKind, entries: LedgerEntry[], scope: 'qm' | 'lab' = 'qm') {
   tenantSet(`shrija-${scope}-stock-${kind}`, JSON.stringify(entries))
+  const balance = entries.reduce((s, e) => s + (e.type === 'In' ? e.quantity : -e.quantity), 0)
+  const unit = kind === 'cuppels' || kind === 'bis-cupels' ? 'pcs' : 'g'
+  store.upsertStockByName(
+    `${scope.toUpperCase()} ${kind.replace(/-/g, ' ')}`,
+    scope === 'lab' ? 'Lab' : 'QM',
+    Number(balance.toFixed(3)),
+    unit,
+  )
 }
 
 /* ——— QM Gold (qmgold.php style) ——— */
@@ -401,6 +410,13 @@ function loadGoldList<T>(key: string): T[] {
 
 function saveGoldList<T>(key: string, rows: T[]) {
   tenantSet(key, JSON.stringify(rows))
+  // Mirror gold weight lists into centre stock for reports
+  if (key.includes('gold-stock') || key.includes('gold-lab') || key.includes('bis-gold-stock')) {
+    const total = (rows as { weight?: number }[]).reduce((s, r) => s + (Number(r.weight) || 0), 0)
+    const location = key.includes('lab') ? 'Lab' : 'QM'
+    const label = key.includes('bis') ? 'BIS gold stock' : key.includes('lab') ? 'Lab gold' : 'QM gold stock'
+    store.upsertStockByName(label, location, Number(total.toFixed(3)), 'g')
+  }
 }
 
 function nowTime() {

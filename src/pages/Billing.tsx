@@ -167,7 +167,7 @@ export function Billing() {
   const firm = loadFirm()
 
   const billable = data.requests.filter((r) =>
-    ['Assayed', 'Hallmarked', 'In Progress', 'Billed'].includes(r.status),
+    ['Assayed', 'Hallmarked', 'In Progress', 'Pending', 'Billed'].includes(r.status),
   )
   const requestOptions = billable.length ? billable : data.requests
 

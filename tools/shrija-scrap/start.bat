@@ -1,36 +1,81 @@
 @echo off
-title Shrija Scrap Tool v1.2
+setlocal EnableExtensions
+title Shrija Scrap Tool v2.0
 cd /d "%~dp0"
+
+echo.
+echo  Shrija Scrap Tool
+echo  -----------------
+echo  Folder: %CD%
+echo.
 
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Node.js not found. Install from https://nodejs.org/ then run start.bat again.
+  echo [ERROR] Node.js not found.
+  echo Install from https://nodejs.org/ then run start.bat again.
+  echo.
   pause
   exit /b 1
 )
 
-REM Kill any old scrap tool still holding port 19876 (stops aggressive old code)
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":19876" ^| findstr "LISTENING"') do (
-  echo Stopping old scrap tool PID %%P ...
-  taskkill /F /PID %%P >nul 2>nul
+for /f "delims=" %%V in ('node -v') do echo  Node: %%V
+
+REM Use normal user Playwright browser folder (not Cursor sandbox)
+set "PLAYWRIGHT_BROWSERS_PATH=%LOCALAPPDATA%\ms-playwright"
+
+REM Free port 19876 if an old scrap tool is still running (safe PID parse)
+echo  Checking port 19876...
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":19876 .*LISTENING"') do (
+  if not "%%P"=="0" if not "%%P"=="" (
+    echo  Stopping old process PID %%P
+    taskkill /F /PID %%P >nul 2>nul
+  )
 )
 
 if not exist "node_modules\" (
-  echo Installing packages...
-  call npm install
+  echo.
+  echo  Installing npm packages first time...
+  call npm.cmd install
   if errorlevel 1 (
-    echo npm install failed.
+    echo [ERROR] npm install failed.
     pause
     exit /b 1
   )
-  echo Installing Chromium for Manak browser...
-  call npx playwright install chromium
+)
+
+if not exist "node_modules\tsx\" (
+  echo [ERROR] tsx missing. Running npm install...
+  call npm.cmd install
+)
+
+if not exist "%PLAYWRIGHT_BROWSERS_PATH%\chromium-1228\chrome-win64\chrome.exe" (
+  echo.
+  echo  Chromium missing - downloading once...
+  call npx.cmd playwright install chromium
+  if errorlevel 1 (
+    echo [ERROR] Chromium download failed. Check internet.
+    pause
+    exit /b 1
+  )
 )
 
 echo.
-echo Starting Shrija Scrap Tool v1.2 on http://127.0.0.1:19876
-echo After Manak login: open Receiving tab yourself, then click yellow "Scrape this page".
-echo Keep this window open.
+echo  Starting on http://127.0.0.1:19876
+echo  Keep this window OPEN.
+echo  1) Type Manak captcha + Login
+echo  2) Click yellow Fetch Received List
 echo.
-call npm start
+
+node --import tsx src/index.ts
+set "ERR=%ERRORLEVEL%"
+
+echo.
+if not "%ERR%"=="0" (
+  echo [ERROR] Scrap tool stopped with code %ERR%
+  echo If port busy, close other scrap windows and try again.
+) else (
+  echo Scrap tool exited.
+)
+echo.
 pause
+endlocal

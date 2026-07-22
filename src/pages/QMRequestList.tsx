@@ -1,12 +1,24 @@
 import { useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
-import { statusBadge } from '../components/ui'
-import { store } from '../data/store'
+import { statusBadge, useToast } from '../components/ui'
+import { store, type HallmarkRequest } from '../data/store'
+
+const STATUSES: HallmarkRequest['status'][] = [
+  'Pending',
+  'In Progress',
+  'Assayed',
+  'Hallmarked',
+  'Billed',
+  'Delivered',
+]
 
 export function QMRequestList() {
+  const { toast, Toast } = useToast()
+  const [tick, setTick] = useState(0)
   const requests = store.getAll().requests
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('All')
+  void tick
 
   const filtered = useMemo(() => {
     return requests.filter((r) => {
@@ -19,11 +31,28 @@ export function QMRequestList() {
     })
   }, [requests, q, status])
 
+  const setRowStatus = (id: string, next: HallmarkRequest['status']) => {
+    store.updateRequestStatus(id, next)
+    // Mirror on rough sheet when hallmarking completes
+    const req = store.getAll().requests.find((r) => r.id === id)
+    if (req?.requestNo && next === 'Hallmarked') {
+      const rough = store.getAll().roughSheets.filter((r) => r.requestNo === req.requestNo)
+      if (rough.length) {
+        store.updateRoughSheetStatus(
+          rough.map((r) => r.id),
+          'Completed',
+        )
+      }
+    }
+    setTick((t) => t + 1)
+    toast(`Status → ${next}`)
+  }
+
   return (
     <>
       <PageHeader
         title="QM Request List"
-        subtitle="Overall branch operations monitoring."
+        subtitle="Overall branch operations — advance job status toward billing."
       />
       <div className="panel">
         <h2>Search & Filter</h2>
@@ -39,15 +68,7 @@ export function QMRequestList() {
           <div className="field">
             <label>Status</label>
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {[
-                'All',
-                'Pending',
-                'In Progress',
-                'Assayed',
-                'Hallmarked',
-                'Billed',
-                'Delivered',
-              ].map((s) => (
+              {['All', ...STATUSES].map((s) => (
                 <option key={s}>{s}</option>
               ))}
             </select>
@@ -55,9 +76,7 @@ export function QMRequestList() {
         </div>
       </div>
       <div className="panel">
-        <h2>
-          Results ({filtered.length})
-        </h2>
+        <h2>Results ({filtered.length})</h2>
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -65,11 +84,12 @@ export function QMRequestList() {
                 <th>Date</th>
                 <th>Request</th>
                 <th>Party</th>
+                <th>Item</th>
                 <th>Category</th>
                 <th>Purity</th>
                 <th>Weight</th>
                 <th>Status</th>
-                <th>Remarks</th>
+                <th>Advance</th>
               </tr>
             </thead>
             <tbody>
@@ -78,16 +98,32 @@ export function QMRequestList() {
                   <td>{r.date}</td>
                   <td>{r.requestNo}</td>
                   <td>{r.partyName}</td>
+                  <td>{r.item || '—'}</td>
                   <td>{r.categoryName}</td>
                   <td>{r.purity}</td>
                   <td>{r.weight.toFixed(2)} g</td>
                   <td>{statusBadge(r.status)}</td>
-                  <td>{r.remarks || '—'}</td>
+                  <td>
+                    <select
+                      className="auto-night-select"
+                      value={r.status}
+                      onChange={(e) =>
+                        setRowStatus(r.id, e.target.value as HallmarkRequest['status'])
+                      }
+                      aria-label={`Status for ${r.requestNo}`}
+                    >
+                      {STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="empty-state">
+                  <td colSpan={9} className="empty-state">
                     No matching requests
                   </td>
                 </tr>
@@ -96,6 +132,7 @@ export function QMRequestList() {
           </table>
         </div>
       </div>
+      {Toast}
     </>
   )
 }

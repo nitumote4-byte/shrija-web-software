@@ -59,7 +59,57 @@ dataRouter.put('/store', async (req, res) => {
     [tenantId, JSON.stringify(req.body.data), updatedAt],
   )
 
+  // Normalize requests into job_docs for reporting / future queries
+  const requests = Array.isArray((req.body.data as { requests?: unknown }).requests)
+    ? ((req.body.data as { requests: Record<string, unknown>[] }).requests)
+    : []
+  for (const r of requests.slice(0, 5000)) {
+    const requestNo = String(r.requestNo || '').trim()
+    if (!requestNo) continue
+    await pool.query(
+      `INSERT INTO job_docs (tenant_id, request_no, status, party_name, payload, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+       ON CONFLICT (tenant_id, request_no) DO UPDATE SET
+         status = EXCLUDED.status,
+         party_name = EXCLUDED.party_name,
+         payload = EXCLUDED.payload,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        tenantId,
+        requestNo,
+        String(r.status || 'Pending'),
+        String(r.partyName || ''),
+        JSON.stringify(r),
+        updatedAt,
+      ],
+    )
+  }
+
   res.json({ ok: true, updatedAt })
+})
+
+dataRouter.get('/backup', async (req, res) => {
+  const tenantId = req.user!.tenantId
+  assertTenantId(tenantId)
+  const storeRow = await pool.query(`SELECT payload FROM store_docs WHERE tenant_id = $1`, [tenantId])
+  const firmRow = await pool.query(
+    `SELECT firm_name AS "firmName", email, address, gst_no AS "gstNo",
+            bank_name AS "bankName", account_no AS "accountNo", ifsc, city, state
+     FROM firm_profiles WHERE tenant_id = $1`,
+    [tenantId],
+  )
+  const kvRows = await pool.query(`SELECT key, value FROM kv_docs WHERE tenant_id = $1`, [tenantId])
+  const kv: Record<string, unknown> = {}
+  for (const row of kvRows.rows as { key: string; value: unknown }[]) {
+    kv[row.key] = asJson(row.value)
+  }
+  res.json({
+    version: 1,
+    exportedAt: nowIso(),
+    store: asJson(storeRow.rows[0]?.payload) || emptyStorePayload(),
+    firm: firmRow.rows[0] || null,
+    kv,
+  })
 })
 
 dataRouter.get('/kv', async (req, res) => {

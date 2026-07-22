@@ -41,6 +41,10 @@ export type HallmarkRequest = {
   source: 'Manual' | 'Auto'
   date: string
   remarks: string
+  item?: string
+  receiptNo?: string
+  jobCardNo?: string
+  night?: string
 }
 
 export type RoughSheetEntry = {
@@ -207,6 +211,32 @@ function uid(prefix: string) {
 
 function today() {
   return new Date().toISOString().slice(0, 10)
+}
+
+/** Normalize 22K916 / 916 / 22k → category purity code */
+export function normalizePurityCode(raw: string): string {
+  const s = String(raw || '')
+  if (/925|silver/i.test(s)) return '925'
+  if (/999|24\s*k/i.test(s)) return '999'
+  if (/750|18\s*k/i.test(s)) return '750'
+  if (/585|14\s*k/i.test(s)) return '585'
+  if (/916|22\s*k/i.test(s)) return '916'
+  const all = s.match(/\d{3}/g)
+  return all?.[all.length - 1] || '916'
+}
+
+function findCategory(data: StoreShape, purityRaw: string) {
+  const code = normalizePurityCode(purityRaw)
+  return (
+    data.categories.find((c) => normalizePurityCode(c.purity) === code) ??
+    data.categories.find((c) => c.purity === code) ??
+    data.categories[0]
+  )
+}
+
+function findRequestByNo(data: StoreShape, requestNo: string) {
+  if (!requestNo) return undefined
+  return data.requests.find((r) => r.requestNo === requestNo)
 }
 
 function seed(): StoreShape {
@@ -676,10 +706,20 @@ export const store = {
   updateRequestStatus(id: string, status: HallmarkRequest['status']) {
     const data = load()
     const item = data.requests.find((r) => r.id === id)
-    if (item) {
-      item.status = status
-      save(data)
+    if (!item) return
+    item.status = status
+    // Mirror day-sheet rough lines (Gold Shark QM ↔ Request List)
+    if (item.requestNo) {
+      for (const rough of data.roughSheets) {
+        if (rough.requestNo !== item.requestNo) continue
+        if (status === 'Hallmarked' && rough.status !== 'Rejected') rough.status = 'Completed'
+        else if (status === 'In Progress' && rough.status === 'Pending') rough.status = 'Accepted'
+        else if (status === 'Assayed' && (rough.status === 'Accepted' || rough.status === 'Pending')) {
+          rough.status = 'Accepted'
+        }
+      }
     }
+    save(data)
   },
 
   addRoughSheet(input: Omit<RoughSheetEntry, 'id' | 'date' | 'status'> & { status?: RoughSheetEntry['status'] }) {
@@ -729,6 +769,19 @@ export const store = {
       if (!row) continue
       row.status = status
       count += 1
+
+      // Keep HallmarkRequest in sync (Gold Shark day sheet → billable)
+      if (row.requestNo) {
+        const req = findRequestByNo(data, row.requestNo)
+        if (req && req.status !== 'Billed' && req.status !== 'Delivered') {
+          if (status === 'Completed') req.status = 'Hallmarked'
+          else if (status === 'Accepted' && (req.status === 'Pending' || req.status === 'In Progress')) {
+            req.status = 'In Progress'
+          } else if (status === 'Rejected' && req.status !== 'Hallmarked') {
+            req.status = 'Pending'
+          }
+        }
+      }
     }
     save(data)
     return count
@@ -750,29 +803,44 @@ export const store = {
     for (const id of ids) {
       const row = data.roughSheets.find((r) => r.id === id && r.status === 'Pending')
       if (!row) continue
-      // Sample weight automatically added to weight after save
       row.weight = Number((row.weight + row.sampleWeight).toFixed(3))
       row.status = 'Accepted'
+      row.purity = normalizePurityCode(row.purity)
       accepted.push(row)
 
-      const category =
-        data.categories.find((c) => c.purity === row.purity) ?? data.categories[0]
-      const n = data.requests.length + 1
-      data.requests.unshift({
-        id: uid('r'),
-        requestNo: `HM-2026-${String(n).padStart(3, '0')}`,
-        partyId: row.partyId,
-        partyName: row.partyName,
-        categoryId: category.id,
-        categoryName: category.name,
-        pieces: row.pic,
-        weight: row.weight,
-        purity: row.purity,
-        status: 'In Progress',
-        source: 'Manual',
-        date: row.date,
-        remarks: `Rough accepted · Sample ${row.sampleWeight}g · ${row.samplingMethod}`,
-      })
+      const category = findCategory(data, row.purity)
+      const requestNo =
+        row.requestNo || `HM-2026-${String(data.requests.length + 1).padStart(3, '0')}`
+      row.requestNo = requestNo
+
+      const existing = findRequestByNo(data, requestNo)
+      if (existing) {
+        existing.status = 'In Progress'
+        existing.pieces = row.pic
+        existing.weight = row.weight
+        existing.purity = row.purity
+        existing.item = row.item
+        existing.jobCardNo = row.jobCardNo || existing.jobCardNo
+        existing.remarks = `Rough accepted · Sample ${row.sampleWeight}g · ${row.samplingMethod}`
+      } else {
+        data.requests.unshift({
+          id: uid('r'),
+          requestNo,
+          partyId: row.partyId,
+          partyName: row.partyName,
+          categoryId: category?.id || '',
+          categoryName: category?.name || 'Gold Jewellery',
+          pieces: row.pic,
+          weight: row.weight,
+          purity: row.purity,
+          status: 'In Progress',
+          source: 'Manual',
+          date: row.date,
+          remarks: `Rough accepted · Sample ${row.sampleWeight}g · ${row.samplingMethod}`,
+          item: row.item,
+          jobCardNo: row.jobCardNo,
+        })
+      }
     }
     save(data)
     return accepted
@@ -786,6 +854,13 @@ export const store = {
       if (!row) continue
       row.status = 'Rejected'
       count += 1
+      if (row.requestNo) {
+        const req = findRequestByNo(data, row.requestNo)
+        if (req && req.status !== 'Billed' && req.status !== 'Delivered') {
+          req.status = 'Pending'
+          req.remarks = `${req.remarks || ''} · Rough rejected`.trim()
+        }
+      }
     }
     save(data)
     return count
@@ -839,18 +914,44 @@ export const store = {
     return entry
   },
 
-  addFireAssay(input: Omit<FireAssay, 'id' | 'assayNo' | 'date'>) {
+  addFireAssay(input: Omit<FireAssay, 'id' | 'assayNo' | 'date'> & { assayNo?: string; date?: string }) {
     const data = load()
     const n = data.fireAssays.length + 1
     const entry: FireAssay = {
       ...input,
       id: uid('fa'),
-      assayNo: `FA-2026-${String(n).padStart(3, '0')}`,
-      date: today(),
+      assayNo: input.assayNo || `FA-2026-${String(n).padStart(3, '0')}`,
+      date: input.date || today(),
     }
     data.fireAssays.unshift(entry)
     save(data)
     return entry
+  },
+
+  updateFireAssay(
+    id: string,
+    patch: Partial<
+      Pick<FireAssay, 'sampleWeight' | 'purityFound' | 'declaredPurity' | 'status' | 'analyst' | 'assayType'>
+    >,
+  ) {
+    const data = load()
+    const row = data.fireAssays.find((a) => a.id === id)
+    if (!row) return false
+    Object.assign(row, patch)
+    save(data)
+    return true
+  },
+
+  updateFireAssayByRequestNo(
+    requestNo: string,
+    patch: Partial<Pick<FireAssay, 'sampleWeight' | 'purityFound' | 'declaredPurity' | 'status'>>,
+  ) {
+    const data = load()
+    const rows = data.fireAssays.filter((a) => a.requestNo === requestNo)
+    if (rows.length === 0) return 0
+    for (const row of rows) Object.assign(row, patch)
+    save(data)
+    return rows.length
   },
 
   updateStock(id: string, quantity: number) {
@@ -868,6 +969,26 @@ export const store = {
     data.stock.unshift(item)
     save(data)
     return item
+  },
+
+  /** Sync QM/Lab ledger balance into centre stock summary (reports / dashboard). */
+  upsertStockByName(name: string, location: StockItem['location'], quantity: number, unit = 'g') {
+    const data = load()
+    const existing = data.stock.find((s) => s.name === name && s.location === location)
+    if (existing) {
+      existing.quantity = quantity
+      existing.unit = unit
+    } else {
+      data.stock.unshift({
+        id: uid('s'),
+        name,
+        unit,
+        quantity,
+        minLevel: 0,
+        location,
+      })
+    }
+    save(data)
   },
 
   addTouch(input: Omit<TouchRecord, 'id' | 'touchNo' | 'date'>) {
@@ -924,6 +1045,8 @@ export const store = {
     )
     if (selected.length === 0) return []
 
+    const partyAddr = data.parties.find((p) => p.id === input.partyId)?.address || ''
+
     const created = selected.map((row) => {
       row.status = 'Saved'
       row.night = input.night
@@ -932,25 +1055,59 @@ export const store = {
       row.partyId = input.partyId
       row.partyName = input.partyName
 
-      const category =
-        data.categories.find((c) => c.purity === row.purity) ?? data.categories[0]
-      const n = data.requests.length + 1
-      const req: HallmarkRequest = {
-        id: uid('r'),
-        requestNo: `HM-2026-${String(n).padStart(3, '0')}`,
-        partyId: input.partyId,
-        partyName: input.partyName,
-        categoryId: category.id,
-        categoryName: category.name,
-        pieces: row.pic,
-        weight: row.weight,
-        purity: row.purity,
-        status: 'Pending',
-        source: input.source ?? 'Manual',
-        date: input.date,
-        remarks: `Night: ${input.night}${input.ahcFileName ? ` · AHC: ${input.ahcFileName}` : ''} · ${row.item}`,
+      const purity = normalizePurityCode(row.purity)
+      row.purity = purity
+      const category = findCategory(data, purity)
+      const requestNo =
+        (row.requestNo && String(row.requestNo).trim()) ||
+        `HM-2026-${String(data.requests.length + 1).padStart(3, '0')}`
+
+      let req = findRequestByNo(data, requestNo)
+      if (!req) {
+        req = {
+          id: uid('r'),
+          requestNo,
+          partyId: input.partyId,
+          partyName: input.partyName,
+          categoryId: category?.id || '',
+          categoryName: category?.name || 'Gold Jewellery',
+          pieces: row.pic,
+          weight: row.weight,
+          purity,
+          status: 'Pending',
+          source: input.source ?? 'Manual',
+          date: input.date,
+          remarks: `Night: ${input.night}${input.ahcFileName ? ` · AHC: ${input.ahcFileName}` : ''} · ${row.item}`,
+          item: row.item,
+          receiptNo: row.receiptNo,
+          jobCardNo: row.jobCardNo,
+          night: input.night,
+        }
+        data.requests.unshift(req)
       }
-      data.requests.unshift(req)
+
+      if (!data.roughSheets.some((r) => r.requestNo === requestNo && r.status === 'Pending')) {
+        data.roughSheets.unshift({
+          id: uid('rs'),
+          partyId: input.partyId,
+          partyName: input.partyName,
+          item: row.item || 'Jewellery',
+          pic: row.pic,
+          weight: row.weight,
+          purity,
+          sampleWeight: 0,
+          sampleQty: 0,
+          samplingMethod: '',
+          cml: row.cml || '',
+          status: 'Pending',
+          shift: input.night === 'Night' ? 'Night' : 'Day',
+          date: input.date,
+          address: partyAddr,
+          requestNo,
+          jobCardNo: row.jobCardNo || '',
+        })
+      }
+
       return req
     })
 
@@ -965,29 +1122,84 @@ export const store = {
     )
     if (selected.length === 0) return []
 
+    const partyAddr = (partyId: string) =>
+      data.parties.find((p) => p.id === partyId)?.address || ''
+
     const created = selected.map((row) => {
       row.status = 'Saved'
       row.night = input.night
 
-      const category =
-        data.categories.find((c) => c.purity === row.purity) ?? data.categories[0]
-      const n = data.requests.length + 1
-      const req: HallmarkRequest = {
-        id: uid('r'),
-        requestNo: `HM-2026-${String(n).padStart(3, '0')}`,
-        partyId: row.partyId,
-        partyName: row.partyName,
-        categoryId: category.id,
-        categoryName: category.name,
-        pieces: row.pic,
-        weight: row.weight,
-        purity: row.purity,
-        status: 'Pending',
-        source: 'Auto',
-        date: today(),
-        remarks: `Auto · Night: ${input.night} · ${row.item}`,
+      const purity = normalizePurityCode(row.purity)
+      row.purity = purity
+      const category = findCategory(data, purity)
+      const requestNo =
+        (row.requestNo && String(row.requestNo).trim()) ||
+        `HM-2026-${String(data.requests.length + 1).padStart(3, '0')}`
+
+      // Upsert HallmarkRequest — keep Manak request number
+      let req = findRequestByNo(data, requestNo)
+      if (!req) {
+        req = {
+          id: uid('r'),
+          requestNo,
+          partyId: row.partyId,
+          partyName: row.partyName,
+          categoryId: category?.id || '',
+          categoryName: category?.name || 'Gold Jewellery',
+          pieces: row.pic,
+          weight: row.weight,
+          purity,
+          status: 'Pending',
+          source: 'Auto',
+          date: row.date || today(),
+          remarks: `Auto · Night: ${input.night} · ${row.item}`,
+          item: row.item,
+          receiptNo: row.receiptNo,
+          jobCardNo: row.jobCardNo,
+          night: input.night,
+        }
+        data.requests.unshift(req)
+      } else {
+        req.pieces = row.pic
+        req.weight = row.weight
+        req.purity = purity
+        req.item = row.item
+        req.receiptNo = row.receiptNo || req.receiptNo
+        req.jobCardNo = row.jobCardNo || req.jobCardNo
+        req.night = input.night
+        if (req.status === 'Billed' || req.status === 'Delivered') {
+          /* leave terminal */
+        } else {
+          req.status = 'Pending'
+        }
       }
-      data.requests.unshift(req)
+
+      // Create rough sheet line for lab (Gold Shark chain)
+      const existingRough = data.roughSheets.find(
+        (r) => r.requestNo === requestNo && r.status === 'Pending',
+      )
+      if (!existingRough) {
+        data.roughSheets.unshift({
+          id: uid('rs'),
+          partyId: row.partyId,
+          partyName: row.partyName,
+          item: row.item || 'Jewellery',
+          pic: row.pic,
+          weight: row.weight,
+          purity,
+          sampleWeight: 0,
+          sampleQty: 0,
+          samplingMethod: '',
+          cml: row.cml || '',
+          status: 'Pending',
+          shift: input.night === 'Night' ? 'Night' : 'Day',
+          date: row.date || today(),
+          address: partyAddr(row.partyId),
+          requestNo,
+          jobCardNo: row.jobCardNo || '',
+        })
+      }
+
       return req
     })
 
@@ -1048,10 +1260,23 @@ export const store = {
     const created: PendingRoughRequest[] = []
 
     for (const row of rows) {
-      if (!row.requestNo || existingNos.has(row.requestNo)) continue
-      existingNos.add(row.requestNo)
+      const requestNo = String(row.requestNo || '').trim()
+      const partyName = String(row.partyName || '').trim()
+      const pic = Number(row.pic) || 0
+      const weight = Number(row.weight) || 0
+      const purity = normalizePurityCode(row.purity)
 
-      const name = row.partyName.trim() || 'Unknown Party'
+      // Drop junk parses (list stubs / metal dropdown noise)
+      if (!requestNo && !partyName) continue
+      if (/^\d{1,4}$/.test(partyName)) continue
+      if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(requestNo) && pic <= 0 && weight <= 0) continue
+      if (purity === '100' || purity === '10') continue
+      const reqDigits = requestNo.replace(/\D/g, '')
+      if (reqDigits.length < 6 && pic <= 0 && weight <= 0) continue
+      if (!requestNo || existingNos.has(requestNo)) continue
+      existingNos.add(requestNo)
+
+      const name = partyName || 'Unknown Party'
       let party = data.parties.find((p) => p.name.toLowerCase() === name.toLowerCase())
       if (!party) {
         party = {
@@ -1079,10 +1304,10 @@ export const store = {
         partyId: party.id,
         partyName: party.name,
         item: row.item || 'Jewellery',
-        pic: Number(row.pic) || 0,
-        weight: Number(row.weight) || 0,
-        purity: String(row.purity || '916').replace(/\D/g, '').slice(0, 3) || '916',
-        requestNo: row.requestNo,
+        pic,
+        weight,
+        purity,
+        requestNo,
         receiptNo: row.receiptNo || '',
         jobCardNo: row.jobCardNo || '',
         cml: row.cml || '',

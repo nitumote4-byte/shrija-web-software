@@ -17,7 +17,7 @@ const ITEM_OPTIONS = [
   'Other',
 ]
 
-const PURITY_OPTIONS = ['22K916', '18K750', '14K585', '24K999', 'Silver925']
+const PURITY_OPTIONS = ['916', '999', '750', '585', '925', '22K916', '18K750', '24K999', 'Silver925']
 
 const SAMPLING_METHODS = ['Drill', 'Cut', 'Scrap', 'Touch'] as const
 

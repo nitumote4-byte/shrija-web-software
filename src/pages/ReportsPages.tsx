@@ -2507,6 +2507,17 @@ export function CreditNoteReport() {
       n.partyId === row.partyId && n.month === row.month ? updatedRow : n,
     )
     persist(updated)
+    const amount = Number(row.finalDiscount || row.discountedTotal || 0)
+    const tax = Number((Math.abs(amount) * 0.18).toFixed(2))
+    store.addInvoice({
+      partyName: row.partyName,
+      requestNo: row.cnNo || `CN-${row.month}`,
+      amount: -Math.abs(amount),
+      tax: -tax,
+      total: -(Math.abs(amount) + tax),
+      status: 'Paid',
+      invoiceNo: row.cnNo || undefined,
+    })
     setPreview({ kind: 'invoice', row: updatedRow })
     toast('Credit note invoice generated')
   }

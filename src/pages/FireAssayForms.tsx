@@ -90,6 +90,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     const q = jobQuery.trim().toLowerCase()
     return data.requests.filter((r) => {
       if (selectedJobs.includes(r.id)) return false
+      if (r.status === 'Billed' || r.status === 'Delivered') return false
       if (!q) return true
       return (
         r.requestNo.toLowerCase().includes(q) ||
@@ -117,13 +118,14 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       const sampleWt = 0.25
       const silver = Number(silverCg1) || Number(silverCg2) || 2.5
       const lead = Number(leadCg1) || Number(leadCg2) || 30
-      const baseCornet = sampleWt * (Number(req.purity) / 1000)
-      const wotg = Number((baseCornet + avg / 1000 + (Math.random() - 0.5) * 0.002).toFixed(4))
-      const fineness = Number(((wotg / sampleWt) * 1000).toFixed(2))
+      const declared = Number(req.purity) || Number(purity) || 916
+      // Deterministic: declared ppt + avg CG delta (no random — Gold Shark lab sheet)
+      const fineness = Number((declared + avg).toFixed(2))
+      const wotg = Number(((fineness / 1000) * sampleWt).toFixed(4))
       return {
         key: `row-${Date.now()}-${i}`,
         sampleDrawn: sampleWt.toFixed(3),
-        jobCardNo: `JC-${req.requestNo.slice(-4)}`,
+        jobCardNo: req.jobCardNo || `JC-${req.requestNo.slice(-4)}`,
         sampleWeight: sampleWt.toFixed(3),
         silver: silver.toFixed(3),
         lead: lead.toFixed(3),
@@ -150,6 +152,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         status: 'Completed',
         analyst: 'Auto Lab',
         assayType: meta.assayType,
+        assayNo: sheetNo,
       })
       store.updateRequestStatus(req.id, 'Assayed')
     }
@@ -167,6 +170,12 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         if (sw > 0 && w > 0) {
           next.fineness = ((w / sw) * 1000).toFixed(2)
           next.meanFineness = next.fineness
+        }
+        if (next.requestNo) {
+          store.updateFireAssayByRequestNo(next.requestNo, {
+            sampleWeight: Number(next.sampleWeight) || undefined,
+            purityFound: Number(next.fineness) || undefined,
+          })
         }
         return next
       }),

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CENTRE_NAME, PRODUCT_NAME, USER_NAME, USER_ROLE, allModules, modules } from '../data/modules'
 import { clearSession, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getFirmName } from '../data/firmProfile'
+import { canAccessPath } from '../data/roles'
 
 export function Layout() {
   const [query, setQuery] = useState('')
@@ -17,9 +18,12 @@ export function Layout() {
   const displayRole = (session?.role || USER_ROLE).replace(/\s+/g, '_').toLowerCase()
   const tenantLabel = session?.tenantName || centreName
 
+  const visibleModules = modules.filter((m) => canAccessPath(m.path))
+  const visibleAll = allModules.filter((m) => canAccessPath(m.path))
+
   const filtered =
     query.trim().length > 0
-      ? modules.filter(
+      ? visibleModules.filter(
           (m) =>
             m.title.toLowerCase().includes(query.toLowerCase()) ||
             m.description.toLowerCase().includes(query.toLowerCase()),
@@ -224,7 +228,7 @@ export function Layout() {
             </button>
             <h2 id="all-modules-title">All Modules</h2>
             <div className="all-modules-grid">
-              {allModules.map((mod) => {
+              {visibleAll.map((mod) => {
                 const Icon = mod.icon
                 return (
                   <button

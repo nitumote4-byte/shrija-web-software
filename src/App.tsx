@@ -58,6 +58,7 @@ import {
   StaffAttendance,
   TouchFundEntry,
 } from './pages/OthersPages'
+import { DataBackup } from './pages/DataBackup'
 
 export default function App() {
   return (
@@ -126,6 +127,7 @@ export default function App() {
             <Route path="others/add-staff" element={<AddStaff />} />
             <Route path="others/staff-attendance" element={<StaffAttendance />} />
             <Route path="others/invoice-settings" element={<InvoiceSettings />} />
+            <Route path="others/backup" element={<DataBackup />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Route>

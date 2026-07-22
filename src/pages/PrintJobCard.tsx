@@ -56,8 +56,16 @@ export function PrintJobCard() {
               <dd>{selected.partyName}</dd>
             </div>
             <div>
+              <dt>Item</dt>
+              <dd>{selected.item || selected.categoryName}</dd>
+            </div>
+            <div>
               <dt>Category</dt>
               <dd>{selected.categoryName}</dd>
+            </div>
+            <div>
+              <dt>Job Card</dt>
+              <dd>{selected.jobCardNo || '—'}</dd>
             </div>
             <div>
               <dt>Purity</dt>

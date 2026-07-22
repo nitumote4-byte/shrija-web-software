@@ -70,8 +70,7 @@ export function ViewFireAssay() {
   }, [delta1, delta2])
 
   const sheetOptions = useMemo(() => {
-    const fromAssays = data.fireAssays.map((a) => a.assayNo)
-    return [...new Set(['FS-1001', 'FS-1002', 'FS-1003', ...fromAssays])]
+    return [...new Set(data.fireAssays.map((a) => a.assayNo).filter(Boolean))]
   }, [data.fireAssays])
 
   const loadSheet = (
@@ -177,6 +176,23 @@ export function ViewFireAssay() {
   }
 
   const saveAll = () => {
+    let updated = 0
+    for (const r of rows) {
+      if (r.locked || !r.jobCardNo) continue
+      // jobCardNo on view sheet = request no (loaded from fireAssays)
+      const n = store.updateFireAssayByRequestNo(r.jobCardNo, {
+        sampleWeight: Number(r.sampleWeight) || undefined,
+        purityFound: Number(r.fineness) || undefined,
+        status: 'Completed',
+      })
+      updated += n
+      if (n > 0) {
+        const req = data.requests.find((x) => x.requestNo === r.jobCardNo)
+        if (req && req.status !== 'Billed' && req.status !== 'Delivered') {
+          store.updateRequestStatus(req.id, 'Assayed')
+        }
+      }
+    }
     tenantSet(
       'shrija-view-fire-assay-draft',
       JSON.stringify({
@@ -192,7 +208,7 @@ export function ViewFireAssay() {
         rows,
       }),
     )
-    toast('All changes saved')
+    toast(updated ? `Saved ${updated} assay row(s) to store` : 'Draft saved (no assay rows matched)')
   }
 
   return (

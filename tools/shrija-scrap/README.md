@@ -1,39 +1,27 @@
-# Shrija Scrap Tool
+# Shrija Scrap — Gold Shark FAST mode
 
-Local Windows agent (Gold Shark–style) that opens **Manak Online** in Chromium on **your PC**, lets you solve captcha, then returns pending AHC requests to Shrija Auto Request.
+Gold Shark jaisa reliable flow: **ek baar Manak login**, phir Fetch turant.
 
-## Why local?
+## Super fast (recommended)
 
-Manak has no public API. Cloud scrape from Railway is fragile. Gold Shark uses a desktop scrap `.exe` + MAC binding — this tool is Shrija’s equivalent.
+1. Double-click **`GO-FAST.bat`**  
+   - Opens Chrome (debug port 9222)  
+   - Starts scrap tool  
+2. Chrome mein Manak **login** (captcha sirf pehli baar)  
+3. Chrome + scrap window **khule rakho**  
+4. Shrija → Auto Request → pill pe **`Chrome FAST`** dikhe  
+5. **Fetch Request** → list scrape (captcha dubara nahi)
 
-## Setup (reception PC)
+Files:
+- `start-chrome-for-manak.bat` — Chrome only  
+- `START-HERE.bat` / `start.bat` — scrap tool only  
+- `GO-FAST.bat` — both  
 
-1. Install [Node.js 20+](https://nodejs.org/)
-2. Open folder: `tools/shrija-scrap`
-3. Double-click **`start.bat`** (first run installs packages + Chromium)
-4. Leave the black window open — you should see `Listening: http://127.0.0.1:19876`
-5. In Shrija → **Auto Request → Manak Settings**:
-   - Save Manak username / password
-   - Paste this PC’s **MAC** (shown in scrap tool window / health) into Allowed MACs
-6. Click **Fetch Request** — Chromium opens Manak; enter captcha → Login; tool reads pending table
+## Why this is faster
 
-## API (localhost only)
+Pehle har Fetch naya Playwright browser + captcha kholta tha (slow / fail).  
+Ab real Chrome session reuse = Gold Shark style.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/health` | Tool online + MAC |
-| GET | `/mac` | MAC list |
-| POST | `/fetch` | `{ username, password, baseUrl?, night?, allowedMacs? }` |
+## List URL (same as Gold Shark)
 
-Port: **19876** (`SHRIJA_SCRAP_PORT` to change).
-
-## Optional protocol
-
-Edit path in `install-protocol.reg`, then import — enables `shrija-scrap://` links later.
-
-## Notes
-
-- Prefer **`/MANAK/AHCReceivingUIDJewellerRequest.do`** (Manak AHC receive / jeweller request). Detail URLs include base64 query params (`eRequestId`, `eCmlNo`, …); the tool discovers those links after login and opens them.
-- One fetch at a time (browser lock).
-- If login times out, solve captcha faster or raise `loginTimeoutSec`.
-- If “no request table”, open Receiving UID Jeweller Request in Manak once, copy any list URL, and share it.
+`https://huid.manakonline.in/MANAK/assayingAH_List?hmType=HMRD`

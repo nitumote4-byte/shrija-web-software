@@ -43,6 +43,8 @@ type ScrapHealth = {
   macs?: string[]
   machine?: string
   busy?: boolean
+  chromeAttached?: boolean
+  tip?: string
 }
 
 export function AutoRequest() {
@@ -164,27 +166,48 @@ export function AutoRequest() {
   }
 
   const runLocalScrapFetch = async (): Promise<ManakFetchResponse> => {
-    setStatusMsg('Scrap tool: login → open Receiving → click yellow "Scrape this page"')
-    const bundle = await api<{
-      username: string
-      password: string
-      baseUrl: string
-      allowedMacs: string
-    }>('/api/data/manak/scrap-bundle', { method: 'POST', json: {} })
+    const health = await probeScrap()
+    const fast = Boolean(health?.chromeAttached)
+    setStatusMsg(
+      fast
+        ? 'FAST: scraping Manak received list via Chrome…'
+        : 'Scrap tool: prefer GO-FAST.bat (Chrome login once)…',
+    )
+
+    let payload: Record<string, unknown> = {
+      night,
+      preferCdp: true,
+      headed: true,
+      loginTimeoutSec: 180,
+      postLoginWaitSec: 120,
+      baseUrl: baseUrl || 'https://huid.manakonline.in',
+      allowedMacs,
+    }
+
+    if (fast) {
+      // Chrome already logged in — no password needed
+      payload.username = username || 'chrome-session'
+      payload.password = ''
+    } else {
+      const bundle = await api<{
+        username: string
+        password: string
+        baseUrl: string
+        allowedMacs: string
+      }>('/api/data/manak/scrap-bundle', { method: 'POST', json: {} })
+      payload = {
+        ...payload,
+        username: bundle.username,
+        password: bundle.password,
+        baseUrl: bundle.baseUrl,
+        allowedMacs: bundle.allowedMacs,
+      }
+    }
 
     const res = await fetch(`${SCRAP_BASE}/fetch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: bundle.username,
-        password: bundle.password,
-        baseUrl: bundle.baseUrl,
-        night,
-        allowedMacs: bundle.allowedMacs,
-        loginTimeoutSec: 180,
-        postLoginWaitSec: 300,
-        headed: true,
-      }),
+      body: JSON.stringify(payload),
     })
     const body = (await res.json()) as ManakFetchResponse & { error?: string }
     if (!res.ok) throw new Error(body.error || `Scrap tool error (${res.status})`)
@@ -315,7 +338,8 @@ export function AutoRequest() {
           <option value="Day">Day</option>
         </select>
         <span className={`scrap-pill ${scrapOnline ? 'scrap-on' : 'scrap-off'}`}>
-          Scrap tool: {scrapOnline ? `Online v${scrapInfo?.version || '?'}` : 'Offline'}
+          Scrap: {scrapOnline ? `v${scrapInfo?.version || '?'}` : 'Offline'}
+          {scrapOnline && scrapInfo?.chromeAttached ? ' · Chrome FAST' : scrapOnline ? ' · no Chrome' : ''}
           {scrapOnline && scrapInfo?.mac ? ` · ${scrapInfo.mac}` : ''}
         </span>
         {fetching && <span className="fetching-pill">Fetching…</span>}
@@ -331,11 +355,12 @@ export function AutoRequest() {
 
       {showSettings && (
         <div className="panel auto-manak-settings">
-          <h3>Manak Online (BIS) + Scrap Tool</h3>
+          <h3>Manak Online + Gold Shark–FAST</h3>
           <p className="auto-manak-hint">
-            Gold Shark jaisa: reception PC par <strong>Shrija Scrap Tool</strong> chalao (
-            <code>tools/shrija-scrap/start.bat</code>). Fetch pehle local tool use karega — Manak
-            browser khulega, captcha aap enter karoge.
+            Super fast (recommended): PC pe{' '}
+            <code>tools\shrija-scrap\GO-FAST.bat</code> ya pehle{' '}
+            <code>start-chrome-for-manak.bat</code> → Manak login once → scrap tool Online → yahan{' '}
+            <strong>Fetch Request</strong>. Captcha har baar nahi.
           </p>
           <div className="auto-manak-grid">
             <label>

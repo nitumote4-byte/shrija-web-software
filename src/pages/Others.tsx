@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Building2,
   ClipboardList,
+  Database,
   FileStack,
   Flame,
   FolderPlus,
@@ -131,6 +132,13 @@ const links: OtherLink[] = [
     path: '/others/invoice-settings',
     icon: Receipt,
     color: '#1d4ed8',
+  },
+  {
+    title: 'Backup & Restore',
+    description: 'Export or restore centre data JSON.',
+    path: '/others/backup',
+    icon: Database,
+    color: '#0f766e',
   },
 ]
 

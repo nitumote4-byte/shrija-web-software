@@ -179,6 +179,18 @@ export async function initDb(retries = 8, delayMs = 2000) {
       `)
       await p.query(`CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)`)
       await p.query(`CREATE INDEX IF NOT EXISTS idx_kv_tenant ON kv_docs(tenant_id)`)
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS job_docs (
+          tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          request_no TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'Pending',
+          party_name TEXT NOT NULL DEFAULT '',
+          payload JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (tenant_id, request_no)
+        )
+      `)
+      await p.query(`CREATE INDEX IF NOT EXISTS idx_jobs_tenant_status ON job_docs(tenant_id, status)`)
 
       dbReady = true
       lastDbError = null

@@ -394,6 +394,7 @@ export async function completePortalFetch(opts: {
 
   // Candidate AHC pending-request pages
   const candidatePaths = [
+    '/MANAK/assayingAH_List?hmType=HMRD',
     '/MANAK/AHCReceivingUIDJewellerRequest.do',
     '/MANAK/AHCReceivingUIDJewellerRequest',
     '/MANAK/AHCReceiveRequest',
