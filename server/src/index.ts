@@ -93,7 +93,21 @@ async function main() {
   } catch (err) {
     console.error('PostgreSQL init failed — API is up but /api/auth and /api/data will return 503')
     console.error(err)
-    // Keep process alive so healthcheck stays green; user can fix DATABASE_URL and redeploy
+    // Keep retrying in background so linking DATABASE_URL later can recover without full redeploy
+    const retry = async () => {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 15000))
+        if (isDbReady()) return
+        try {
+          await initDb(3, 2000)
+          console.log('DB recovered after retry')
+          return
+        } catch (e) {
+          console.error('DB retry failed:', e instanceof Error ? e.message : e)
+        }
+      }
+    }
+    void retry()
   }
 }
 

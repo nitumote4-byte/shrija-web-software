@@ -11,21 +11,31 @@ export function isDbReady() {
 }
 
 function databaseUrl() {
-  return process.env.DATABASE_URL || process.env.DATABASE_PRIVATE_URL || ''
+  return (
+    process.env.DATABASE_URL ||
+    process.env.DATABASE_PUBLIC_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    ''
+  )
 }
 
 export function getPool(): pg.Pool {
   if (_pool) return _pool
-  const url = databaseUrl()
+  let url = databaseUrl()
   if (!url) {
     throw Object.assign(new Error('DATABASE_URL is not configured'), { status: 503 })
+  }
+  // Railway Postgres expects SSL
+  if (/railway|amazonaws|render|neon|supabase/i.test(url) && !/[?&]sslmode=/i.test(url)) {
+    url += (url.includes('?') ? '&' : '?') + 'sslmode=require'
   }
   _pool = new Pool({
     connectionString: url,
     ssl:
       process.env.PGSSL === 'false'
         ? false
-        : process.env.NODE_ENV === 'production' || /railway|amazonaws|render/i.test(url)
+        : process.env.NODE_ENV === 'production' || /railway|amazonaws|render|neon|supabase/i.test(url)
           ? { rejectUnauthorized: false }
           : undefined,
   })

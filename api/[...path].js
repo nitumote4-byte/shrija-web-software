@@ -1,48 +1,48 @@
 /**
- * Vercel serverless proxy → Railway API.
- * Browser calls same-origin /api/* (avoids Railway DNS/CORS issues).
+ * Vercel serverless proxy → Railway API
+ * Route: /api/* → this file (via vercel.json rewrite)
  */
-const RAILWAY =
-  process.env.RAILWAY_API_URL?.replace(/\/$/, '') ||
+const RAILWAY = (
+  process.env.RAILWAY_API_URL ||
   'https://shrija-web-software-production.up.railway.app'
+).replace(/\/$/, '')
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
-    const parts = req.query.path
-    const suffix = Array.isArray(parts) ? parts.join('/') : parts || ''
-    const search = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''
+    const raw = req.query.path
+    const suffix = Array.isArray(raw) ? raw.filter(Boolean).join('/') : raw || ''
+    const qIndex = typeof req.url === 'string' ? req.url.indexOf('?') : -1
+    const search = qIndex >= 0 ? req.url.slice(qIndex) : ''
     const target = `${RAILWAY}/api/${suffix}${search}`
 
-    const headers = {}
-    if (req.headers.authorization) headers.authorization = req.headers.authorization
-    if (req.headers['content-type']) headers['content-type'] = req.headers['content-type']
-    if (req.headers.accept) headers.accept = req.headers.accept
+    const headers = { Accept: 'application/json' }
+    if (req.headers.authorization) headers.Authorization = req.headers.authorization
+    if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type']
 
-    const init = {
-      method: req.method,
-      headers,
-    }
+    /** @type {RequestInit} */
+    const init = { method: req.method || 'GET', headers }
 
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body != null) {
-      init.body =
-        typeof req.body === 'string' ? req.body : JSON.stringify(req.body)
+    if (req.method && !['GET', 'HEAD'].includes(req.method) && req.body !== undefined) {
+      init.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body)
     }
 
     const upstream = await fetch(target, init)
     const text = await upstream.text()
-    const contentType = upstream.headers.get('content-type') || 'application/json'
+    const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8'
 
-    res.status(upstream.status)
-    res.setHeader('content-type', contentType)
-    res.setHeader('cache-control', 'no-store')
-    res.send(text)
+    res.statusCode = upstream.status
+    res.setHeader('Content-Type', contentType)
+    res.setHeader('Cache-Control', 'no-store')
+    res.end(text)
   } catch (err) {
     console.error('API proxy error', err)
-    res.status(502).json({
-      error:
-        err instanceof Error
-          ? `API proxy failed: ${err.message}`
-          : 'API proxy failed',
-    })
+    res.statusCode = 502
+    res.setHeader('Content-Type', 'application/json')
+    res.end(
+      JSON.stringify({
+        error: err instanceof Error ? `API proxy failed: ${err.message}` : 'API proxy failed',
+        hint: 'Check Railway is online and RAILWAY_API_URL is correct on Vercel',
+      }),
+    )
   }
 }
