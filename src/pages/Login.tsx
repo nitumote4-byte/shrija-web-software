@@ -37,14 +37,16 @@ export function Login() {
       try {
         const list = await listTenants()
         if (cancelled) return
-        setTenants(list)
-        if (list[0]) setTenantId(list[0].id)
+        const safe = Array.isArray(list) ? list : []
+        setTenants(safe)
+        if (safe[0]) setTenantId(safe[0].id)
       } catch (e) {
         if (!cancelled) {
+          setTenants([])
           setBootError(
             e instanceof Error
               ? e.message
-              : 'Cannot reach API — start the server (npm run dev:server)',
+              : 'Cannot reach API — check Railway is online and Vercel /api proxy',
           )
         }
       }

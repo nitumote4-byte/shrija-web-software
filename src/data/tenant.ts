@@ -54,7 +54,7 @@ export { tenantGet, tenantSet, tenantRemove }
 
 export async function listTenants(): Promise<Tenant[]> {
   const result = await api<{ tenants: Tenant[] }>('/api/auth/tenants')
-  return result.tenants
+  return Array.isArray(result?.tenants) ? result.tenants : []
 }
 
 export type CreateTenantInput = {
