@@ -997,7 +997,10 @@ export const store = {
 
   fetchAutoRoughBatch(night: string) {
     const data = load()
-    const party = data.parties[Math.floor(Math.random() * data.parties.length)]
+    const party = data.parties[Math.floor(Math.random() * data.parties.length)] ?? {
+      id: 'p-demo',
+      name: 'Demo Party',
+    }
     const category = data.categories[Math.floor(Math.random() * data.categories.length)]
     const n = data.pendingRough.length + 1
     const items = ['Necklace', 'Bangles', 'Earrings', 'Ring Set', 'Chain', 'Pendant']
@@ -1008,7 +1011,7 @@ export const store = {
       item: items[n % items.length],
       pic: 4 + (n % 20),
       weight: Number((15 + Math.random() * 90).toFixed(2)),
-      purity: category.purity,
+      purity: category?.purity || '916',
       requestNo: `AR-${today().replace(/-/g, '').slice(2)}-${String(n).padStart(2, '0')}`,
       receiptNo: `RC-${1100 + n}`,
       jobCardNo: `JC-${4600 + n}`,
@@ -1020,6 +1023,79 @@ export const store = {
     data.pendingRough.unshift(entry)
     save(data)
     return entry
+  },
+
+  /** Merge Manak Online rows into pendingRough (dedupe by requestNo). */
+  importManakRequests(
+    night: string,
+    rows: Array<{
+      partyName: string
+      item: string
+      pic: number
+      weight: number
+      purity: string
+      requestNo: string
+      receiptNo: string
+      jobCardNo: string
+      cml: string
+      date?: string
+    }>,
+  ) {
+    const data = load()
+    const existingNos = new Set(
+      data.pendingRough.filter((r) => r.status === 'Pending').map((r) => r.requestNo),
+    )
+    const created: PendingRoughRequest[] = []
+
+    for (const row of rows) {
+      if (!row.requestNo || existingNos.has(row.requestNo)) continue
+      existingNos.add(row.requestNo)
+
+      const name = row.partyName.trim() || 'Unknown Party'
+      let party = data.parties.find((p) => p.name.toLowerCase() === name.toLowerCase())
+      if (!party) {
+        party = {
+          id: uid('p'),
+          name,
+          phone: '',
+          address: '',
+          gstin: '',
+          createdAt: today(),
+          transactionType: 'Cash',
+          licenseNo: '',
+          state: '',
+          stateCode: '',
+          groupName: '',
+          skipMinBill: false,
+          skipRejectedPics: false,
+          skipCutting: false,
+          igstApplicable: false,
+        }
+        data.parties.unshift(party)
+      }
+
+      const entry: PendingRoughRequest = {
+        id: uid('pr'),
+        partyId: party.id,
+        partyName: party.name,
+        item: row.item || 'Jewellery',
+        pic: Number(row.pic) || 0,
+        weight: Number(row.weight) || 0,
+        purity: String(row.purity || '916').replace(/\D/g, '').slice(0, 3) || '916',
+        requestNo: row.requestNo,
+        receiptNo: row.receiptNo || '',
+        jobCardNo: row.jobCardNo || '',
+        cml: row.cml || '',
+        night,
+        date: row.date || today(),
+        status: 'Pending',
+      }
+      data.pendingRough.unshift(entry)
+      created.push(entry)
+    }
+
+    if (created.length) save(data)
+    return created
   },
 
   addPendingRough(input: Omit<PendingRoughRequest, 'id' | 'status'>) {

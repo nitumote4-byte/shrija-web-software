@@ -1,37 +1,156 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { api } from '../api/client'
 import { useToast } from '../components/ui'
 import { store, type PendingRoughRequest } from '../data/store'
+
+type ManakCreds = {
+  username: string
+  baseUrl: string
+  bridgeUrl: string
+  hasPassword: boolean
+}
+
+type ManakFetchResponse = {
+  ok?: boolean
+  source?: string
+  requests?: Array<{
+    partyName: string
+    item: string
+    pic: number
+    weight: number
+    purity: string
+    requestNo: string
+    receiptNo: string
+    jobCardNo: string
+    cml: string
+    date?: string
+  }>
+  message?: string
+  needsCaptcha?: boolean
+  sessionId?: string
+  captchaImage?: string
+  error?: string
+}
 
 export function AutoRequest() {
   const { toast, Toast } = useToast()
   const [night, setNight] = useState('Night')
-  const [rows, setRows] = useState<PendingRoughRequest[]>([])
+  const [rows, setRows] = useState<PendingRoughRequest[]>(() =>
+    store.getPendingRough().filter((r) => r.status === 'Pending'),
+  )
   const [selected, setSelected] = useState<string[]>([])
   const [fetching, setFetching] = useState(false)
-  const timerRef = useRef<number | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
 
-  const stopFetching = (silent = false) => {
-    if (timerRef.current != null) {
-      window.clearInterval(timerRef.current)
-      timerRef.current = null
-    }
-    setFetching(false)
-    if (!silent) toast('Fetching stopped')
-  }
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [baseUrl, setBaseUrl] = useState('https://huid.manakonline.in')
+  const [bridgeUrl, setBridgeUrl] = useState('')
+  const [hasPassword, setHasPassword] = useState(false)
+  const [savingCreds, setSavingCreds] = useState(false)
+
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [captchaImage, setCaptchaImage] = useState<string | null>(null)
+  const [captchaText, setCaptchaText] = useState('')
+  const [statusMsg, setStatusMsg] = useState('')
 
   useEffect(() => {
-    return () => {
-      if (timerRef.current != null) window.clearInterval(timerRef.current)
-    }
+    void api<ManakCreds>('/api/data/manak/credentials')
+      .then((c) => {
+        setUsername(c.username || '')
+        setBaseUrl(c.baseUrl || 'https://huid.manakonline.in')
+        setBridgeUrl(c.bridgeUrl || '')
+        setHasPassword(Boolean(c.hasPassword))
+        if (!c.hasPassword) setShowSettings(true)
+      })
+      .catch(() => {
+        setShowSettings(true)
+      })
   }, [])
 
-  const pullOne = () => {
-    const entry = store.fetchAutoRoughBatch(night)
-    setRows((prev) => {
-      if (prev.some((r) => r.id === entry.id)) return prev
-      return [entry, ...prev]
-    })
+  const applyFetched = (list: NonNullable<ManakFetchResponse['requests']>) => {
+    const created = store.importManakRequests(night, list)
+    const pending = store.getPendingRough()
+    setRows(pending)
+    setSelected((prev) => [...new Set([...prev, ...created.map((r) => r.id)])])
+    return created.length
+  }
+
+  const saveCredentials = async () => {
+    if (!username.trim()) {
+      toast('Enter Manak username')
+      return
+    }
+    if (!password && !hasPassword) {
+      toast('Enter Manak password')
+      return
+    }
+    setSavingCreds(true)
+    try {
+      const body: Record<string, unknown> = {
+        username: username.trim(),
+        baseUrl: baseUrl.trim() || 'https://huid.manakonline.in',
+        bridgeUrl: bridgeUrl.trim(),
+      }
+      if (password) body.password = password
+      const res = await api<ManakCreds>('/api/data/manak/credentials', {
+        method: 'PUT',
+        json: body,
+      })
+      setHasPassword(Boolean(res.hasPassword))
+      setPassword('')
+      setShowSettings(false)
+      toast('Manak credentials saved')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not save credentials')
+    } finally {
+      setSavingCreds(false)
+    }
+  }
+
+  const runFetch = async (opts?: { sessionId?: string; captchaText?: string; demo?: boolean }) => {
+    setFetching(true)
+    setStatusMsg('Contacting Manak…')
+    try {
+      const res = await api<ManakFetchResponse>('/api/data/manak/fetch', {
+        method: 'POST',
+        json: {
+          night,
+          sessionId: opts?.sessionId,
+          captchaText: opts?.captchaText,
+          demo: opts?.demo,
+        },
+      })
+
+      if (res.needsCaptcha && res.sessionId) {
+        setSessionId(res.sessionId)
+        setCaptchaImage(res.captchaImage || null)
+        setCaptchaText('')
+        setStatusMsg(res.message || 'Enter captcha to continue')
+        toast('Enter Manak captcha, then Confirm')
+        return
+      }
+
+      setSessionId(null)
+      setCaptchaImage(null)
+      setCaptchaText('')
+
+      const list = res.requests || []
+      if (list.length) {
+        const n = applyFetched(list)
+        setStatusMsg(res.message || `Loaded ${n} new request(s)`)
+        toast(n ? `${n} new request(s) from Manak` : 'No new requests (already loaded)')
+      } else {
+        setStatusMsg(res.message || 'No pending requests')
+        toast(res.message || 'No pending requests from Manak')
+      }
+    } catch (e) {
+      setStatusMsg('')
+      toast(e instanceof Error ? e.message : 'Manak fetch failed')
+    } finally {
+      setFetching(false)
+    }
   }
 
   const fetchRequest = () => {
@@ -39,10 +158,20 @@ export function AutoRequest() {
       toast('Already fetching…')
       return
     }
-    setFetching(true)
-    pullOne()
-    timerRef.current = window.setInterval(pullOne, 2200)
-    toast('Fetching auto requests…')
+    if (!hasPassword && !username) {
+      setShowSettings(true)
+      toast('Save Manak credentials first')
+      return
+    }
+    void runFetch()
+  }
+
+  const confirmCaptcha = () => {
+    if (!sessionId) {
+      toast('Session expired — click Fetch Request again')
+      return
+    }
+    void runFetch({ sessionId, captchaText })
   }
 
   const toggleRow = (id: string) => {
@@ -77,7 +206,81 @@ export function AutoRequest() {
           <option value="Day">Day</option>
         </select>
         {fetching && <span className="fetching-pill">Fetching…</span>}
+        {statusMsg && !fetching && <span className="auto-status-msg">{statusMsg}</span>}
+        <button
+          type="button"
+          className="btn btn-ghost auto-settings-btn"
+          onClick={() => setShowSettings((v) => !v)}
+        >
+          Manak Settings
+        </button>
       </div>
+
+      {showSettings && (
+        <div className="panel auto-manak-settings">
+          <h3>Manak Online (BIS) credentials</h3>
+          <p className="auto-manak-hint">
+            Same AHC login as Manak portal. Password is encrypted per centre. Prefer Bridge URL if
+            you have Gold Shark <code>automate_request.php</code>.
+          </p>
+          <div className="auto-manak-grid">
+            <label>
+              Username
+              <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+            </label>
+            <label>
+              Password {hasPassword && !password ? '(saved — leave blank to keep)' : ''}
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                placeholder={hasPassword ? '••••••••' : ''}
+              />
+            </label>
+            <label>
+              Portal base URL
+              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+            </label>
+            <label>
+              Bridge URL (optional — PHP / Gold Shark)
+              <input
+                value={bridgeUrl}
+                onChange={(e) => setBridgeUrl(e.target.value)}
+                placeholder="https://your-host/automate_request.php"
+              />
+            </label>
+          </div>
+          <div className="auto-manak-actions">
+            <button type="button" className="btn btn-navy" disabled={savingCreds} onClick={() => void saveCredentials()}>
+              {savingCreds ? 'Saving…' : 'Save credentials'}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowSettings(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {captchaImage && sessionId && (
+        <div className="panel auto-captcha-panel">
+          <h3>Manak captcha</h3>
+          <div className="auto-captcha-row">
+            <img src={captchaImage} alt="Manak captcha" className="auto-captcha-img" />
+            <div className="auto-captcha-fields">
+              <input
+                value={captchaText}
+                onChange={(e) => setCaptchaText(e.target.value)}
+                placeholder="Enter captcha"
+                autoFocus
+              />
+              <button type="button" className="btn btn-navy" disabled={fetching} onClick={confirmCaptcha}>
+                Confirm &amp; Fetch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="panel auto-table-panel">
         <div className="table-wrap">
@@ -142,16 +345,17 @@ export function AutoRequest() {
           <button type="button" className="btn btn-navy" onClick={saveRequest}>
             Save Request
           </button>
-          <button type="button" className="btn btn-navy" onClick={fetchRequest}>
+          <button type="button" className="btn btn-navy" onClick={fetchRequest} disabled={fetching}>
             Fetch Request
           </button>
           <button
             type="button"
-            className="btn btn-navy"
-            onClick={() => stopFetching()}
-            disabled={!fetching}
+            className="btn btn-ghost"
+            disabled={fetching}
+            onClick={() => void runFetch({ demo: true })}
+            title="Sample rows only — not Manak"
           >
-            Stop Fetching
+            Demo Fetch
           </button>
         </div>
         <Link to="/" className="btn btn-back">

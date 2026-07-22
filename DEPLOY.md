@@ -85,3 +85,16 @@ Vite proxies `/api` → `http://localhost:8787` when `VITE_API_URL` is unset.
 - Data routes: `WHERE tenant_id = JWT tenant`
 - Login / register: **express-rate-limit** (30 / 15 min)
 - Production: `JWT_SECRET` required
+- Manak credentials: AES-GCM encrypted with key derived from `JWT_SECRET` (kv `manak_credentials`)
+
+---
+
+## Auto Request → Manak Online
+
+1. Open **Auto Request → Manak Settings**.
+2. Save AHC Manak username/password (optional Bridge URL if you host Gold Shark `automate_request.php`).
+3. **Fetch Request** talks to `/api/data/manak/fetch` (captcha supported for direct portal login).
+4. Example PHP bridge contract: `server/manak-bridge.example.php`.
+5. **Demo Fetch** loads sample rows only (not Manak).
+
+For exact Gold Shark behaviour, paste `automate_request.php` (or set Bridge URL to a host running it).

@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import { authRouter } from './routes/auth.js'
 import { dataRouter } from './routes/data.js'
+import { manakRouter } from './routes/manak.js'
 import { initDb, isDbReady, getLastDbError, ensureDb, databaseUrlPreview } from './db.js'
 
 const app = express()
@@ -73,6 +74,16 @@ app.use('/api/data', (req, res, next) => {
   next()
 })
 app.use('/api/data', dataRouter)
+app.use('/api/data/manak', (req, res, next) => {
+  if (!isDbReady()) {
+    res.status(503).json({
+      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
+    })
+    return
+  }
+  next()
+})
+app.use('/api/data/manak', manakRouter)
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = (err as { status?: number })?.status || 500

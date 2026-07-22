@@ -5772,6 +5772,25 @@ table.data-table tr:hover td {
   background: #e2e6eb;
 }
 
+.btn-ghost {
+  background: transparent;
+  color: var(--navy);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.btn-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @media (max-width: 960px) {
   .manual-form-row {
     grid-template-columns: 1fr 1fr;
@@ -6213,6 +6232,99 @@ table.data-table tr:hover td {
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
   animation: pulse-soft 1.2s ease-in-out infinite;
+}
+
+.auto-status-msg {
+  font-size: 0.8rem;
+  color: var(--muted, #64748b);
+  flex: 1;
+  min-width: 0;
+}
+
+.auto-settings-btn {
+  margin-left: auto;
+  font-size: 0.85rem;
+}
+
+.auto-manak-settings,
+.auto-captcha-panel {
+  margin-bottom: 1rem;
+  padding: 1rem 1.15rem;
+}
+
+.auto-manak-settings h3,
+.auto-captcha-panel h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.auto-manak-hint {
+  margin: 0 0 0.85rem;
+  font-size: 0.82rem;
+  color: var(--muted, #64748b);
+  line-height: 1.45;
+}
+
+.auto-manak-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1rem;
+}
+
+@media (max-width: 720px) {
+  .auto-manak-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.auto-manak-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.auto-manak-grid input {
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+}
+
+.auto-manak-actions {
+  display: flex;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.auto-captcha-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.auto-captcha-img {
+  height: 56px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.auto-captcha-fields {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.auto-captcha-fields input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  min-width: 140px;
 }
 
 .auto-table-panel {
