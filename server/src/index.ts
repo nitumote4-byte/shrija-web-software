@@ -3,7 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import { authRouter } from './routes/auth.js'
 import { dataRouter } from './routes/data.js'
-import { initDb } from './db.js'
+import { initDb, isDbReady } from './db.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
@@ -28,20 +28,44 @@ app.get('/', (_req, res) => {
 <body style="font-family:system-ui;padding:2rem;line-height:1.5">
   <h1>Shrija API</h1>
   <p>Backend is running (PostgreSQL + tenant_id enforcement).</p>
+  <p>DB ready: <strong>${isDbReady() ? 'yes' : 'no'}</strong></p>
   <p>Health: <a href="/api/health">/api/health</a></p>
 </body></html>`)
 })
 
+/** Always 200 once HTTP is up — Railway healthcheck must not wait on Postgres */
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'shrija-api',
     tenantEnforcement: true,
-    db: 'postgres',
+    dbReady: isDbReady(),
   })
 })
 
+app.use('/api/auth', (req, res, next) => {
+  if (!isDbReady() && req.path !== '/tenants') {
+    // still allow tenants list after ready; block early if not ready
+  }
+  if (!isDbReady()) {
+    res.status(503).json({
+      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
+    })
+    return
+  }
+  next()
+})
 app.use('/api/auth', authRouter)
+
+app.use('/api/data', (req, res, next) => {
+  if (!isDbReady()) {
+    res.status(503).json({
+      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
+    })
+    return
+  }
+  next()
+})
 app.use('/api/data', dataRouter)
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -52,14 +76,25 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 })
 
 async function main() {
-  if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET must be set in production')
+  if (!process.env.JWT_SECRET) {
+    console.warn(
+      'WARNING: JWT_SECRET is not set. Set it in Railway Variables for production.',
+    )
   }
-  await initDb()
+
+  // Listen first so Railway healthcheck passes while DB connects
   app.listen(PORT, () => {
     console.log(`Shrija API listening on port ${PORT}`)
-    console.log('DB: PostgreSQL · Tenant isolation: JWT tenant_id')
   })
+
+  try {
+    await initDb()
+    console.log('DB: PostgreSQL · Tenant isolation: JWT tenant_id')
+  } catch (err) {
+    console.error('PostgreSQL init failed — API is up but /api/auth and /api/data will return 503')
+    console.error(err)
+    // Keep process alive so healthcheck stays green; user can fix DATABASE_URL and redeploy
+  }
 }
 
 main().catch((err) => {

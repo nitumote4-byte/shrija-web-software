@@ -3,78 +3,121 @@ import pg from 'pg'
 
 const { Pool } = pg
 
-const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) {
-  throw new Error(
-    'DATABASE_URL is required. Set it to your PostgreSQL connection string (Railway Postgres or local).',
-  )
+let _pool: pg.Pool | null = null
+let dbReady = false
+
+export function isDbReady() {
+  return dbReady
 }
 
-export const pool = new Pool({
-  connectionString: databaseUrl,
-  // Railway / managed Postgres often need SSL in production
-  ssl:
-    process.env.PGSSL === 'false'
-      ? false
-      : process.env.NODE_ENV === 'production' || databaseUrl.includes('railway')
-        ? { rejectUnauthorized: false }
-        : undefined,
+function databaseUrl() {
+  return process.env.DATABASE_URL || process.env.DATABASE_PRIVATE_URL || ''
+}
+
+export function getPool(): pg.Pool {
+  if (_pool) return _pool
+  const url = databaseUrl()
+  if (!url) {
+    throw Object.assign(new Error('DATABASE_URL is not configured'), { status: 503 })
+  }
+  _pool = new Pool({
+    connectionString: url,
+    ssl:
+      process.env.PGSSL === 'false'
+        ? false
+        : process.env.NODE_ENV === 'production' || /railway|amazonaws|render/i.test(url)
+          ? { rejectUnauthorized: false }
+          : undefined,
+  })
+  return _pool
+}
+
+/** Lazy proxy so routes can `import { pool }` before DB is ready */
+export const pool = new Proxy({} as pg.Pool, {
+  get(_target, prop, receiver) {
+    const real = getPool()
+    const value = Reflect.get(real, prop, receiver)
+    return typeof value === 'function' ? value.bind(real) : value
+  },
 })
 
-export async function initDb() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS tenants (
-      id TEXT PRIMARY KEY,
-      slug TEXT NOT NULL UNIQUE,
-      firm_name TEXT NOT NULL,
-      gstin TEXT NOT NULL DEFAULT '',
-      plan TEXT NOT NULL DEFAULT 'trial',
-      status TEXT NOT NULL DEFAULT 'active',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
+export async function initDb(retries = 20, delayMs = 3000) {
+  const url = databaseUrl()
+  if (!url) {
+    throw new Error(
+      'DATABASE_URL is required. On Railway: add a PostgreSQL service and reference DATABASE_URL on this service.',
+    )
+  }
 
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-      username TEXT NOT NULL,
-      role TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      is_admin BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (tenant_id, username)
-    );
+  let lastError: unknown
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const p = getPool()
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS tenants (
+          id TEXT PRIMARY KEY,
+          slug TEXT NOT NULL UNIQUE,
+          firm_name TEXT NOT NULL,
+          gstin TEXT NOT NULL DEFAULT '',
+          plan TEXT NOT NULL DEFAULT 'trial',
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
 
-    CREATE TABLE IF NOT EXISTS firm_profiles (
-      tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
-      firm_name TEXT NOT NULL,
-      email TEXT NOT NULL DEFAULT '',
-      address TEXT NOT NULL DEFAULT '',
-      gst_no TEXT NOT NULL DEFAULT '',
-      bank_name TEXT NOT NULL DEFAULT '',
-      account_no TEXT NOT NULL DEFAULT '',
-      ifsc TEXT NOT NULL DEFAULT '',
-      city TEXT NOT NULL DEFAULT '',
-      state TEXT NOT NULL DEFAULT '',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          username TEXT NOT NULL,
+          role TEXT NOT NULL,
+          password_hash TEXT NOT NULL,
+          is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (tenant_id, username)
+        );
 
-    CREATE TABLE IF NOT EXISTS store_docs (
-      tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
-      payload JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
+        CREATE TABLE IF NOT EXISTS firm_profiles (
+          tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+          firm_name TEXT NOT NULL,
+          email TEXT NOT NULL DEFAULT '',
+          address TEXT NOT NULL DEFAULT '',
+          gst_no TEXT NOT NULL DEFAULT '',
+          bank_name TEXT NOT NULL DEFAULT '',
+          account_no TEXT NOT NULL DEFAULT '',
+          ifsc TEXT NOT NULL DEFAULT '',
+          city TEXT NOT NULL DEFAULT '',
+          state TEXT NOT NULL DEFAULT '',
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
 
-    CREATE TABLE IF NOT EXISTS kv_docs (
-      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (tenant_id, key)
-    );
+        CREATE TABLE IF NOT EXISTS store_docs (
+          tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+          payload JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
 
-    CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_kv_tenant ON kv_docs(tenant_id);
-  `)
+        CREATE TABLE IF NOT EXISTS kv_docs (
+          tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          key TEXT NOT NULL,
+          value JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (tenant_id, key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
+        CREATE INDEX IF NOT EXISTS idx_kv_tenant ON kv_docs(tenant_id);
+      `)
+      dbReady = true
+      console.log(`PostgreSQL ready (attempt ${attempt})`)
+      return
+    } catch (e) {
+      lastError = e
+      console.error(`DB init attempt ${attempt}/${retries} failed:`, e instanceof Error ? e.message : e)
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, delayMs))
+      }
+    }
+  }
+  throw lastError
 }
 
 export function uid(prefix: string) {
@@ -117,7 +160,7 @@ export function assertTenantId(tenantId: string | undefined): asserts tenantId i
 }
 
 export async function withTransaction<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect()
+  const client = await getPool().connect()
   try {
     await client.query('BEGIN')
     const result = await fn(client)
