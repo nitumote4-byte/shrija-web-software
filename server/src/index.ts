@@ -48,6 +48,9 @@ app.get('/api/health', async (_req, res) => {
     hasDatabaseUrl: Boolean(databaseUrlPreview()),
     databaseUrlPreview: databaseUrlPreview(),
     dbError: isDbReady() ? null : getLastDbError(),
+    features: { license: true },
+    commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_GIT_COMMIT || null,
+    hasLicenseMaster: Boolean(process.env.LICENSE_MASTER_SECRET),
   })
 })
 
@@ -75,6 +78,8 @@ app.use('/api/license', (req, res, next) => {
   next()
 })
 app.use('/api/license', licenseRouter)
+// Alias under /api/auth so older proxies / caches that only know auth still reach licence APIs
+app.use('/api/auth/license', licenseRouter)
 
 app.use('/api/data', (req, res, next) => {
   if (!isDbReady()) {

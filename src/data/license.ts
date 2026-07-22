@@ -15,6 +15,19 @@ export type LicenseStatus = {
 
 const CACHE_KEY = 'shrija-license-status'
 
+/** Prefer /api/license; fall back to /api/auth/license if Railway build is mid-rollout */
+async function licenseApi<T>(path: string, options?: RequestInit & { json?: unknown }): Promise<T> {
+  try {
+    return await api<T>(`/api/license${path}`, options)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/Cannot GET|Cannot POST|404|not found/i.test(msg)) {
+      return api<T>(`/api/auth/license${path}`, options)
+    }
+    throw e
+  }
+}
+
 export function getCachedLicense(): LicenseStatus | null {
   try {
     const raw = sessionStorage.getItem(CACHE_KEY)
@@ -31,13 +44,13 @@ export function setCachedLicense(license: LicenseStatus | null) {
 }
 
 export async function fetchLicenseStatus(): Promise<LicenseStatus> {
-  const result = await api<{ license: LicenseStatus }>('/api/license/status')
+  const result = await licenseApi<{ license: LicenseStatus }>('/status')
   setCachedLicense(result.license)
   return result.license
 }
 
 export async function activateLicenseKey(licenseKey: string): Promise<LicenseStatus> {
-  const result = await api<{ license: LicenseStatus }>('/api/license/activate', {
+  const result = await licenseApi<{ license: LicenseStatus }>('/activate', {
     method: 'POST',
     json: { licenseKey },
   })
@@ -53,19 +66,19 @@ export async function issueLicenseKeys(input: {
   count?: number
   note?: string
 }) {
-  return api<{
+  return licenseApi<{
     keys: string[]
     plan: string
     durationDays: number
     maxUsers: number
-  }>('/api/license/issue', {
+  }>('/issue', {
     method: 'POST',
     json: input,
   })
 }
 
 export async function listIssuedKeys(masterSecret: string) {
-  return api<{
+  return licenseApi<{
     keys: Array<{
       code: string
       plan: string
@@ -76,7 +89,7 @@ export async function listIssuedKeys(masterSecret: string) {
       usedByTenantId: string | null
       usedAt: string | null
     }>
-  }>('/api/license/issued', {
+  }>('/issued', {
     method: 'POST',
     json: { masterSecret },
   })

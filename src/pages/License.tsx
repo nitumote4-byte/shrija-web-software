@@ -124,7 +124,13 @@ export function LicensePage() {
           <ShieldCheck size={18} style={{ verticalAlign: 'middle', marginRight: 8 }} />
           Current centre status
         </h2>
-        {error && <p className="login-error">{error}</p>}
+        {error && (
+          <p className="login-error">
+            {/<\/?[a-z][\s\S]*>/i.test(error)
+              ? 'Licence API not reachable yet (Railway may still be redeploying). Wait 1–2 min and refresh.'
+              : error}
+          </p>
+        )}
         {license ? (
           <div className="stats-row">
             <div className="stat-card">
@@ -195,17 +201,21 @@ export function LicensePage() {
       <div className="panel">
         <h2>Issue keys (platform operator)</h2>
         <p className="auto-manak-hint">
-          Requires <code>LICENSE_MASTER_SECRET</code> from Railway env. Generate keys to share with
-          centres.
+          This is <strong>not</strong> auto-filled from Railway. In Railway → your API service →{' '}
+          <strong>Variables</strong>, create <code>LICENSE_MASTER_SECRET</code> with any strong
+          password you choose (e.g. a long random string). Then type <em>that same value</em> here to
+          issue keys. If you never set it, use your <code>JWT_SECRET</code> value instead (fallback).
         </p>
         <form className="form-grid" onSubmit={issue}>
           <div className="field">
-            <label>Master secret</label>
+            <label>Master secret (same as Railway LICENSE_MASTER_SECRET)</label>
             <input
               type="password"
               value={masterSecret}
               onChange={(e) => setMasterSecret(e.target.value)}
+              placeholder="Paste the value you set on Railway"
               required
+              autoComplete="off"
             />
           </div>
           <div className="field">

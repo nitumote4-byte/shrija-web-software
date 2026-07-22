@@ -27,6 +27,15 @@ async function ready() {
   await ensureLicenseSchema()
 }
 
+/** Public ping — proves licence router is mounted (no auth) */
+licenseRouter.get('/ping', (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'license',
+    hasLicenseMaster: Boolean(process.env.LICENSE_MASTER_SECRET),
+  })
+})
+
 /** Current centre licence status */
 licenseRouter.get('/status', requireAuth, async (req, res) => {
   await ready()
