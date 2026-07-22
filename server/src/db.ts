@@ -57,19 +57,17 @@ export function getPool(): pg.Pool {
       { status: 503 },
     )
   }
-  // Railway Postgres expects SSL
-  if (/railway|amazonaws|render|neon|supabase|rlwy/i.test(url) && !/[?&]sslmode=/i.test(url)) {
-    url += (url.includes('?') ? '&' : '?') + 'sslmode=require'
-  }
+  // Do NOT append sslmode=require in the URL — newer pg treats it as verify-full and can hang.
+  // Use Pool ssl config instead.
+  const needsSsl =
+    process.env.PGSSL !== 'false' &&
+    (process.env.NODE_ENV === 'production' ||
+      /railway|amazonaws|render|neon|supabase|rlwy/i.test(url))
+
   _pool = new Pool({
-    connectionString: url,
+    connectionString: url.split('?')[0], // strip any broken sslmode query
     connectionTimeoutMillis: 8000,
-    ssl:
-      process.env.PGSSL === 'false'
-        ? false
-        : process.env.NODE_ENV === 'production' || /railway|amazonaws|render|neon|supabase|rlwy/i.test(url)
-          ? { rejectUnauthorized: false }
-          : undefined,
+    ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
   })
   return _pool
 }
@@ -111,7 +109,7 @@ export const pool = new Proxy({} as pg.Pool, {
   },
 })
 
-export async function initDb(retries = 20, delayMs = 3000) {
+export async function initDb(retries = 8, delayMs = 2000) {
   const url = databaseUrl()
   if (!url) {
     lastDbError = 'DATABASE_URL is not set'
