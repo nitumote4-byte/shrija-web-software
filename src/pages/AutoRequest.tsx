@@ -163,7 +163,7 @@ export function AutoRequest() {
   }
 
   const runLocalScrapFetch = async (): Promise<ManakFetchResponse> => {
-    setStatusMsg('Scrap tool: opening Manak browser…')
+    setStatusMsg('Scrap tool: Manak browser — login, then open Receiving tab yourself…')
     const bundle = await api<{
       username: string
       password: string
@@ -181,6 +181,7 @@ export function AutoRequest() {
         night,
         allowedMacs: bundle.allowedMacs,
         loginTimeoutSec: 180,
+        postLoginWaitSec: 150,
         headed: true,
       }),
     })

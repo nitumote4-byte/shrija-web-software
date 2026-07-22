@@ -57,6 +57,7 @@ export function createScrapServer() {
     const baseUrl = String(req.body?.baseUrl || 'https://huid.manakonline.in').trim()
     const night = String(req.body?.night || 'Night')
     const loginTimeoutSec = Number(req.body?.loginTimeoutSec || 180)
+    const postLoginWaitSec = Number(req.body?.postLoginWaitSec || 150)
     const headed = req.body?.headed !== false
 
     if (!username || !password) {
@@ -88,6 +89,7 @@ export function createScrapServer() {
         password,
         baseUrl,
         loginTimeoutSec,
+        postLoginWaitSec,
         headed,
       })
       res.json({ ...result, night, mac: primaryMac() })
