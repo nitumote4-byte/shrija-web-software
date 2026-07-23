@@ -91,6 +91,45 @@ function stopTimers() {
     clearInterval(window.__shrijaBadgeTimer)
     window.__shrijaBadgeTimer = null
   }
+  if (window.__shrijaWatchTimer) {
+    clearInterval(window.__shrijaWatchTimer)
+    window.__shrijaWatchTimer = null
+  }
+}
+
+function readSelectedLot() {
+  const sel = MF?.findLotSelect?.(document)
+  if (!sel) return { text: '', lot: null, jobCard: '' }
+  // Prefer any option whose text looks like Lot N:job (even if selectedIndex quirky)
+  let opt = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null
+  let text = (opt?.text || opt?.label || '').trim()
+  let parsed = MF.parseLotOptionText(text)
+  if (parsed.lot == null && !parsed.jobCard) {
+    // Sometimes "Select" is index 0 but value already set; scan selected option by value
+    const byVal = Array.from(sel.options).find((o) => o.selected) || null
+    text = (byVal?.text || sel.value || '').trim()
+    parsed = MF.parseLotOptionText(text)
+  }
+  if (parsed.lot == null && !parsed.jobCard) {
+    // Match page job card number to an option
+    const body = (document.body?.innerText || '').replace(/\s+/g, ' ')
+    const m = /Job\s*Card\s*(?:Number|No\.?)\s*[:：]?\s*(\d{6,})/i.exec(body)
+    if (m) {
+      const hit = Array.from(sel.options).find((o) => String(o.text || '').includes(m[1]))
+      if (hit) {
+        text = (hit.text || '').trim()
+        parsed = MF.parseLotOptionText(text)
+      }
+    }
+  }
+  return { text, ...parsed, sel }
+}
+
+function samplingStillEmpty() {
+  const { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
+  const sd = Number(sampleDrawn?.value || 0)
+  const bw = Number(buttonWt?.value || 0)
+  return sd <= 0 && bw <= 0
 }
 
 function ensureStatusBadge() {
@@ -114,6 +153,17 @@ function ensureStatusBadge() {
       font: '700 12px/1.35 system-ui,sans-serif',
       boxShadow: '0 8px 24px rgba(0,0,0,.28)',
       maxWidth: '280px',
+      cursor: 'pointer',
+    })
+    el.title = 'Click = force AUTO fill now'
+    el.addEventListener('click', () => {
+      const lot = readSelectedLot()
+      if (lot.lot == null && !lot.jobCard) {
+        showToast('Shrija AUTO: pehle Lot No select karo')
+        return
+      }
+      window.__shrijaFillOnce = null
+      runAutoFill(lot.text, lot.lot)
     })
     document.body.appendChild(el)
   }
@@ -122,9 +172,13 @@ function ensureStatusBadge() {
       if (!extAlive() || chrome.runtime.lastError) return
       const sheet = data[KEY]
       const n = sheet?.rows?.length || sheet?.viewRows?.length || 0
+      const lot = MF ? readSelectedLot() : { lot: null }
       if (n) {
         el.style.background = '#15803d'
-        el.textContent = `AUTO · FS-${sheet.sheetNo || '?'} · ${n} rows — sirf Lot select karo`
+        el.textContent =
+          lot.lot != null
+            ? `AUTO · FS-${sheet.sheetNo || '?'} · Lot ${lot.lot} ready — filling… (click = retry)`
+            : `AUTO · FS-${sheet.sheetNo || '?'} · ${n} rows — Lot select / click yahan`
       } else {
         el.style.background = '#b45309'
         el.textContent = 'AUTO · No sheet — Shrija Create Sheet pehle'
@@ -133,6 +187,41 @@ function ensureStatusBadge() {
   } catch {
     stopTimers()
   }
+}
+
+/**
+ * Lot already selected (no change event) OR postback left fields at 0 —
+ * keep trying until sampling fills or max attempts.
+ */
+async function watchdogTick() {
+  if (!extAlive() || !MF || window.__shrijaFilling) return
+  if (!/Fire Assaying|Sample Drawn|Samplingweighting/i.test(document.body?.innerText || '')) return
+
+  const lot = readSelectedLot()
+  if (lot.lot == null && !lot.jobCard) return
+  if (!samplingStillEmpty()) return
+
+  const data = await storageGet([KEY, FLOW_KEY])
+  const sheet = data[KEY]
+  if (!sheet) return
+
+  // Stale flow while fields still empty → clear and restart
+  const flow = data[FLOW_KEY]
+  if (flow && Date.now() - (flow.at || 0) > 12_000 && samplingStillEmpty()) {
+    await storageRemove(FLOW_KEY)
+  } else if (flow) {
+    // resume pending step
+    await resumeFlow()
+    return
+  }
+
+  const key = `${lot.text}|${lot.lot}|${lot.jobCard}`
+  const now = Date.now()
+  if (window.__shrijaFillOnce?.key === key && now - window.__shrijaFillOnce.at < 8000) return
+  window.__shrijaFillOnce = { key, at: now }
+
+  showToast(`Shrija AUTO: Lot detected → fill (${lot.text})`)
+  await runAutoFill(lot.text, lot.lot)
 }
 
 function watchM2Unlock(m2Values) {
@@ -286,7 +375,11 @@ async function stepAssay(sheet, flow) {
 }
 
 async function runAutoFill(selectText, preferredLot) {
-  if (!extAlive() || !MF) return
+  if (!extAlive()) return
+  if (!MF) {
+    showToast('Shrija AUTO: fill library missing — extension Reload (2.0.2)')
+    return
+  }
   if (window.__shrijaFilling) return
   window.__shrijaFilling = true
   try {
@@ -296,12 +389,21 @@ async function runAutoFill(selectText, preferredLot) {
       ensureStatusBadge()
       return
     }
-    const parsed = MF.parseLotOptionText(selectText || '')
-    if (parsed.lot == null && !parsed.jobCard) return
+    let text = selectText || ''
+    let parsed = MF.parseLotOptionText(text)
+    if (parsed.lot == null && !parsed.jobCard) {
+      const lot = readSelectedLot()
+      text = lot.text
+      parsed = { lot: lot.lot, jobCard: lot.jobCard }
+    }
+    if (parsed.lot == null && !parsed.jobCard) {
+      showToast('Shrija AUTO: Lot No select karo')
+      return
+    }
 
     const flow = {
       step: 'sample',
-      selectText,
+      selectText: text,
       lot: preferredLot ?? parsed.lot,
       jobCard: parsed.jobCard,
       at: Date.now(),
@@ -325,10 +427,8 @@ async function resumeFlow() {
     return
   }
 
-  const sel = MF.findLotSelect(document)
-  if (sel && sel.selectedIndex > 0) {
-    flow.selectText = sel.options[sel.selectedIndex]?.text || flow.selectText
-  }
+  const lot = readSelectedLot()
+  if (lot.text) flow.selectText = lot.text
 
   showToast(`Shrija AUTO resume: ${flow.step}`)
   if (flow.step === 'button') await stepButtonWeight(sheet, flow)
@@ -339,25 +439,25 @@ async function resumeFlow() {
 function bindLotAuto() {
   if (!MF || !extAlive()) return
   const sel = MF.findLotSelect(document)
-  if (!sel || sel.dataset.shrijaAutoBound) return
-  sel.dataset.shrijaAutoBound = '1'
-  sel.addEventListener('change', () => {
-    if (!extAlive()) return
-    const opt = sel.options[sel.selectedIndex]
-    const text = (opt?.text || '').trim()
-    const parsed = MF.parseLotOptionText(text)
-    if (parsed.lot == null && !parsed.jobCard) return
-    runAutoFill(text, parsed.lot)
-  })
+  if (!sel) return
+  if (!sel.dataset.shrijaAutoBound) {
+    sel.dataset.shrijaAutoBound = '1'
+    sel.addEventListener('change', () => {
+      if (!extAlive()) return
+      window.__shrijaFillOnce = null
+      const lot = readSelectedLot()
+      if (lot.lot == null && !lot.jobCard) return
+      runAutoFill(lot.text, lot.lot)
+    })
+  }
 }
 
 try {
   chrome.runtime.onMessage.addListener((msg) => {
     if (!extAlive()) return
     if (msg?.type === 'SHRIJA_FILL_MANAK_NOW') {
-      const sel = MF.findLotSelect(document)
-      const text = sel?.options?.[sel.selectedIndex]?.text || ''
-      runAutoFill(text)
+      const lot = readSelectedLot()
+      runAutoFill(lot.text, lot.lot)
     }
   })
 } catch {
@@ -368,7 +468,8 @@ const onAssayPage = /Samplingweighting|Fire Assaying|Sample Drawn|Assaying Sheet
   `${location.href} ${document.body?.innerText || ''}`,
 )
 
-if (onAssayPage && MF) {
+if (onAssayPage) {
+  if (!MF) showToast('Shrija AUTO: manak-fill-lib load fail — Reload extension')
   setTimeout(bindLotAuto, 400)
   setTimeout(bindLotAuto, 1500)
   setTimeout(bindLotAuto, 4000)
@@ -380,18 +481,15 @@ if (onAssayPage && MF) {
     }
     ensureStatusBadge()
   }, 2500)
-  setTimeout(resumeFlow, 900)
-
-  setTimeout(() => {
-    if (!extAlive()) return
-    chrome.storage.local.get([FLOW_KEY], (d) => {
-      if (!extAlive() || chrome.runtime.lastError) return
-      if (d[FLOW_KEY]) return
-      const sel = MF.findLotSelect(document)
-      if (!sel || sel.selectedIndex <= 0) return
-      const text = sel.options[sel.selectedIndex]?.text || ''
-      const parsed = MF.parseLotOptionText(text)
-      if (parsed.lot != null || parsed.jobCard) runAutoFill(text, parsed.lot)
-    })
-  }, 2200)
+  setTimeout(resumeFlow, 800)
+  setTimeout(watchdogTick, 1200)
+  setTimeout(watchdogTick, 2500)
+  setTimeout(watchdogTick, 5000)
+  window.__shrijaWatchTimer = setInterval(() => {
+    if (!extAlive()) {
+      stopTimers()
+      return
+    }
+    watchdogTick()
+  }, 3000)
 }

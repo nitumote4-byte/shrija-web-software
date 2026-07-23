@@ -14,14 +14,9 @@
     const idCls = `${el.id || ''} ${el.className || ''} ${el.name || ''} ${el.placeholder || ''}`
     if (/select2|chosen|combobox|autocomplete|purity|ddlPurity|Declared/i.test(idCls)) return true
     if (el.getAttribute('role') === 'combobox') return true
-    const near = ((el.closest('td, th, div, tr, li') || el.parentElement)?.textContent || '')
-      .replace(/\s+/g, ' ')
-      .slice(0, 160)
-    if (/Declared\s*Purity|Material\s*Category|\bMaterials\b|Job\s*Card\s*Number/i.test(near)) {
-      if (!/Sample\s*Drawn|Button\s*Weight|Initial\s*weight|Silver|Copper|Lead|cornet|\bM1\b|\bM2\b/i.test(near)) {
-        return true
-      }
-    }
+    const nearEl = el.closest('td, th, tr, label') || el.parentElement
+    const near = (nearEl?.textContent || '').replace(/\s+/g, ' ').slice(0, 200)
+    if (/Declared\s*Purity/i.test(near) && !/Sample\s*Drawn|Button\s*Weight/i.test(near)) return true
     return false
   }
 
@@ -177,7 +172,7 @@
     const tables = Array.from(document.querySelectorAll('table, fieldset, div'))
     for (const t of tables) {
       const text = (t.textContent || '').replace(/\s+/g, ' ')
-      if (/Sample Drawn Weight/i.test(text) && /Button Weight/i.test(text) && text.length < 2500) {
+      if (/Sample Drawn Weight/i.test(text) && /Button Weight/i.test(text) && text.length < 8000) {
         section = t
         break
       }
