@@ -325,7 +325,7 @@ function nowIso() {
   return new Date().toISOString()
 }
 
-function sessionCentreStamp(): {
+function sessionCentreStamp(forRequest = false): {
   centreId: string
   centreKind: 'main' | 'osc'
   oscTransferStatus?: OscTransferStatus
@@ -336,7 +336,7 @@ function sessionCentreStamp(): {
   return {
     centreId,
     centreKind,
-    oscTransferStatus: centreKind === 'osc' ? 'pending_local' : undefined,
+    ...(forRequest && centreKind === 'osc' ? { oscTransferStatus: 'pending_local' as const } : {}),
   }
 }
 
@@ -368,6 +368,11 @@ function matchesCentreScope(
 ) {
   if (!meta) return false
   if (meta.centreId) return meta.centreId === scopeId
+  // Legacy OSC-tagged rows without id still visible to that outlet session
+  if (meta.centreKind === 'osc') {
+    const s = getSession()
+    return s?.centreKind === 'osc' && (s.centreId || 'main') === scopeId
+  }
   return false
 }
 
@@ -853,6 +858,8 @@ function normalizeRough(r: Partial<RoughSheetEntry> & { id: string }): RoughShee
     sampleTagId: r.sampleTagId ?? '',
     cornet: r.cornet,
     rejectPic: r.rejectPic ?? 0,
+    centreId: r.centreId,
+    centreKind: r.centreKind === 'osc' ? 'osc' : r.centreKind === 'main' ? 'main' : undefined,
   }
 }
 
@@ -875,6 +882,8 @@ function normalizeParty(p: Partial<Party> & { id: string; name: string }): Party
     igstApplicable: p.igstApplicable ?? false,
     discount: Number(p.discount) || 0,
     minBillCalc: p.minBillCalc ?? false,
+    centreId: p.centreId,
+    centreKind: p.centreKind === 'osc' ? 'osc' : p.centreKind === 'main' ? 'main' : undefined,
   }
 }
 
@@ -925,13 +934,16 @@ export const store = {
 
   addParty(input: Omit<Party, 'id' | 'createdAt'>) {
     const data = load()
+    const stamp = sessionCentreStamp()
     const party: Party = {
-      ...sessionCentreStamp(),
       ...input,
+      ...stamp,
       id: uid('p'),
       createdAt: today(),
       discount: Number(input.discount) || 0,
       minBillCalc: Boolean(input.minBillCalc),
+      centreId: stamp.centreId,
+      centreKind: stamp.centreKind,
     }
     data.parties.unshift(party)
     save(data)
@@ -977,7 +989,7 @@ export const store = {
     const data = load()
     const n = data.requests.length + 1
     const req: HallmarkRequest = {
-      ...sessionCentreStamp(),
+      ...sessionCentreStamp(true),
       ...input,
       id: uid('r'),
       requestNo: `HM-2026-${String(n).padStart(3, '0')}`,
@@ -1607,7 +1619,7 @@ export const store = {
           receiptNo: row.receiptNo,
           jobCardNo: row.jobCardNo,
           night: input.night,
-          ...sessionCentreStamp(),
+          ...sessionCentreStamp(true),
         }
         data.requests.unshift(req)
       }
@@ -1686,7 +1698,7 @@ export const store = {
           receiptNo: row.receiptNo,
           jobCardNo: row.jobCardNo,
           night: input.night,
-          ...sessionCentreStamp(),
+          ...sessionCentreStamp(true),
         }
         data.requests.unshift(req)
       } else {
