@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Home } from 'lucide-react'
 import { InvoiceChallan, type ChallanView } from '../components/InvoiceChallan'
 import { useToast } from '../components/ui'
 import { store, type HallmarkRequest, type InvoiceLine, type RoughSheetEntry } from '../data/store'
@@ -223,12 +224,19 @@ export function Billing() {
 
   return (
     <div className="billing-page">
-      <div className="billing-title-row no-print">
-        <h1 className="billing-title">Invoice Generation</h1>
-        <Link to="/generated-bills" className="btn btn-secondary">
-          Generated Bills
+      <nav className="gb-subnav no-print" aria-label="Billing navigation">
+        <Link to="/">
+          <Home size={14} /> Home
         </Link>
-      </div>
+        <Link to="/billing" className="active">
+          Billing
+        </Link>
+        <Link to="/reports/gst-credit">Monthly Billing</Link>
+        <Link to="/generated-bills">View Bills</Link>
+        <Link to="/reports/invoice-list">View Monthly Bills</Link>
+      </nav>
+
+      <h1 className="billing-title no-print">Invoice Generation</h1>
 
       <div className="billing-controls no-print">
         <label className="billing-field">

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowLeft, FileText, Home, Search } from 'lucide-react'
 import { InvoiceChallan, invoiceToChallan, type ChallanView } from '../components/InvoiceChallan'
 import { useToast } from '../components/ui'
 import { store, type InvoiceLine } from '../data/store'
@@ -45,9 +46,37 @@ export function ViewGeneratedBills() {
   const options = useMemo(() => {
     return invoices.map((inv) => ({
       key: inv.id,
-      label: `${inv.invoiceNo} · Req ${inv.requestNo} · ${inv.partyName}`,
+      label: `${inv.requestNo} / Inv ${inv.invoiceNo} — ${inv.partyName}`,
     }))
   }, [invoices])
+
+  const livePreview: ChallanView | null = (() => {
+    if (!preview) return null
+    if (!editing) return preview
+    const lines = editLines.map((l) => ({
+      ...l,
+      amount: Number((Math.max(0, l.hm) * l.rate).toFixed(2)),
+    }))
+    const r = recalc(lines, preview.useIgst)
+    return {
+      ...preview,
+      lines,
+      ...editWeights,
+      weightReturned: Number(
+        (
+          editWeights.weightReceived -
+          editWeights.sampleWeight +
+          editWeights.unusedSample -
+          editWeights.fireboxScrap
+        ).toFixed(3),
+      ),
+      taxable: r.taxable,
+      cgst: r.cgst,
+      sgst: r.sgst,
+      igst: r.igst,
+      grandTotal: r.grandTotal,
+    }
+  })()
 
   const loadInvoice = (id: string) => {
     const inv = store.getInvoiceById(id)
@@ -71,7 +100,7 @@ export function ViewGeneratedBills() {
 
   const getBill = () => {
     if (!selectedKey) {
-      toast('Select Request Number or Invoice')
+      toast('Select Request Number Or Invoice No')
       return
     }
     const inv = loadInvoice(selectedKey)
@@ -124,8 +153,6 @@ export function ViewGeneratedBills() {
 
   const saveUpdate = () => {
     if (!activeId || !preview) return
-    const inv = store.getInvoiceById(activeId)
-    if (!inv) return
     const lines = editLines.map((l) => ({
       ...l,
       amount: Number((Math.max(0, l.hm) * l.rate).toFixed(2)),
@@ -185,56 +212,74 @@ export function ViewGeneratedBills() {
   }
 
   return (
-    <div className="billing-page generated-bills-page">
-      <div className="billing-title-row no-print">
-        <h1 className="billing-title">View Generated Bill</h1>
-        <Link to="/billing" className="btn btn-secondary">
-          Invoice Generation
+    <div className="generated-bills-page">
+      <nav className="gb-subnav no-print" aria-label="Billing navigation">
+        <Link to="/">
+          <Home size={14} /> Home
         </Link>
-      </div>
+        <Link to="/billing">Billing</Link>
+        <Link to="/reports/gst-credit">Monthly Billing</Link>
+        <Link to="/generated-bills" className="active">
+          View Bills
+        </Link>
+        <Link to="/reports/invoice-list">View Monthly Bills</Link>
+      </nav>
 
-      <section className="billing-controls generated-bill-search no-print">
-        <label className="billing-field billing-field-wide">
-          <span>Select Request Number or Invoice</span>
-          <select
-            value={selectedKey}
-            onChange={(e) => setSelectedKey(e.target.value)}
-            aria-label="Select Request Number or Invoice"
-          >
-            <option value="">Select Request Number Or Invoice No</option>
-            {options.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className="btn btn-navy" onClick={getBill}>
-          Get
-        </button>
-        <button type="button" className="btn btn-secondary" onClick={printBill}>
-          Print
-        </button>
-        <button type="button" className="btn btn-orange" onClick={downloadPdf}>
-          Download PDF
-        </button>
-        <button type="button" className="btn btn-danger" onClick={deleteBill}>
-          Delete
-        </button>
-        {!editing ? (
-          <button type="button" className="btn btn-green" onClick={startUpdate}>
-            Update
-          </button>
-        ) : (
-          <button type="button" className="btn btn-green" onClick={saveUpdate}>
-            Save Update
-          </button>
-        )}
+      <h1 className="gb-page-title no-print">View Generated Bill</h1>
+
+      <section className="gb-card no-print">
+        <header className="gb-card-head">
+          <Search size={18} />
+          <h2>Search Invoice</h2>
+        </header>
+        <div className="gb-search-row">
+          <label className="gb-select-wrap">
+            <span>Select Request Number Or Invoice No.</span>
+            <select
+              value={selectedKey}
+              onChange={(e) => setSelectedKey(e.target.value)}
+              aria-label="Select Request Number Or Invoice No"
+            >
+              <option value="">Select Request Number Or Invoice No</option>
+              {options.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="gb-actions">
+            <button type="button" className="gb-btn gb-btn-get" onClick={getBill}>
+              Get
+            </button>
+            <button type="button" className="gb-btn gb-btn-print" onClick={printBill}>
+              Print
+            </button>
+            <button type="button" className="gb-btn gb-btn-pdf" onClick={downloadPdf}>
+              Download PDF
+            </button>
+            <button type="button" className="gb-btn gb-btn-del" onClick={deleteBill}>
+              Delete
+            </button>
+            {!editing ? (
+              <button type="button" className="gb-btn gb-btn-upd" onClick={startUpdate}>
+                Update
+              </button>
+            ) : (
+              <button type="button" className="gb-btn gb-btn-upd" onClick={saveUpdate}>
+                Save Update
+              </button>
+            )}
+          </div>
+        </div>
       </section>
 
       {editing && preview && (
-        <section className="generated-edit-panel no-print">
-          <h3>Update invoice data</h3>
+        <section className="gb-card generated-edit-panel no-print">
+          <header className="gb-card-head">
+            <FileText size={18} />
+            <h2>Update invoice data</h2>
+          </header>
           <div className="generated-edit-weights">
             {(
               [
@@ -327,49 +372,17 @@ export function ViewGeneratedBills() {
         </section>
       )}
 
-      <h2 className="billing-preview-label no-print">Invoice Preview</h2>
-      <InvoiceChallan
-        view={
-          editing && preview
-            ? {
-                ...preview,
-                lines: editLines.map((l) => ({
-                  ...l,
-                  amount: Number((Math.max(0, l.hm) * l.rate).toFixed(2)),
-                })),
-                ...editWeights,
-                weightReturned: Number(
-                  (
-                    editWeights.weightReceived -
-                    editWeights.sampleWeight +
-                    editWeights.unusedSample -
-                    editWeights.fireboxScrap
-                  ).toFixed(3),
-                ),
-                ...(() => {
-                  const r = recalc(
-                    editLines.map((l) => ({
-                      ...l,
-                      amount: Number((Math.max(0, l.hm) * l.rate).toFixed(2)),
-                    })),
-                    preview.useIgst,
-                  )
-                  return {
-                    taxable: r.taxable,
-                    cgst: r.cgst,
-                    sgst: r.sgst,
-                    igst: r.igst,
-                    grandTotal: r.grandTotal,
-                  }
-                })(),
-              }
-            : preview
-        }
-      />
+      <section className="gb-card gb-preview-card">
+        <header className="gb-card-head no-print">
+          <FileText size={18} />
+          <h2>Invoice Preview</h2>
+        </header>
+        <InvoiceChallan view={livePreview} />
+      </section>
 
-      <div className="manual-actions no-print">
-        <Link to="/" className="btn btn-reset">
-          Back
+      <div className="gb-back-wrap no-print">
+        <Link to="/" className="gb-btn gb-btn-back">
+          <ArrowLeft size={14} /> Back
         </Link>
       </div>
       {Toast}
