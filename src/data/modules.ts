@@ -137,7 +137,7 @@ export const modules: ModuleDef[] = [
   {
     id: 'new-category',
     title: 'New Category',
-    description: 'Maintain purity rates for gold, silver & platinum.',
+    description: 'Add jewellery types for hallmarking requests — sync or create one by one.',
     path: '/new-category',
     icon: Tag,
   },

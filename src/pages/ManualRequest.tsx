@@ -5,7 +5,9 @@ import { useToast } from '../components/ui'
 import { store } from '../data/store'
 import { readVoucherFile } from '../utils/voucherReader'
 
-const ITEM_OPTIONS = [
+const PURITY_OPTIONS = ['22K916', '18K750', '14K585', '24K999', 'Silver925']
+
+const FALLBACK_ITEMS = [
   'jhumka',
   'TOPS',
   'Locket',
@@ -20,8 +22,6 @@ const ITEM_OPTIONS = [
   'Mangalsutra',
   'Other',
 ]
-
-const PURITY_OPTIONS = ['22K916', '18K750', '14K585', '24K999', 'Silver925']
 
 type ItemEntry = {
   key: string
@@ -102,11 +102,16 @@ export function ManualRequest() {
     )
   }, [data.parties, partyQuery])
 
+  const itemOptions = useMemo(() => {
+    const fromStore = store.getAll().jewelleryCategories.map((c) => c.name)
+    return fromStore.length > 0 ? fromStore : FALLBACK_ITEMS
+  }, [data.jewelleryCategories])
+
   const itemMatches = useMemo(() => {
     const q = entry.item.trim().toLowerCase()
-    if (!q) return ITEM_OPTIONS
-    return ITEM_OPTIONS.filter((i) => i.toLowerCase().includes(q))
-  }, [entry.item])
+    if (!q) return itemOptions
+    return itemOptions.filter((i) => i.toLowerCase().includes(q))
+  }, [entry.item, itemOptions])
 
   const resetEntry = (nos = batchNos) => {
     setEntry(emptyEntry(nos))

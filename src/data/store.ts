@@ -33,6 +33,12 @@ export type Category = {
   rate: number
 }
 
+/** GoldShark-style jewellery type names (New Category module) */
+export type JewelleryCategory = {
+  id: string
+  name: string
+}
+
 export type OscTransferStatus =
   | 'pending_local'
   | 'sent_to_main'
@@ -282,6 +288,8 @@ export type PendingRoughRequest = {
 type StoreShape = {
   parties: Party[]
   categories: Category[]
+  /** Jewellery type names for New Category / Manual Request */
+  jewelleryCategories: JewelleryCategory[]
   requests: HallmarkRequest[]
   roughSheets: RoughSheetEntry[]
   pendingRough: PendingRoughRequest[]
@@ -299,6 +307,7 @@ function emptyStore(): StoreShape {
   return {
     parties: [],
     categories: [],
+    jewelleryCategories: [],
     requests: [],
     roughSheets: [],
     pendingRough: [],
@@ -606,6 +615,7 @@ function seed(): StoreShape {
   return {
     parties,
     categories,
+    jewelleryCategories: [] as JewelleryCategory[],
     requests,
     roughSheets: [
       {
@@ -890,7 +900,14 @@ function normalizeParty(p: Partial<Party> & { id: string; name: string }): Party
 function normalizeLoaded(parsed: StoreShape): StoreShape {
   if (!parsed.pendingRough) parsed.pendingRough = []
   if (!parsed.monthlyInvoices) parsed.monthlyInvoices = []
+  if (!parsed.jewelleryCategories) parsed.jewelleryCategories = []
   parsed.parties = (parsed.parties ?? []).map((p) => normalizeParty(p))
+  parsed.jewelleryCategories = (parsed.jewelleryCategories ?? [])
+    .filter((c) => c && String(c.name || '').trim())
+    .map((c) => ({
+      id: c.id || uid('jc'),
+      name: String(c.name).trim(),
+    }))
   parsed.fireAssays = (parsed.fireAssays ?? []).map((a) => ({
     ...a,
     assayType: a.assayType ?? 'Manual',
@@ -983,6 +1000,76 @@ export const store = {
     data.categories.unshift(category)
     save(data)
     return category
+  },
+
+  addJewelleryCategory(name: string) {
+    const data = load()
+    const trimmed = name.trim()
+    if (!trimmed) return null
+    const exists = data.jewelleryCategories.some(
+      (c) => c.name.toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (exists) return null
+    const row: JewelleryCategory = { id: uid('jc'), name: trimmed }
+    data.jewelleryCategories.unshift(row)
+    save(data)
+    return row
+  },
+
+  updateJewelleryCategory(id: string, name: string) {
+    const data = load()
+    const row = data.jewelleryCategories.find((c) => c.id === id)
+    if (!row) return null
+    const trimmed = name.trim()
+    if (!trimmed) return null
+    const clash = data.jewelleryCategories.some(
+      (c) => c.id !== id && c.name.toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (clash) return null
+    row.name = trimmed
+    save(data)
+    return row
+  },
+
+  deleteJewelleryCategory(id: string) {
+    const data = load()
+    const before = data.jewelleryCategories.length
+    data.jewelleryCategories = data.jewelleryCategories.filter((c) => c.id !== id)
+    if (data.jewelleryCategories.length === before) return false
+    save(data)
+    return true
+  },
+
+  /** GoldShark “Sync from Database” — common jewellery types */
+  syncJewelleryCategoriesFromDefaults() {
+    const defaults = [
+      'Necklace',
+      'Bangles',
+      'Earrings',
+      'Ring',
+      'Chain',
+      'Pendant',
+      'Bracelet',
+      'Jhumka',
+      'Tops',
+      'Locket',
+      'Mangalsutra',
+      'Coin',
+      'Kan Tana',
+      'Jitiya',
+      'Other',
+    ]
+    const data = load()
+    let added = 0
+    const existing = new Set(data.jewelleryCategories.map((c) => c.name.toLowerCase()))
+    for (const name of defaults) {
+      if (existing.has(name.toLowerCase())) continue
+      data.jewelleryCategories.push({ id: uid('jc'), name })
+      existing.add(name.toLowerCase())
+      added += 1
+    }
+    if (added > 0) save(data)
+    return added
   },
 
   addRequest(input: Omit<HallmarkRequest, 'id' | 'requestNo' | 'date'>) {

@@ -252,6 +252,7 @@ export function emptyStorePayload() {
   return {
     parties: [],
     categories: defaultCategories(),
+    jewelleryCategories: [],
     requests: [],
     roughSheets: [],
     pendingRough: [],
