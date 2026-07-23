@@ -27,9 +27,9 @@ function formatBalanceLabel(balance: number) {
     return { label: 'ADVANCE / CREDIT', value: money(Math.abs(balance)), isCredit: true }
   }
   if (Math.abs(balance) <= 0.009) {
-    return { label: 'CURRENT BALANCE', value: money(0), isCredit: false }
+    return { label: 'DUE BALANCE', value: money(0), isCredit: false }
   }
-  return { label: 'CURRENT BALANCE', value: money(balance), isCredit: false }
+  return { label: 'DUE BALANCE', value: money(balance), isCredit: false }
 }
 
 type ReceiptView = {
@@ -466,7 +466,7 @@ export function FundEntry() {
               </div>
               <div className="fund-balance-box">
                 <div className="fund-balance-top">
-                  <span>{party ? balanceView.label : 'CURRENT BALANCE'}</span>
+                  <span>{party ? balanceView.label : 'DUE BALANCE'}</span>
                   <button
                     type="button"
                     className="fund-sync-btn"
