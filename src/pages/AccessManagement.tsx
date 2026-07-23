@@ -32,11 +32,12 @@ type ReceptionCreds = {
 const RECEPTION_KEY = 'shrija-reception-creds'
 
 const ROLE_OPTIONS = [
-  'quality_manager',
-  'assay_lab',
-  'reception',
-  'accountant',
-  'admin',
+  { value: 'quality_manager', label: 'Quality Manager (full)' },
+  { value: 'assay_lab', label: 'In Lab (Fire Assay + Stock only)' },
+  { value: 'in_lab', label: 'In Lab (alias)' },
+  { value: 'reception', label: 'Reception' },
+  { value: 'accountant', label: 'Accountant' },
+  { value: 'admin', label: 'Admin' },
 ]
 
 async function persistUsers(users: AppUser[]) {
@@ -410,8 +411,8 @@ export function ManagePassword() {
                   onChange={(e) => setForm((p) => ({ ...p, role: e.target.value }))}
                 >
                   {ROLE_OPTIONS.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
+                    <option key={r.value} value={r.value}>
+                      {r.label}
                     </option>
                   ))}
                 </select>

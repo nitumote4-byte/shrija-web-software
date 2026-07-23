@@ -12,6 +12,7 @@ import { ModuleCard } from '../components/ModuleCard'
 import { getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getFirmName } from '../data/firmProfile'
 import { PRODUCT_NAME, PRODUCT_TAGLINE, USER_NAME, USER_ROLE, modules } from '../data/modules'
+import { canAccessPath, isLabOnlyRole, roleLabel } from '../data/roles'
 import { store } from '../data/store'
 
 function formatWelcomeDate(d = new Date()) {
@@ -35,6 +36,12 @@ export function Dashboard() {
   const session = getSession()
   const name = session?.username || USER_NAME
   const role = session?.role || USER_ROLE
+  const labOnly = isLabOnlyRole(role)
+  const visibleModules = useMemo(
+    () => modules.filter((m) => canAccessPath(m.path)),
+    // session/role change → remount via login; filter on each render is fine
+    [role],
+  )
   const [firmName, setFirmName] = useState(() => getFirmName())
 
   useEffect(() => {
@@ -70,53 +77,73 @@ export function Dashboard() {
           <h1>{firmName}</h1>
           <p className="home-lead">{PRODUCT_TAGLINE}</p>
           <p className="home-welcome">
-            Welcome back, <strong>{name}</strong> · {role} · {formatWelcomeDate()}
+            Welcome back, <strong>{name}</strong> · {roleLabel(role)} · {formatWelcomeDate()}
           </p>
           <div className="home-hero-actions">
-            <Link to="/request-list" className="btn btn-gold">
-              Daily Sheet
-            </Link>
-            <Link to="/billing" className="btn btn-secondary home-hero-secondary">
-              Billing
-            </Link>
-            <Link to="/dashboard" className="btn btn-secondary home-hero-secondary">
-              Analytics
-            </Link>
+            {labOnly ? (
+              <>
+                <Link to="/create-fire-assay" className="btn btn-gold">
+                  Create Fire Assay
+                </Link>
+                <Link to="/view-fire-assay" className="btn btn-secondary home-hero-secondary">
+                  View Fire Assay
+                </Link>
+                <Link to="/lab-stock" className="btn btn-secondary home-hero-secondary">
+                  Lab Stock
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/request-list" className="btn btn-gold">
+                  Daily Sheet
+                </Link>
+                <Link to="/billing" className="btn btn-secondary home-hero-secondary">
+                  Billing
+                </Link>
+                <Link to="/dashboard" className="btn btn-secondary home-hero-secondary">
+                  Analytics
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </section>
 
       <div className="home-kpi-row">
-        <div className="home-kpi">
-          <ClipboardList size={18} />
-          <div>
-            <span>Open requests</span>
-            <strong>{stats.pending}</strong>
-          </div>
-        </div>
-        <div className="home-kpi">
-          <FileSpreadsheet size={18} />
-          <div>
-            <span>Invoices today</span>
-            <strong>{stats.todayBills}</strong>
-          </div>
-        </div>
-        <div className="home-kpi">
-          <IndianRupee size={18} />
-          <div>
-            <span>Funds today</span>
-            <strong>
-              ₹{stats.todayFunds.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-            </strong>
-          </div>
-        </div>
-        <div className="home-kpi">
-          <Users size={18} />
-          <div>
-            <span>Parties</span>
-            <strong>{stats.parties}</strong>
-          </div>
-        </div>
+        {!labOnly && (
+          <>
+            <div className="home-kpi">
+              <ClipboardList size={18} />
+              <div>
+                <span>Open requests</span>
+                <strong>{stats.pending}</strong>
+              </div>
+            </div>
+            <div className="home-kpi">
+              <FileSpreadsheet size={18} />
+              <div>
+                <span>Invoices today</span>
+                <strong>{stats.todayBills}</strong>
+              </div>
+            </div>
+            <div className="home-kpi">
+              <IndianRupee size={18} />
+              <div>
+                <span>Funds today</span>
+                <strong>
+                  ₹{stats.todayFunds.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </strong>
+              </div>
+            </div>
+            <div className="home-kpi">
+              <Users size={18} />
+              <div>
+                <span>Parties</span>
+                <strong>{stats.parties}</strong>
+              </div>
+            </div>
+          </>
+        )}
         <div className="home-kpi">
           <Flame size={18} />
           <div>
@@ -128,18 +155,24 @@ export function Dashboard() {
           <Package size={18} />
           <div>
             <span>Modules</span>
-            <strong>{modules.length}</strong>
+            <strong>{visibleModules.length}</strong>
           </div>
         </div>
       </div>
 
       <div className="home-section-head">
-        <h2 className="section-title">Operations & Quality Control</h2>
-        <p>Launch hallmarking, assay, stock, billing and compliance tools.</p>
+        <h2 className="section-title">
+          {labOnly ? 'Lab Access' : 'Operations & Quality Control'}
+        </h2>
+        <p>
+          {labOnly
+            ? 'Create / view fire assay and manage QM & Lab stock only.'
+            : 'Launch hallmarking, assay, stock, billing and compliance tools.'}
+        </p>
       </div>
 
       <div className="module-grid">
-        {modules.map((mod, i) => (
+        {visibleModules.map((mod, i) => (
           <ModuleCard key={mod.id} module={mod} delay={i * 30} />
         ))}
       </div>
