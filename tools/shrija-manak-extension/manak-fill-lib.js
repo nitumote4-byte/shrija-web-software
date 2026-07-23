@@ -37,12 +37,47 @@
     } catch {
       /* ignore */
     }
+    // Select-all then type-style set (ASP.NET validators often listen to this)
+    try {
+      el.select?.()
+    } catch {
+      /* ignore */
+    }
     if (desc && desc.set) desc.set.call(el, v)
     else el.value = v
+    try {
+      el.setAttribute('value', v)
+    } catch {
+      /* ignore */
+    }
     el.dispatchEvent(new root.Event('input', { bubbles: true }))
     el.dispatchEvent(new root.Event('change', { bubbles: true }))
+    el.dispatchEvent(new root.KeyboardEvent('keyup', { bubbles: true }))
     el.dispatchEvent(new root.Event('blur', { bubbles: true }))
+    try {
+      if (root.jQuery) root.jQuery(el).val(v).trigger('input').trigger('change').trigger('blur')
+    } catch {
+      /* ignore */
+    }
     return Math.abs(Number(el.value) - Number(v)) < 0.001 || String(el.value) === v
+  }
+
+  /** Retry set until field shows the number (Manak often resets once). */
+  ManakFill.forceSetWeight = async function forceSetWeight(el, value, attempts = 4) {
+    if (!el) return false
+    const v = Number(value)
+    if (!(v > 0)) return false
+    // Prefer 3 decimals like Manak UI (333.070)
+    const formatted = Number.isInteger(v) ? String(v) : v.toFixed(3)
+    for (let i = 0; i < attempts; i++) {
+      ManakFill.setNativeValue(el, formatted)
+      await ManakFill.delay(180)
+      if (Math.abs(Number(el.value) - v) < 0.02) return true
+      ManakFill.setNativeValue(el, String(v))
+      await ManakFill.delay(180)
+      if (Math.abs(Number(el.value) - v) < 0.02) return true
+    }
+    return Math.abs(Number(el.value) - v) < 0.02
   }
 
   ManakFill.shortText = function shortText(el) {

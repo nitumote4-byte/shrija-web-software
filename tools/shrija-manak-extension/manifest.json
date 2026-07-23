@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "2.0.2",
-  "description": "AUTO fill when Lot already selected; click green badge to retry.",
+  "version": "2.0.3",
+  "description": "AUTO: Sample Drawn Save first, then Button Weight (Manak validation safe).",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",

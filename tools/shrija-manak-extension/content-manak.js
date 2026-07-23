@@ -264,47 +264,110 @@ async function stepSampleDrawn(sheet, flow) {
   const resolved = resolveFromSheet(sheet, flow.selectText, flow.lot)
   if (!resolved.rows.length) return showToast('Shrija AUTO: lot match nahi')
   const drawn = Number(resolved.rows[0]?.sampleDrawn || 0)
-  if (!(drawn > 0)) return showToast('Shrija AUTO: Sample Drawn 0')
+  if (!(drawn > 0)) return showToast('Shrija AUTO: Sample Drawn 0 sheet mein')
 
-  const { sampleDrawn } = MF.findSamplingInputs(document)
+  let { sampleDrawn } = MF.findSamplingInputs(document)
   if (!sampleDrawn) return showToast('Shrija AUTO: Sample Drawn field nahi mila')
 
-  if (!MF.setNativeValue(sampleDrawn, drawn)) {
-    return showToast('Shrija AUTO: Sample Drawn set fail (galat field block)')
+  const ok = await MF.forceSetWeight(sampleDrawn, drawn)
+  // Re-query after set (ASP.NET may replace node)
+  sampleDrawn = MF.findSamplingInputs(document).sampleDrawn || sampleDrawn
+  const sd = Number(sampleDrawn?.value || 0)
+  if (!ok || !(sd > 0)) {
+    return showToast(`Shrija AUTO: Sample Drawn set nahi hua (abhi ${sd}) — field lock / galat input`)
   }
 
   await storageSet({
     [FLOW_KEY]: { ...flow, step: 'button', drawn, at: Date.now() },
   })
-  showToast('Shrija AUTO: Sample Drawn → Save…')
+  showToast(`Shrija AUTO: Sample Drawn ${sd} → Save…`)
+  await MF.delay(250)
   const btn = MF.findSaveBeside(sampleDrawn)
   if (btn) btn.click()
   else showToast('Shrija AUTO: Sample Drawn Save button nahi mila')
 
-  await MF.delay(1500)
+  // Wait for postback OR same-page save; do NOT touch Button Weight until Sample Drawn > 0
+  await MF.delay(2000)
   if (!extAlive()) return
+
+  const after = MF.findSamplingInputs(document)
+  const sdAfter = Number(after.sampleDrawn?.value || 0)
+  if (!(sdAfter > 0)) {
+    // Postback cleared UI but server may have saved — still don't set Button yet; retry sample once
+    showToast('Shrija AUTO: Sample Drawn Save ke baad field 0 — dubara Sample…')
+    await storageSet({ [FLOW_KEY]: { ...flow, step: 'sample', drawn, at: Date.now() } })
+    await MF.delay(800)
+    const still0 = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
+    if (!(still0 > 0)) {
+      const el = MF.findSamplingInputs(document).sampleDrawn
+      await MF.forceSetWeight(el, drawn)
+      const b2 = MF.findSaveBeside(el)
+      if (b2) b2.click()
+      await MF.delay(2000)
+    }
+  }
+
   const still = (await storageGet([FLOW_KEY]))[FLOW_KEY]
-  if (still?.step === 'button') await stepButtonWeight(sheet, still)
+  if (still?.step === 'button' || still?.step === 'sample') {
+    await stepButtonWeight(sheet, { ...still, step: 'button', drawn })
+  }
 }
 
 async function stepButtonWeight(sheet, flow) {
   const drawn = Number(flow.drawn || 0)
-  const { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
-  if (sampleDrawn && Number(sampleDrawn.value) === 0 && drawn) {
-    MF.setNativeValue(sampleDrawn, drawn)
+  let { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
+
+  // Manak rule: Button Weight cannot be more than Sample Drawn — Sample MUST be > 0 first
+  let sd = Number(sampleDrawn?.value || 0)
+  if (!(sd > 0)) {
+    showToast('Shrija AUTO: Sample Drawn pehle chahiye (Button pehle nahi)…')
+    if (sampleDrawn) await MF.forceSetWeight(sampleDrawn, drawn)
+    sampleDrawn = MF.findSamplingInputs(document).sampleDrawn
+    sd = Number(sampleDrawn?.value || 0)
+    if (!(sd > 0)) {
+      await storageSet({ [FLOW_KEY]: { ...flow, step: 'sample', drawn, at: Date.now() } })
+      return stepSampleDrawn(sheet, { ...flow, step: 'sample', drawn })
+    }
+    const saveSd = MF.findSaveBeside(sampleDrawn)
+    if (saveSd) {
+      saveSd.click()
+      await MF.delay(2000)
+    }
+    sampleDrawn = MF.findSamplingInputs(document).sampleDrawn
+    sd = Number(sampleDrawn?.value || 0)
+    if (!(sd > 0)) {
+      // Keep value in DOM even if save postback pending
+      await MF.forceSetWeight(sampleDrawn, drawn)
+      sd = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
+    }
   }
+
+  if (!(sd > 0)) {
+    return showToast('Shrija AUTO: Sample Drawn 0 — Button Weight skip (Manak alert avoid)')
+  }
+
+  buttonWt = MF.findSamplingInputs(document).buttonWt
   if (!buttonWt) return showToast('Shrija AUTO: Button Weight field nahi mila')
-  if (!MF.setNativeValue(buttonWt, drawn)) return showToast('Shrija AUTO: Button Weight set fail')
+
+  // Must be <= Sample Drawn
+  const btnVal = Math.min(drawn > 0 ? drawn : sd, sd)
+  const okBtn = await MF.forceSetWeight(buttonWt, btnVal)
+  buttonWt = MF.findSamplingInputs(document).buttonWt || buttonWt
+  const bw = Number(buttonWt?.value || 0)
+  if (!okBtn || !(bw > 0) || bw > sd + 0.001) {
+    return showToast(`Shrija AUTO: Button Weight fail (bw=${bw}, sd=${sd})`)
+  }
 
   await storageSet({
-    [FLOW_KEY]: { ...flow, step: 'assay', at: Date.now() },
+    [FLOW_KEY]: { ...flow, step: 'assay', drawn, at: Date.now() },
   })
-  showToast('Shrija AUTO: Button Weight → Save…')
+  showToast(`Shrija AUTO: Button Weight ${bw} → Save…`)
+  await MF.delay(250)
   const btn = MF.findSaveBeside(buttonWt)
   if (btn) btn.click()
   else showToast('Shrija AUTO: Button Weight Save nahi mila')
 
-  await MF.delay(1500)
+  await MF.delay(2000)
   if (!extAlive()) return
   const still = (await storageGet([FLOW_KEY]))[FLOW_KEY]
   if (still?.step === 'assay') await stepAssay(sheet, still)
@@ -469,6 +532,22 @@ const onAssayPage = /Samplingweighting|Fire Assaying|Sample Drawn|Assaying Sheet
 )
 
 if (onAssayPage) {
+  // Soft-catch Manak validation while we still fix Sample Drawn first
+  try {
+    const _alert = window.alert.bind(window)
+    window.alert = function (msg) {
+      const m = String(msg || '')
+      if (/Button Weight can not be more than Sample Drawn/i.test(m)) {
+        showToast('Manak: Sample Drawn pehle Save — AUTO retry…')
+        window.__shrijaFillOnce = null
+        setTimeout(() => watchdogTick(), 600)
+        return
+      }
+      return _alert(msg)
+    }
+  } catch {
+    /* ignore */
+  }
   if (!MF) showToast('Shrija AUTO: manak-fill-lib load fail — Reload extension')
   setTimeout(bindLotAuto, 400)
   setTimeout(bindLotAuto, 1500)
