@@ -1667,6 +1667,44 @@ export const store = {
     return entry
   },
 
+  updateFund(
+    id: string,
+    patch: Partial<Omit<FundEntry, 'id' | 'voucherNo' | 'centreId' | 'centreKind'>>,
+  ) {
+    const data = load()
+    const row = data.funds.find((f) => f.id === id)
+    if (!row) return null
+    const oldParty = row.partyName || row.source
+    Object.assign(row, patch)
+    if (patch.partyName !== undefined) {
+      row.source = patch.partyName || row.source
+    } else if (patch.source !== undefined && !row.partyName) {
+      row.source = patch.source
+    }
+    const newParty = row.partyName || row.source
+    if (oldParty) applyInvoicePaymentStatuses(data, oldParty)
+    if (newParty && normPartyName(newParty) !== normPartyName(oldParty || '')) {
+      applyInvoicePaymentStatuses(data, newParty)
+    }
+    save(data)
+    return row
+  },
+
+  deleteFund(id: string) {
+    const data = load()
+    const row = data.funds.find((f) => f.id === id)
+    if (!row) return false
+    const party = row.partyName || row.source
+    data.funds = data.funds.filter((f) => f.id !== id)
+    if (party) applyInvoicePaymentStatuses(data, party)
+    save(data)
+    return true
+  },
+
+  getFundById(id: string) {
+    return store.getAll().funds.find((f) => f.id === id)
+  },
+
   addExpense(input: Omit<ExpenseEntry, 'id'>) {
     const data = load()
     const stamp = sessionCentreStamp()

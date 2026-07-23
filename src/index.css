@@ -4673,6 +4673,20 @@ button {
   color: var(--navy);
 }
 
+.fund-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.fund-delete-icon {
+  color: #b91c1c !important;
+}
+
+.fund-row-editing {
+  background: #f0fdf4;
+}
+
 .fund-form-actions {
   display: flex;
   gap: 0.65rem;

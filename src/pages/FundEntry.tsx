@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { History, PackageOpen, Plus, Printer, RefreshCw, X } from 'lucide-react'
+import { History, PackageOpen, Pencil, Plus, Printer, RefreshCw, Trash2, X } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { getInvoiceHeader } from '../data/firmProfile'
 import { calcPartyBalance, store, type FundEntry, type Party } from '../data/store'
@@ -169,6 +169,7 @@ export function FundEntry() {
   const [tick, setTick] = useState(0)
   void tick
 
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [partyQuery, setPartyQuery] = useState('')
   const [partyOpen, setPartyOpen] = useState(false)
   const [party, setParty] = useState<Party | null>(null)
@@ -184,11 +185,14 @@ export function FundEntry() {
 
   const header = getInvoiceHeader()
   const funds = data.funds
+  const editingFund = editingId ? funds.find((f) => f.id === editingId) : null
+
   const balance = useMemo(() => {
     void balanceKey
     if (!party) return 0
-    return partyBalance(party.name)
-  }, [party, balanceKey, tick])
+    // While editing, exclude this voucher so balance reflects other dues
+    return partyBalance(party.name, editingFund?.voucherNo)
+  }, [party, balanceKey, tick, editingFund?.voucherNo])
   const balanceView = formatBalanceLabel(balance)
 
   const partyOptions = useMemo(() => {
@@ -217,6 +221,7 @@ export function FundEntry() {
   }
 
   const reset = () => {
+    setEditingId(null)
     setParty(null)
     setPartyQuery('')
     setTxnType('Cash')
@@ -227,9 +232,49 @@ export function FundEntry() {
     setRemarks('')
   }
 
+  const startEdit = (f: FundEntry) => {
+    const name = f.partyName || f.source
+    const matched =
+      data.parties.find((p) => p.id === f.partyId) ||
+      data.parties.find((p) => p.name.toLowerCase() === name.toLowerCase()) ||
+      null
+    setEditingId(f.id)
+    setParty(matched)
+    setPartyQuery(matched?.name || name)
+    setTxnType(f.mode)
+    setDate(f.date || new Date().toISOString().slice(0, 10))
+    setAmount(String(f.amount ?? ''))
+    setChequeNo(f.chequeNo || '')
+    setBankName(f.bankName || '')
+    setRemarks(f.remarks || '')
+    setBalanceKey((k) => k + 1)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const removeFund = (f: FundEntry) => {
+    const name = f.partyName || f.source
+    const ok = window.confirm(
+      `Delete voucher #${f.voucherNo || '—'} for ${name} (${money(f.amount)})?\n\nThis cannot be undone.`,
+    )
+    if (!ok) return
+    if (!store.deleteFund(f.id)) {
+      toast('Could not delete voucher')
+      return
+    }
+    if (editingId === f.id) reset()
+    setTick((t) => t + 1)
+    setBalanceKey((k) => k + 1)
+    toast(`Voucher #${f.voucherNo || '—'} deleted`)
+  }
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!party) {
+    const partyName = (party?.name || partyQuery).trim()
+    if (!partyName) {
+      toast('Search and select a party')
+      return
+    }
+    if (!party && !editingId) {
       toast('Search and select a party')
       return
     }
@@ -238,12 +283,37 @@ export function FundEntry() {
       toast('Enter a valid amount')
       return
     }
-    const balanceBefore = partyBalance(party.name)
+
+    if (editingId) {
+      const updated = store.updateFund(editingId, {
+        date,
+        source: partyName,
+        partyId: party?.id || editingFund?.partyId,
+        partyName,
+        amount: amt,
+        mode: txnType,
+        remarks,
+        chequeNo,
+        bankName,
+      })
+      if (!updated) {
+        toast('Could not update voucher')
+        return
+      }
+      setTick((t) => t + 1)
+      setBalanceKey((k) => k + 1)
+      toast(`Transaction updated · Voucher #${updated.voucherNo}`)
+      setReceipt(buildReceiptView(updated))
+      reset()
+      return
+    }
+
+    const balanceBefore = partyBalance(partyName)
     const entry = store.addFund({
       date,
-      source: party.name,
-      partyId: party.id,
-      partyName: party.name,
+      source: partyName,
+      partyId: party!.id,
+      partyName,
       amount: amt,
       mode: txnType,
       remarks,
@@ -257,11 +327,10 @@ export function FundEntry() {
     setChequeNo('')
     setBankName('')
     setRemarks('')
-    // GoldShark: auto receipt popup after save
     setReceipt({
       voucherNo: entry.voucherNo,
       date: entry.date,
-      partyName: party.name,
+      partyName,
       mode: entry.mode,
       amount: entry.amount,
       bankName: entry.bankName,
@@ -295,12 +364,16 @@ export function FundEntry() {
       <div className="fund-layout">
         <section className="fund-card">
           <div className="fund-card-head">
-            <span className="fund-card-icon blue">
-              <Plus size={18} />
+            <span className={`fund-card-icon ${editingId ? 'green' : 'blue'}`}>
+              {editingId ? <Pencil size={18} /> : <Plus size={18} />}
             </span>
             <div>
-              <h2>New Transaction</h2>
-              <p>Record a new fund entry</p>
+              <h2>{editingId ? 'Edit Transaction' : 'New Transaction'}</h2>
+              <p>
+                {editingId
+                  ? `Modify voucher #${editingFund?.voucherNo || '—'}`
+                  : 'Record a new fund entry'}
+              </p>
             </div>
           </div>
 
@@ -371,7 +444,7 @@ export function FundEntry() {
             <div className="field">
               <label>Jeweller Name</label>
               <input
-                value={party?.name || ''}
+                value={party?.name || partyQuery || ''}
                 readOnly
                 placeholder="Select a party above"
                 className="table-input-disabled"
@@ -445,10 +518,10 @@ export function FundEntry() {
 
             <div className="fund-form-actions">
               <button type="submit" className="btn btn-navy">
-                Save Transaction
+                {editingId ? 'Update Transaction' : 'Save Transaction'}
               </button>
               <button type="button" className="btn btn-reset" onClick={reset}>
-                Reset
+                {editingId ? 'Cancel Edit' : 'Reset'}
               </button>
             </div>
           </form>
@@ -461,7 +534,7 @@ export function FundEntry() {
             </span>
             <div>
               <h2>Recent Transactions</h2>
-              <p>View latest fund entries</p>
+              <p>View, edit or delete fund entries</p>
             </div>
             <button
               type="button"
@@ -483,7 +556,7 @@ export function FundEntry() {
                   <th>AMOUNT</th>
                   <th>BANK</th>
                   <th>REMARKS</th>
-                  <th>PRINT</th>
+                  <th>ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -495,8 +568,8 @@ export function FundEntry() {
                     </td>
                   </tr>
                 ) : (
-                  funds.slice(0, 12).map((f) => (
-                    <tr key={f.id}>
+                  funds.slice(0, 20).map((f) => (
+                    <tr key={f.id} className={editingId === f.id ? 'fund-row-editing' : undefined}>
                       <td>#{f.voucherNo || '—'}</td>
                       <td>{f.mode}</td>
                       <td>{f.partyName || f.source}</td>
@@ -504,14 +577,32 @@ export function FundEntry() {
                       <td>{f.bankName || '—'}</td>
                       <td>{f.remarks || '—'}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="fund-print-icon"
-                          title="Print"
-                          onClick={() => openReceipt(f)}
-                        >
-                          <Printer size={16} />
-                        </button>
+                        <div className="fund-row-actions">
+                          <button
+                            type="button"
+                            className="fund-print-icon"
+                            title="Edit"
+                            onClick={() => startEdit(f)}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="fund-print-icon fund-delete-icon"
+                            title="Delete"
+                            onClick={() => removeFund(f)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="fund-print-icon"
+                            title="Print"
+                            onClick={() => openReceipt(f)}
+                          >
+                            <Printer size={15} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
