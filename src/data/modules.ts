@@ -79,6 +79,13 @@ export const modules: ModuleDef[] = [
     icon: FileSpreadsheet,
   },
   {
+    id: 'generated-bills',
+    title: 'Generated Bills',
+    description: 'View, update, print, PDF or delete generated invoices.',
+    path: '/generated-bills',
+    icon: Receipt,
+  },
+  {
     id: 'print-job-card',
     title: 'Print Job Card',
     description: 'Print job cards for lab and hallmarking tracking.',

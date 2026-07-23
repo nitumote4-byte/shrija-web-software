@@ -23,11 +23,13 @@ const ROLE_MODULES: Record<string, string[] | '*'> = {
     'add-party',
     'fund-entry',
     'billing',
+    'generated-bills',
     'print-job-card',
     'dashboard',
   ],
   accountant: [
     'billing',
+    'generated-bills',
     'fund-entry',
     'expense-entry',
     'reports',
@@ -58,6 +60,9 @@ export function canAccessPath(pathname: string): boolean {
   }
   if (path.startsWith('/touch-')) {
     return allowed.includes('touch-form') || allowed.includes('touch-billing') || allowed.includes('stock')
+  }
+  if (path === '/generated-bills' || path.startsWith('/billing')) {
+    return allowed.includes('billing') || allowed.includes('generated-bills')
   }
 
   const id = path.slice(1).split('/')[0]

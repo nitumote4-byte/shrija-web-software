@@ -1,111 +1,29 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { InvoiceChallan, type ChallanView } from '../components/InvoiceChallan'
 import { useToast } from '../components/ui'
-import { getFirmProfile } from '../data/firmProfile'
-import { store, type HallmarkRequest, type Party, type RoughSheetEntry } from '../data/store'
+import { store, type HallmarkRequest, type InvoiceLine, type RoughSheetEntry } from '../data/store'
 import { tenantGet } from '../data/tenant'
 
 type InvoiceSettings = {
   startFrom: string
   prefix: string
-  qrDataUrl: string
-  sealDataUrl: string
-  columns: Record<string, boolean>
   minBillCharges: boolean
-}
-
-type FirmProfile = {
-  firmName: string
-  email: string
-  address: string
-  gstNo: string
-  bankName: string
-  accountNo: string
-  ifsc: string
-  city: string
-  state: string
-}
-
-type LineItem = {
-  description: string
-  purity: string
-  pcsRec: number
-  hm: number
-  rej: number
-  melt: number
-  rate: number
-  amount: number
-}
-
-type BillPreview = {
-  request: HallmarkRequest
-  party?: Party
-  lines: LineItem[]
-  invoiceNo: string
-  date: string
-  weightReceived: number
-  sampleWeight: number
-  unusedSample: number
-  residueSample: number
-  weightReturned: number
-  taxable: number
-  cgst: number
-  sgst: number
-  igst: number
-  grandTotal: number
-  useIgst: boolean
 }
 
 function loadInvoiceSettings(): InvoiceSettings {
   const defaults: InvoiceSettings = {
     startFrom: '1',
     prefix: '',
-    qrDataUrl: '',
-    sealDataUrl: '',
-    columns: {
-      sno: true,
-      description: true,
-      purity: true,
-      pcsRec: true,
-      hm: true,
-      rej: true,
-      melt: true,
-      ratePcs: true,
-      amount: true,
-    },
     minBillCharges: false,
   }
   try {
     const raw = tenantGet('shrija-invoice-settings')
     if (!raw) return defaults
-    const parsed = JSON.parse(raw) as Partial<InvoiceSettings>
-    return {
-      ...defaults,
-      ...parsed,
-      columns: { ...defaults.columns, ...(parsed.columns || {}) },
-    }
+    return { ...defaults, ...(JSON.parse(raw) as Partial<InvoiceSettings>) }
   } catch {
     return defaults
   }
-}
-
-function loadFirm(): FirmProfile {
-  const saved = getFirmProfile()
-  return {
-    firmName: saved.firmName,
-    email: saved.email || '',
-    address: saved.address || '',
-    gstNo: saved.gstNo || '',
-    bankName: saved.bankName || 'ICICI BANK',
-    accountNo: saved.accountNo || '',
-    ifsc: saved.ifsc || '',
-    city: saved.city || '',
-    state: saved.state || '',
-  }
-}
-
-function money(n: number) {
-  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function nextInvoiceNo(prefix: string, startFrom: string, existingCount: number) {
@@ -119,7 +37,7 @@ function buildLines(
   rough: RoughSheetEntry[],
   rate: number,
   minBill: boolean,
-): LineItem[] {
+): InvoiceLine[] {
   const related = rough.filter(
     (r) =>
       r.requestNo === request.requestNo ||
@@ -129,7 +47,8 @@ function buildLines(
     return related.map((r) => {
       const pcs = r.pic || 0
       const rej = r.rejectPic || 0
-      const hm = Math.max(0, pcs - rej)
+      const melt = 0
+      const hm = Math.max(0, pcs - rej - melt)
       const amt = Number((hm * rate).toFixed(2))
       return {
         description: r.item || request.categoryName,
@@ -137,7 +56,7 @@ function buildLines(
         pcsRec: pcs,
         hm,
         rej,
-        melt: 0,
+        melt,
         rate,
         amount: amt,
       }
@@ -164,7 +83,6 @@ export function Billing() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
   const settings = loadInvoiceSettings()
-  const firm = loadFirm()
 
   const billable = data.requests.filter((r) =>
     ['Assayed', 'Hallmarked', 'In Progress', 'Pending', 'Billed'].includes(r.status),
@@ -173,8 +91,12 @@ export function Billing() {
 
   const [requestQuery, setRequestQuery] = useState('')
   const [selectedNo, setSelectedNo] = useState(requestOptions[0]?.requestNo ?? '')
-  const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [preview, setPreview] = useState<BillPreview | null>(null)
+  const [billDate, setBillDate] = useState(() => {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  })
+  const [preview, setPreview] = useState<ChallanView | null>(null)
   const [tick, setTick] = useState(0)
   void tick
 
@@ -216,19 +138,32 @@ export function Billing() {
     const weightReceived =
       related.reduce((s, r) => s + r.weight, 0) || request.weight
     const sampleWeight = related.reduce((s, r) => s + r.sampleWeight, 0)
+    const unusedSample = 0
+    const fireboxScrap = 0
+    const weightReturned = Number(
+      (weightReceived - sampleWeight + unusedSample - fireboxScrap).toFixed(3),
+    )
     const invoiceNo = nextInvoiceNo(settings.prefix, settings.startFrom, data.invoices.length)
+    const dateOnly = billDate.slice(0, 10)
 
-    const bill: BillPreview = {
-      request,
-      party,
-      lines,
+    const bill: ChallanView = {
       invoiceNo,
-      date: billDate,
+      date: dateOnly,
+      requestNo: request.requestNo,
+      requestDate: request.date,
+      partyName: party?.name || request.partyName,
+      partyAddress: party?.address || '',
+      partyGstin: party?.gstin || '',
+      partyCml: party?.licenseNo || '',
+      placeOfSupply: party?.state || '',
+      stateCode: party?.stateCode || '',
+      sac: '998346',
+      lines,
       weightReceived,
       sampleWeight,
-      unusedSample: 0,
-      residueSample: 0,
-      weightReturned: Number((weightReceived - sampleWeight).toFixed(3)),
+      unusedSample,
+      fireboxScrap,
+      weightReturned,
       taxable,
       cgst,
       sgst,
@@ -241,20 +176,38 @@ export function Billing() {
 
     if (persist) {
       store.addInvoice({
-        partyName: request.partyName,
-        requestNo: request.requestNo,
+        partyName: bill.partyName,
+        requestNo: bill.requestNo,
         amount: taxable,
         tax,
         total: grandTotal,
         status: 'Unpaid',
         invoiceNo,
-        date: billDate,
+        date: dateOnly,
+        requestDate: request.date,
+        partyId: party?.id,
+        partyAddress: bill.partyAddress,
+        partyGstin: bill.partyGstin,
+        partyCml: bill.partyCml,
+        placeOfSupply: bill.placeOfSupply,
+        stateCode: bill.stateCode,
+        sac: '998346',
+        lines,
+        weightReceived,
+        sampleWeight,
+        unusedSample,
+        fireboxScrap,
+        weightReturned,
+        cgst,
+        sgst,
+        igst,
+        useIgst,
       })
       if (request.status !== 'Billed' && request.status !== 'Delivered') {
         store.updateRequestStatus(request.id, 'Billed')
       }
       setTick((t) => t + 1)
-      toast(`Invoice ${invoiceNo} generated`)
+      toast(`Invoice ${invoiceNo} generated · data pushed`)
     } else {
       toast('Bill loaded')
     }
@@ -268,234 +221,63 @@ export function Billing() {
     window.print()
   }
 
-  const cols = settings.columns
-  const centreGst = firm.gstNo || '—'
-  const centreName = firm.firmName || 'Hallmarking Centre'
-
   return (
     <div className="billing-page">
-      <h1 className="billing-title">Billing</h1>
+      <div className="billing-title-row no-print">
+        <h1 className="billing-title">Invoice Generation</h1>
+        <Link to="/generated-bills" className="btn btn-secondary">
+          Generated Bills
+        </Link>
+      </div>
 
       <div className="billing-controls no-print">
-        <input
-          placeholder="Request number"
-          value={requestQuery}
-          onChange={(e) => setRequestQuery(e.target.value)}
-        />
-        <select
-          value={selectedNo}
-          onChange={(e) => {
-            setSelectedNo(e.target.value)
-            setRequestQuery(e.target.value)
-          }}
-          required
-          aria-label="Select Request Number"
-        >
-          <option value="">Select Request Number *</option>
-          {filteredOptions.map((r) => (
-            <option key={r.id} value={r.requestNo}>
-              {r.requestNo} — {r.partyName}
-            </option>
-          ))}
-        </select>
-        <input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} />
+        <label className="billing-field">
+          <span># Request Number</span>
+          <input
+            placeholder="Enter request number"
+            value={requestQuery}
+            onChange={(e) => setRequestQuery(e.target.value)}
+          />
+        </label>
+        <label className="billing-field">
+          <span>Select from List</span>
+          <select
+            value={selectedNo}
+            onChange={(e) => {
+              setSelectedNo(e.target.value)
+              setRequestQuery(e.target.value)
+            }}
+            aria-label="Select Request Number"
+          >
+            <option value="">Select Request Number</option>
+            {filteredOptions.map((r) => (
+              <option key={r.id} value={r.requestNo}>
+                {r.requestNo} — {r.partyName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="billing-field">
+          <span>Invoice Date & Time</span>
+          <input
+            type="datetime-local"
+            value={billDate}
+            onChange={(e) => setBillDate(e.target.value)}
+          />
+        </label>
         <button type="button" className="btn btn-navy" onClick={() => getBill(false)}>
-          Get
+          Get Data
         </button>
-        <button type="button" className="btn btn-navy" onClick={() => getBill(true)}>
-          Generate
+        <button type="button" className="btn btn-green" onClick={() => getBill(true)}>
+          Generate Invoice
         </button>
-        <button type="button" className="btn btn-navy" onClick={printBill}>
+        <button type="button" className="btn btn-secondary" onClick={printBill}>
           Print
         </button>
       </div>
 
-      <div className="invoice-sheet" id="invoice-print-area">
-        <div className="invoice-sheet-top">
-          <div>
-            <div className="invoice-gstin">CENTRE GSTIN: {centreGst}</div>
-          </div>
-          <h2>INVOICE CUM DELIVERY CHALLAN</h2>
-          <div className="invoice-format">FORMAT NO: F-30</div>
-        </div>
-
-        <div className="invoice-meta-grid">
-          <div className="invoice-party">
-            <div>
-              <span>M/s:</span> {preview?.party?.name || preview?.request.partyName || ''}
-            </div>
-            <div>
-              <span>C/o:</span> {preview?.party?.address?.split(',')[0] || ''}
-            </div>
-            <div>
-              <span>CML:</span> {preview?.party?.licenseNo || ''}
-            </div>
-            <div>
-              <span>CUSTOMER GSTIN:</span> {preview?.party?.gstin || ''}
-            </div>
-            <div>
-              <span>Place of Supply:</span> {preview?.party?.state || firm.state || ''}
-            </div>
-            <div>
-              <span>State Code:</span> {preview?.party?.stateCode || ''}
-            </div>
-          </div>
-          <div className="invoice-doc">
-            <div>
-              <span>Invoice No:</span> {preview?.invoiceNo || ''}
-            </div>
-            <div>
-              <span>Date:</span> {preview?.date || ''}
-            </div>
-            <div>
-              <span>SAC:</span> 998246
-            </div>
-            <div>
-              <span>Request No:</span> {preview?.request.requestNo || ''}
-            </div>
-            <div>
-              <span>Request Date:</span> {preview?.request.date || ''}
-            </div>
-          </div>
-        </div>
-
-        <table className="invoice-items">
-          <thead>
-            <tr>
-              {cols.sno !== false && <th>S No.</th>}
-              {cols.description !== false && <th>Description</th>}
-              {cols.purity !== false && <th>Purity</th>}
-              {cols.pcsRec !== false && <th>Pcs Rec</th>}
-              {cols.hm !== false && <th>HM</th>}
-              {cols.rej !== false && <th>Rej</th>}
-              {cols.melt !== false && <th>Melt</th>}
-              {cols.ratePcs !== false && <th>Rate For PCS</th>}
-              {cols.amount !== false && <th>Amount In RS</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {!preview || preview.lines.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="invoice-empty">
-                  &nbsp;
-                </td>
-              </tr>
-            ) : (
-              preview.lines.map((line, i) => (
-                <tr key={`${line.description}-${i}`}>
-                  {cols.sno !== false && <td>{i + 1}</td>}
-                  {cols.description !== false && <td>{line.description}</td>}
-                  {cols.purity !== false && <td>{line.purity}</td>}
-                  {cols.pcsRec !== false && <td>{line.pcsRec}</td>}
-                  {cols.hm !== false && <td>{line.hm}</td>}
-                  {cols.rej !== false && <td>{line.rej}</td>}
-                  {cols.melt !== false && <td>{line.melt}</td>}
-                  {cols.ratePcs !== false && <td>{money(line.rate)}</td>}
-                  {cols.amount !== false && <td>{money(line.amount)}</td>}
-                </tr>
-              ))
-            )}
-            <tr className="invoice-total-row">
-              <td
-                colSpan={
-                  [
-                    cols.sno !== false,
-                    cols.description !== false,
-                    cols.purity !== false,
-                    cols.pcsRec !== false,
-                    cols.hm !== false,
-                    cols.rej !== false,
-                    cols.melt !== false,
-                    cols.ratePcs !== false,
-                  ].filter(Boolean).length
-                }
-              >
-                <strong>Total</strong>
-              </td>
-              {cols.amount !== false && (
-                <td>
-                  <strong>{preview ? money(preview.taxable) : ''}</strong>
-                </td>
-              )}
-            </tr>
-          </tbody>
-        </table>
-
-        <div className="invoice-bottom-grid">
-          <div className="invoice-weights">
-            <div>
-              <span>Weight Received:</span> {preview ? preview.weightReceived.toFixed(3) : ''}
-            </div>
-            <div>
-              <span>Sample Weight:</span> {preview ? preview.sampleWeight.toFixed(3) : ''}
-            </div>
-            <div>
-              <span>Unused Sample Return:</span> {preview ? preview.unusedSample.toFixed(3) : ''}
-            </div>
-            <div>
-              <span>Wt. of Residue Sample Returned:</span>{' '}
-              {preview ? preview.residueSample.toFixed(3) : ''}
-            </div>
-            <div>
-              <span>Weight Returned:</span> {preview ? preview.weightReturned.toFixed(3) : ''}
-            </div>
-          </div>
-          <div className="invoice-tax">
-            <div>
-              <span>CGST @ 9.00 %</span>
-              <strong>{preview && !preview.useIgst ? money(preview.cgst) : '0.00'}</strong>
-            </div>
-            <div>
-              <span>SGST @ 9.00 %</span>
-              <strong>{preview && !preview.useIgst ? money(preview.sgst) : '0.00'}</strong>
-            </div>
-            <div>
-              <span>IGST @ 18.00 %</span>
-              <strong>{preview?.useIgst ? money(preview.igst) : '0.00'}</strong>
-            </div>
-            <div className="invoice-grand">
-              <span>Grand Total</span>
-              <strong>{preview ? money(preview.grandTotal) : ''}</strong>
-            </div>
-          </div>
-        </div>
-
-        <p className="invoice-received-note">
-          Received the precious Metal / Jewellery in satisfactory condition
-        </p>
-
-        <div className="invoice-sign-grid">
-          <div>
-            <div className="invoice-sign-label">CUSTOMER&apos;S SIGNATURE</div>
-            <label className="invoice-check">
-              <input type="checkbox" /> By Courier
-            </label>
-            <label className="invoice-check">
-              <input type="checkbox" /> By Hand
-            </label>
-          </div>
-          <div className="invoice-auth">
-            <div>FOR. {centreName}</div>
-            {settings.sealDataUrl ? (
-              <img src={settings.sealDataUrl} alt="Seal" className="invoice-seal" />
-            ) : (
-              <div className="invoice-sign-space" />
-            )}
-            <div className="invoice-sign-label">Authorized Signatory</div>
-          </div>
-        </div>
-
-        <div className="invoice-bank">
-          {firm.bankName || 'ICICI BANK'}
-          {firm.accountNo ? ` | AC No. ${firm.accountNo}` : ''}
-          {firm.ifsc ? ` | IFSC Code: ${firm.ifsc}` : ''}
-        </div>
-        {settings.qrDataUrl && (
-          <div className="invoice-qr">
-            <img src={settings.qrDataUrl} alt="Payment QR" />
-          </div>
-        )}
-      </div>
+      <h2 className="billing-preview-label no-print">Invoice Preview</h2>
+      <InvoiceChallan view={preview} />
 
       <div className="manual-actions no-print">
         <Link to="/" className="btn btn-reset">

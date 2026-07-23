@@ -2717,9 +2717,24 @@ button {
   margin: 0 auto;
 }
 
+.billing-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
 .billing-title {
-  margin: 0 0 0.85rem;
+  margin: 0;
   font-size: 1.35rem;
+  color: var(--navy);
+}
+
+.billing-preview-label {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
   color: var(--navy);
 }
 
@@ -2727,13 +2742,27 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
-  align-items: center;
+  align-items: flex-end;
   margin-bottom: 1rem;
   padding: 0.75rem 0.85rem;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow);
+}
+
+.billing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.billing-field-wide {
+  flex: 1 1 260px;
+  min-width: 220px;
 }
 
 .billing-controls input,
@@ -2750,6 +2779,87 @@ button {
   min-width: 220px;
 }
 
+.btn-orange {
+  background: #ea580c;
+  color: #fff;
+  border: none;
+}
+
+.btn-orange:hover {
+  background: #c2410c;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+}
+
+.btn-danger:hover {
+  background: #b91c1c;
+}
+
+.generated-edit-panel {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.generated-edit-panel h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--navy);
+}
+
+.generated-edit-weights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+}
+
+.generated-edit-weights label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.generated-edit-panel input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.invoice-centre-head {
+  text-align: center;
+  margin-bottom: 0.65rem;
+}
+
+.invoice-centre-head strong {
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.invoice-centre-addr {
+  font-size: 0.75rem;
+  color: #334155;
+  margin-top: 0.2rem;
+}
+
+.invoice-pcs-tot {
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
 .invoice-sheet {
   background: #fff;
   border: 1px solid #94a3b8;
@@ -2760,13 +2870,15 @@ button {
 }
 
 .invoice-sheet-top {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   margin-bottom: 0.85rem;
   border-bottom: 1px solid #cbd5e1;
   padding-bottom: 0.55rem;
+  position: relative;
 }
 
 .invoice-sheet-top h2 {
@@ -2774,6 +2886,7 @@ button {
   text-align: center;
   font-size: 1.05rem;
   letter-spacing: 0.02em;
+  flex: 1;
 }
 
 .invoice-gstin {
@@ -2782,7 +2895,9 @@ button {
 }
 
 .invoice-format {
-  text-align: right;
+  position: absolute;
+  right: 0;
+  top: 0;
   font-size: 0.75rem;
   font-weight: 700;
 }

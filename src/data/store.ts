@@ -75,6 +75,18 @@ export type RoughSheetEntry = {
   rejectPic?: number
 }
 
+/** Line on Invoice Cum Delivery Challan (persisted for reprint / update). */
+export type InvoiceLine = {
+  description: string
+  purity: string
+  pcsRec: number
+  hm: number
+  rej: number
+  melt: number
+  rate: number
+  amount: number
+}
+
 export type Invoice = {
   id: string
   invoiceNo: string
@@ -85,6 +97,27 @@ export type Invoice = {
   total: number
   status: 'Unpaid' | 'Paid' | 'Partial'
   date: string
+  /** Full challan snapshot — pushed to Railway with store flush */
+  requestDate?: string
+  partyId?: string
+  partyAddress?: string
+  partyGstin?: string
+  partyCml?: string
+  placeOfSupply?: string
+  stateCode?: string
+  sac?: string
+  lines?: InvoiceLine[]
+  weightReceived?: number
+  sampleWeight?: number
+  unusedSample?: number
+  /** Wt. of Firebox Sample Scrapped */
+  fireboxScrap?: number
+  weightReturned?: number
+  cgst?: number
+  sgst?: number
+  igst?: number
+  useIgst?: boolean
+  updatedAt?: string
 }
 
 export type FundEntry = {
@@ -922,19 +955,55 @@ export const store = {
     const data = load()
     const n = data.invoices.length + 1
     const inv: Invoice = {
-      partyName: input.partyName,
-      requestNo: input.requestNo,
-      amount: input.amount,
-      tax: input.tax,
-      total: input.total,
-      status: input.status,
+      ...input,
       id: uid('inv'),
       invoiceNo: input.invoiceNo || `INV-2026-${String(n).padStart(3, '0')}`,
       date: input.date || today(),
+      sac: input.sac || '998346',
+      updatedAt: new Date().toISOString(),
     }
     data.invoices.unshift(inv)
     save(data)
     return inv
+  },
+
+  updateInvoice(id: string, patch: Partial<Omit<Invoice, 'id'>>) {
+    const data = load()
+    const row = data.invoices.find((i) => i.id === id)
+    if (!row) return null
+    Object.assign(row, patch, { updatedAt: new Date().toISOString() })
+    if (row.amount != null && (row.cgst != null || row.sgst != null || row.igst != null)) {
+      row.tax = Number(((row.cgst || 0) + (row.sgst || 0) + (row.igst || 0)).toFixed(2))
+      row.total = Number((row.amount + row.tax).toFixed(2))
+    }
+    save(data)
+    return row
+  },
+
+  deleteInvoice(id: string) {
+    const data = load()
+    const before = data.invoices.length
+    data.invoices = data.invoices.filter((i) => i.id !== id)
+    if (data.invoices.length === before) return false
+    save(data)
+    return true
+  },
+
+  getInvoiceById(id: string) {
+    return load().invoices.find((i) => i.id === id)
+  },
+
+  findInvoices(query: { requestNo?: string; invoiceNo?: string }) {
+    const data = load().invoices
+    if (query.invoiceNo) {
+      const q = query.invoiceNo.trim().toLowerCase()
+      return data.filter((i) => i.invoiceNo.toLowerCase() === q)
+    }
+    if (query.requestNo) {
+      const q = query.requestNo.trim().toLowerCase()
+      return data.filter((i) => i.requestNo.toLowerCase() === q)
+    }
+    return data
   },
 
   addFund(input: Omit<FundEntry, 'id' | 'voucherNo'> & { voucherNo?: string }) {
