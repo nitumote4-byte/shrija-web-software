@@ -1,10 +1,14 @@
-# Shrija CG & Cornet — Manak Fill Extension v1.3.1
+# Shrija CG & Cornet — Manak Fill Extension v1.3.2
 
 Fills **BIS Manak Online → Fire Assaying Sheet** from Shrija **Create Sheet**.
 
+## Fix in 1.3.2
+
+Sample Drawn weight **Declared Purity** dropdown mein jaa raha tha. Ab fill sirf **Sampling Details** section ke short labels pe: Sample Drawn → Save, Button Weight → Save, phir M1/Silver/… (Declared Purity / Select2 block).
+
 ## Fix in 1.3.1
 
-Lot already selected (`Lot 1:104736831`) par bhi toast **"pehle Lot No select karo"** aa raha tha — label finder galat INPUT pakad raha tha. Ab dedicated Lot `<select>` + page Job Card Number fallback.
+Lot already selected par bhi **"pehle Lot No select karo"** — dedicated Lot `<select>` + Job Card fallback.
 
 ## Why "No Shrija sheet" happened
 

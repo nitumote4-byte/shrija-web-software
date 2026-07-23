@@ -11,6 +11,7 @@
  */
 const KEY = 'shrija-manak-fire-assay-sheet'
 const M2_PENDING_KEY = 'shrija-manak-m2-pending'
+const FLOW_KEY = 'shrija-manak-fill-flow'
 
 function delay(ms) {
   return new Promise((r) => setTimeout(r, ms))
@@ -18,6 +19,7 @@ function delay(ms) {
 
 function setNativeValue(el, value) {
   if (!el || value == null || value === '') return false
+  if (isUnsafeTarget(el)) return false
   const v = String(value)
   try {
     el.removeAttribute('readonly')
@@ -34,19 +36,156 @@ function setNativeValue(el, value) {
   el.dispatchEvent(new Event('change', { bubbles: true }))
   el.dispatchEvent(new Event('blur', { bubbles: true }))
   el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }))
-  // ASP.NET often listens to propertychange
   try {
     el.dispatchEvent(new Event('propertychange', { bubbles: true }))
   } catch {
     /* ignore */
   }
-  return true
+  return (
+    Math.abs(Number(el.value) - Number(v)) < 0.001 ||
+    String(el.value) === v ||
+    String(el.value).replace(/\.0+$/, '') === String(Number(v))
+  )
+}
+
+/** Reject Select2 / Declared Purity / wrong header fields */
+function isUnsafeTarget(el) {
+  if (!el || !/INPUT|TEXTAREA/.test(el.tagName)) return true
+  const t = (el.type || '').toLowerCase()
+  if (t === 'hidden' || t === 'button' || t === 'submit' || t === 'checkbox' || t === 'radio') return true
+  const idCls = `${el.id || ''} ${el.className || ''} ${el.name || ''} ${el.placeholder || ''}`
+  if (/select2|chosen|combobox|autocomplete|purity|ddlPurity|Declared/i.test(idCls)) return true
+  if (el.getAttribute('role') === 'combobox') return true
+  const near = ((el.closest('td, th, div, tr, li') || el.parentElement)?.textContent || '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120)
+  if (/Declared\s*Purity|Material\s*Category|Materials\b|Job\s*Card\s*Number/i.test(near)) {
+    if (!/Sample\s*Drawn|Button\s*Weight|Initial\s*weight|Silver|Copper|Lead|cornet|M1|M2/i.test(near)) {
+      return true
+    }
+  }
+  return false
+}
+
+function shortText(el) {
+  const own = Array.from(el.childNodes)
+    .filter((n) => n.nodeType === 3)
+    .map((n) => n.textContent || '')
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (own) return own
+  const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
+  return t.length <= 80 ? t : ''
+}
+
+function findSectionByTitle(titleRe) {
+  const nodes = Array.from(
+    document.querySelectorAll('td, th, div, span, legend, h1, h2, h3, h4, b, strong, font, label, p'),
+  )
+  for (const h of nodes) {
+    const t = shortText(h)
+    if (!t || !titleRe.test(t)) continue
+    const root =
+      h.closest('fieldset, table, .panel, .box, .card, .form-group, div[id*="Sampling"], div[id*="pnl"]') ||
+      h.parentElement?.parentElement ||
+      h.parentElement
+    if (root) return root
+  }
+  return null
+}
+
+/**
+ * Find numeric input next to a short label — scoped to a section.
+ * Never walks giant wrappers (that was putting 333.07 into Declared Purity).
+ */
+function findFieldByShortLabel(labelRe, sectionRoot) {
+  const root = sectionRoot || document
+  const candidates = Array.from(root.querySelectorAll('td, th, label, span, div, b, strong, font, p'))
+    .map((n) => ({ n, t: shortText(n) }))
+    .filter(({ t }) => t && labelRe.test(t))
+
+  for (const { n } of candidates) {
+    const tr = n.closest('tr')
+    if (tr) {
+      const inputs = Array.from(
+        tr.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
+      ).filter((el) => visible(el) && !isUnsafeTarget(el))
+      if (inputs[0]) return inputs[0]
+    }
+    let sib = n.nextElementSibling
+    for (let i = 0; i < 4 && sib; i++) {
+      const input =
+        sib.matches?.('input, textarea')
+          ? sib
+          : sib.querySelector?.('input:not([type="hidden"]):not([type="button"]):not([type="submit"])')
+      if (input && visible(input) && !isUnsafeTarget(input)) return input
+      sib = sib.nextElementSibling
+    }
+    const parent = n.parentElement
+    if (parent) {
+      const input = Array.from(
+        parent.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
+      ).find((el) => visible(el) && !isUnsafeTarget(el))
+      if (input) return input
+    }
+  }
+
+  // id/name within section
+  const scoped = Array.from(root.querySelectorAll('input, textarea')).filter(
+    (el) => visible(el) && !isUnsafeTarget(el),
+  )
+  return (
+    scoped.find((el) => labelRe.test(`${el.id || ''} ${el.name || ''} ${el.placeholder || ''}`)) || null
+  )
+}
+
+function findSamplingInputs() {
+  const section =
+    findSectionByTitle(/^Sampling Details$/i) ||
+    findSectionByTitle(/Sampling Details/i) ||
+    findSectionByTitle(/Sample Drawn Weight/i)
+
+  const sampleDrawn =
+    findFieldByShortLabel(/Sample Drawn Weight/i, section) ||
+    findFieldByShortLabel(/^Sample Drawn/i, section) ||
+    findInputByIdName(/sampledrawn|sample_drawn|txtSampleDrawn|SampleDrawn|DrawnWeight/i)
+
+  const buttonWt =
+    findFieldByShortLabel(/Button Weight/i, section) ||
+    findInputByIdName(/buttonweight|button_weight|txtButtonWeight|ButtonWeight/i)
+
+  // Final safety: never return Declared Purity
+  return {
+    sampleDrawn: sampleDrawn && !isUnsafeTarget(sampleDrawn) ? sampleDrawn : null,
+    buttonWt: buttonWt && !isUnsafeTarget(buttonWt) ? buttonWt : null,
+    section,
+  }
+}
+
+function findSaveBeside(input) {
+  if (!input) return null
+  const row = input.closest('tr, td, div, li, span') || input.parentElement
+  const scopes = [row, row?.parentElement, input.closest('table'), findSectionByTitle(/Sampling Details/i)].filter(
+    Boolean,
+  )
+  for (const scope of scopes) {
+    const btn = Array.from(
+      scope.querySelectorAll('input[type="button"], input[type="submit"], button, a'),
+    ).find((el) => {
+      const t = textOf(el)
+      return /^save$/i.test(t.trim()) || (/save/i.test(t) && !/initial|cornet|huid/i.test(t))
+    })
+    if (btn && visible(btn)) return btn
+  }
+  return null
 }
 
 function findInputByIdName(re) {
   return (
     allControls().find((el) => {
-      if (!/INPUT|TEXTAREA|SELECT/.test(el.tagName)) return false
+      if (!/INPUT|TEXTAREA/.test(el.tagName)) return false
+      if (isUnsafeTarget(el)) return false
       return re.test(`${el.id || ''} ${el.name || ''} ${el.className || ''}`)
     }) || null
   )
@@ -236,7 +375,9 @@ function columnInputs(headerRe) {
     for (const tr of bodyRows.slice(0, 4)) {
       const cells = Array.from(tr.querySelectorAll('td'))
       const cell = cells[col] || cells.find((c) => c.querySelector('input'))
-      const input = cell?.querySelector('input:not([type="hidden"])')
+      const input = Array.from(cell?.querySelectorAll('input:not([type="hidden"])') || []).find(
+        (el) => !isUnsafeTarget(el),
+      )
       inputs.push(input || null)
     }
     if (inputs.filter(Boolean).length >= 2) return inputs
@@ -329,42 +470,8 @@ function watchM2Unlock(m2Values) {
   }, 2000)
 }
 
-async function fillInitialPhase(sheet, preferredLot, selectText) {
-  const resolved = resolveStripRows(sheet, preferredLot, selectText)
-  if (!resolved.rows.length) {
-    showToast('Shrija: no matching Job/Lot in Create Sheet payload')
-    return false
-  }
-
-  const stripRows = resolved.rows
-  const first = stripRows[0]
+async function fillAssayInitialWeights(sheet, stripRows) {
   const cg = sheet.cg || {}
-
-  // ——— Step 1: Sampling Details ———
-  const drawn = first?.sampleDrawn
-  const sampleDrawnEl =
-    findInputByLabel(/Sample Drawn Weight/i) ||
-    findInputByLabel(/Sample Drawn/i) ||
-    findInputByIdName(/sampledrawn|sample_drawn|txtSampleDrawn|SampleDrawn/i)
-  const buttonWtEl =
-    findInputByLabel(/Button Weight/i) ||
-    findInputByIdName(/buttonweight|button_weight|txtButton|ButtonWeight/i)
-
-  setNativeValue(sampleDrawnEl, drawn)
-  await delay(400)
-  const saveDrawn = findSaveNear(/Sample Drawn/i)
-  if (saveDrawn) saveDrawn.click()
-  else clickByText(/^Save$/i)
-  await delay(900)
-
-  setNativeValue(buttonWtEl, drawn)
-  await delay(400)
-  const saveBtn = findSaveNear(/Button Weight/i)
-  if (saveBtn) saveBtn.click()
-  else clickByText(/^Save$/i)
-  await delay(1000)
-
-  // ——— Step 2: Initial weights (NOT M2 yet) ———
   const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
   const silvers = [stripRows[0]?.silver, stripRows[1]?.silver, cg.silverCg1, cg.silverCg2]
   const coppers = [0, 0, cg.copperCg1, cg.copperCg2]
@@ -377,17 +484,15 @@ async function fillInitialPhase(sheet, preferredLot, selectText) {
   const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
 
   const cols = collectAssayInputs()
+  let filledM1 = 0
   for (let i = 0; i < 4; i++) {
-    setNativeValue(cols.m1[i], m1s[i])
+    if (setNativeValue(cols.m1[i], m1s[i])) filledM1 += 1
     setNativeValue(cols.silver[i], silvers[i])
     setNativeValue(cols.copper[i], coppers[i])
     setNativeValue(cols.lead[i], leads[i])
   }
 
-  // Deltas (if editable before cornet save)
-  setNativeValue(findInputByLabel(/Avg\.?\s*Delta/i), cg.avgDelta)
-  setNativeValue(findInputByLabel(/Delta\s*1/i), cg.delta1)
-  setNativeValue(findInputByLabel(/Delta\s*2/i), cg.delta2)
+  // Do NOT fill Avg Delta / Declared Purity via label search — wrong targets on Manak.
 
   await delay(500)
   const savedInit =
@@ -396,20 +501,146 @@ async function fillInitialPhase(sheet, preferredLot, selectText) {
 
   showToast(
     savedInit
-      ? `Shrija: Lot ${resolved.lotNum || ''} sampling + initial weight saved. Wait for Manak timing — M2 will auto-fill.`
-      : `Shrija: initial fields filled. Click Save (Initial Weight), wait timing, M2 auto-fills.`,
+      ? `Shrija: M1 filled (${filledM1}/4) + Save Initial. Wait Manak timing — M2 auto-fill.`
+      : `Shrija: assay fields filled (M1 ${filledM1}/4). Click Save (Initial Weight).`,
     8000,
   )
 
-  // ——— Step 3: M2 after timing ———
-  // Never force-fill locked M2; wait until unlocked
-  if (isM2Unlocked(cols.m2)) {
-    await fillM2AndSave(m2s)
-  } else {
-    watchM2Unlock(m2s)
+  if (isM2Unlocked(cols.m2)) await fillM2AndSave(m2s)
+  else watchM2Unlock(m2s)
+  return true
+}
+
+async function fillInitialPhase(sheet, preferredLot, selectText) {
+  const resolved = resolveStripRows(sheet, preferredLot, selectText)
+  if (!resolved.rows.length) {
+    showToast('Shrija: no matching Job/Lot in Create Sheet payload')
+    return false
   }
 
-  return true
+  const stripRows = resolved.rows
+  const first = stripRows[0]
+  const drawn = first?.sampleDrawn
+  if (!(Number(drawn) > 0)) {
+    showToast('Shrija: Sample Drawn weight sheet mein 0 hai')
+    return false
+  }
+
+  const { sampleDrawn, buttonWt } = findSamplingInputs()
+  if (!sampleDrawn || !buttonWt) {
+    showToast(
+      !sampleDrawn
+        ? 'Shrija: Sample Drawn Weight field nahi mila (Declared Purity pe nahi likhenge)'
+        : 'Shrija: Button Weight field nahi mila',
+    )
+    return false
+  }
+
+  // ——— Step 1: Sample Drawn → Save ———
+  const okDrawn = setNativeValue(sampleDrawn, drawn)
+  if (!okDrawn || isUnsafeTarget(sampleDrawn)) {
+    showToast('Shrija: Sample Drawn galat field pe jaa raha tha — fill rok diya')
+    return false
+  }
+  await delay(350)
+  const saveDrawn = findSaveBeside(sampleDrawn)
+  if (saveDrawn) saveDrawn.click()
+  else showToast('Shrija: Sample Drawn ke paas Save button nahi mila — manually Save dabao')
+
+  // Persist flow — ASP.NET Save often reloads page
+  chrome.storage.local.set({
+    [FLOW_KEY]: {
+      step: 'button',
+      drawn: Number(drawn),
+      lot: resolved.lotNum,
+      selectText: selectText || `Lot ${resolved.lotNum}:${resolved.jobCard || ''}`,
+      jobCard: resolved.jobCard || '',
+      at: Date.now(),
+    },
+  })
+
+  await delay(1200)
+
+  // If page did not reload, continue Button Weight
+  return continueAfterSampleDrawn(sheet, stripRows, drawn, resolved)
+}
+
+async function continueAfterSampleDrawn(sheet, stripRows, drawn, resolved) {
+  const { sampleDrawn, buttonWt } = findSamplingInputs()
+  // Confirm Sample Drawn stuck (or accept if postback cleared verification)
+  if (sampleDrawn && Number(sampleDrawn.value) === 0) {
+    setNativeValue(sampleDrawn, drawn)
+    await delay(300)
+  }
+
+  if (!buttonWt || isUnsafeTarget(buttonWt)) {
+    showToast('Shrija: Button Weight field nahi mila')
+    return false
+  }
+
+  const okBtn = setNativeValue(buttonWt, drawn)
+  if (!okBtn) {
+    showToast('Shrija: Button Weight set nahi hua')
+    return false
+  }
+  await delay(350)
+  const saveBtn = findSaveBeside(buttonWt)
+  if (saveBtn) saveBtn.click()
+  else showToast('Shrija: Button Weight Save manually dabao')
+
+  chrome.storage.local.set({
+    [FLOW_KEY]: {
+      step: 'assay',
+      drawn: Number(drawn),
+      lot: resolved?.lotNum,
+      selectText: resolved ? `Lot ${resolved.lotNum}:${resolved.jobCard || ''}` : '',
+      jobCard: resolved?.jobCard || '',
+      at: Date.now(),
+    },
+  })
+
+  await delay(1200)
+
+  // Gate: do not touch Fire Assaying until sampling fields look filled
+  const again = findSamplingInputs()
+  const sd = Number(again.sampleDrawn?.value || 0)
+  const bw = Number(again.buttonWt?.value || 0)
+  if (sd <= 0 && bw <= 0) {
+    showToast('Shrija: pehle Sample Drawn + Button Weight Save karo (Manak alert). Phir Fill dubara.')
+    return false
+  }
+
+  chrome.storage.local.remove(FLOW_KEY)
+  return fillAssayInitialWeights(sheet, stripRows)
+}
+
+async function resumeFillFlow() {
+  const data = await new Promise((resolve) => {
+    chrome.storage.local.get([FLOW_KEY, KEY], (d) => resolve(d))
+  })
+  const flow = data[FLOW_KEY]
+  const sheet = data[KEY]
+  if (!flow || !sheet) return
+  if (Date.now() - (flow.at || 0) > 5 * 60 * 1000) {
+    chrome.storage.local.remove(FLOW_KEY)
+    return
+  }
+  if (!/Fire Assaying|Sampling|Sample Drawn/i.test(document.body?.innerText || '')) return
+
+  const resolved = resolveStripRows(sheet, flow.lot, flow.selectText || '')
+  if (!resolved.rows.length) return
+
+  showToast(`Shrija: resume ${flow.step}…`)
+  if (flow.step === 'button') {
+    await continueAfterSampleDrawn(sheet, resolved.rows, flow.drawn, resolved)
+  } else if (flow.step === 'assay') {
+    const { sampleDrawn, buttonWt } = findSamplingInputs()
+    if (Number(sampleDrawn?.value || 0) <= 0 && flow.drawn) setNativeValue(sampleDrawn, flow.drawn)
+    if (Number(buttonWt?.value || 0) <= 0 && flow.drawn) setNativeValue(buttonWt, flow.drawn)
+    await delay(400)
+    chrome.storage.local.remove(FLOW_KEY)
+    await fillAssayInitialWeights(sheet, resolved.rows)
+  }
 }
 
 function currentLotContext() {
@@ -543,6 +774,7 @@ const onAssayPage = /Fire Assaying|Samplingweighting|Sample Drawn|Assaying Sheet
 if (onAssayPage) {
   setTimeout(bindLotChange, 600)
   setTimeout(bindLotChange, 2000)
+  setTimeout(resumeFillFlow, 800)
   setTimeout(resumePendingM2, 1500)
   setTimeout(ensureFillButton, 1000)
 }
