@@ -5348,6 +5348,20 @@ table.data-table tr:hover td {
   padding: 1.25rem;
 }
 
+.cg-flow-hint {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.cg-flow-hint code {
+  font-size: 0.8rem;
+  background: #eef2f7;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
 .cg-form-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Shrija CG & Cornet (Manak Fill)",
+  "version": "1.0.0",
+  "description": "Fills BIS Manak Fire Assaying Sheet from Shrija Hallmark Suite Create Sheet payload (Gold Shark–style bridge).",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://huid.manakonline.in/*",
+    "https://newmanak.uat.dcservices.in/*",
+    "https://shrija-web-software.vercel.app/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://shrija-web-software.vercel.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content-shrija.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://huid.manakonline.in/*",
+        "https://newmanak.uat.dcservices.in/*"
+      ],
+      "js": ["content-manak.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Shrija → Manak Fire Assay"
+  }
+}

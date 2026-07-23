@@ -3,26 +3,26 @@ import { ArrowLeft, ArrowRight, Eye, Flame, FlaskConical, Hand } from 'lucide-re
 
 const options = [
   {
-    title: 'Cg Auto Fire Assay',
-    description: 'Automated fire assay process for Cg samples.',
-    path: '/create-fire-assay/cg-auto',
-    icon: FlaskConical,
-  },
-  {
-    title: 'Cornet Auto Fire Assay',
-    description: 'Automated fire assay for Cornet samples.',
+    title: 'Cornet Fire Assay',
+    description: 'CG weight + purity BIS auto-fill, Fill Jobs, Create Sheet → Manak.',
     path: '/create-fire-assay/cornet-auto',
     icon: Flame,
   },
   {
+    title: 'Cg Auto Fire Assay',
+    description: 'Same cornet sheet flow (CG stock + Manak bridge).',
+    path: '/create-fire-assay/cg-auto',
+    icon: FlaskConical,
+  },
+  {
     title: 'Cornet Fire Assay MS M2',
-    description: 'Automated fire assay for Cornet samples (MS M2).',
+    description: 'Cornet sheet variant (MS M2).',
     path: '/create-fire-assay/cornet-ms-m2',
     icon: Flame,
   },
   {
     title: 'Manual Fire Assay',
-    description: 'Manual fire assay procedures and documentation.',
+    description: 'Manual sheet with Excel template upload.',
     path: '/create-fire-assay/manual',
     icon: Hand,
   },

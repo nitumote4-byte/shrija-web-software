@@ -1,7 +1,22 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ui'
 import { store } from '../data/store'
+import {
+  copperForCg,
+  deltaMg,
+  expectedWotgcaa,
+  finenessPpt,
+  getBisDefaults,
+  sampleDrawnMgFromRequest,
+  splitSampleWeights,
+} from '../data/fireAssayBis'
+import {
+  MANAK_FIRE_ASSAY_URL,
+  publishManakFireAssaySheet,
+  type ManakFireAssaySheet,
+} from '../data/manakFireAssayBridge'
+import { loadCgWeights, markCgWeightsUsed, type CgWeightRow } from './CGWeight'
 
 type SheetRow = {
   key: string
@@ -15,6 +30,7 @@ type SheetRow = {
   meanFineness: string
   partyName: string
   requestNo: string
+  lotNo: number
 }
 
 type Mode = 'cg-auto' | 'cornet-auto' | 'cornet-ms-m2' | 'manual'
@@ -29,15 +45,24 @@ const MODE_META: Record<
   manual: { tab: 'Manual Fire Assay', assayType: 'Manual' },
 }
 
+function parseLotJobCard(raw: string): { lotNo: number; jobCard: string } {
+  const t = raw.trim()
+  const m = /^(\d+)\s*[_\-/]\s*(\d+)$/.exec(t)
+  if (m) return { lotNo: Number(m[1]), jobCard: m[2] }
+  return { lotNo: 1, jobCard: t }
+}
+
 function FireAssaySheet({ mode }: { mode: Mode }) {
   const data = store.getAll()
   const navigate = useNavigate()
   const { toast, Toast } = useToast()
   const meta = MODE_META[mode]
+  const excelInputRef = useRef<HTMLInputElement>(null)
+  const [cgTick, setCgTick] = useState(0)
 
-  const [purity, setPurity] = useState('916')
+  const [purity, setPurity] = useState('')
   const [shift, setShift] = useState('Day')
-  const [sheetNo, setSheetNo] = useState(`FS-${Date.now().toString().slice(-6)}`)
+  const [sheetNo, setSheetNo] = useState('1')
   const [noOfRows, setNoOfRows] = useState('22')
 
   const [silverCg1, setSilverCg1] = useState('')
@@ -48,41 +73,46 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   const [wotgcaa2, setWotgcaa2] = useState('')
   const [copperCg1, setCopperCg1] = useState('')
   const [copperCg2, setCopperCg2] = useState('')
-  const [cg1, setCg1] = useState('')
-  const [cg2, setCg2] = useState('')
+  const [cg1Id, setCg1Id] = useState('')
+  const [cg2Id, setCg2Id] = useState('')
 
   const [jobQuery, setJobQuery] = useState('')
   const [jobOpen, setJobOpen] = useState(false)
   const [selectedJobs, setSelectedJobs] = useState<string[]>([])
   const [rows, setRows] = useState<SheetRow[]>([])
-  const excelInputRef = useRef<HTMLInputElement>(null)
 
   const isCornet = mode === 'cornet-auto' || mode === 'cornet-ms-m2'
   const isManual = mode === 'manual'
 
-  // Cornet: CG1/CG2 are measured WOTGCAA text; WOTGCAA1/2 dropdowns are reference CG
+  const unusedCg = useMemo(() => {
+    void cgTick
+    return loadCgWeights()
+      .filter((r) => !r.used)
+      .filter((r) => !purity || !r.purity || r.purity === purity)
+      .sort((a, b) => b.id - a.id)
+  }, [cgTick, purity])
+
+  const cg1Row = unusedCg.find((r) => String(r.id) === cg1Id)
+  const cg2Row = unusedCg.find((r) => String(r.id) === cg2Id)
+  const cg1Val = cg1Row?.weight ?? 0
+  const cg2Val = cg2Row?.weight ?? 0
+
   const delta1 = useMemo(() => {
-    if (isCornet) {
-      if (!cg1 || !wotgcaa1) return ''
-      return ((Number(cg1) - Number(wotgcaa1)) * 1000).toFixed(3)
-    }
-    if (!wotgcaa1 || !cg1) return ''
-    return ((Number(wotgcaa1) - Number(cg1)) * 1000).toFixed(3)
-  }, [isCornet, wotgcaa1, cg1])
+    const w = Number(wotgcaa1)
+    if (!cg1Val || !w) return ''
+    return deltaMg(cg1Val, w).toFixed(3)
+  }, [cg1Val, wotgcaa1])
 
   const delta2 = useMemo(() => {
-    if (isCornet) {
-      if (!cg2 || !wotgcaa2) return ''
-      return ((Number(cg2) - Number(wotgcaa2)) * 1000).toFixed(3)
-    }
-    if (!wotgcaa2 || !cg2) return ''
-    return ((Number(wotgcaa2) - Number(cg2)) * 1000).toFixed(3)
-  }, [isCornet, wotgcaa2, cg2])
+    const w = Number(wotgcaa2)
+    if (!cg2Val || !w) return ''
+    return deltaMg(cg2Val, w).toFixed(3)
+  }, [cg2Val, wotgcaa2])
 
   const avgDelta = useMemo(() => {
     if (!delta1 && !delta2) return ''
     const vals = [delta1, delta2].filter(Boolean).map(Number)
-    if (vals.length === 0) return ''
+    if (!vals.length) return ''
     return (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(3)
   }, [delta1, delta2])
 
@@ -95,7 +125,8 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       return (
         r.requestNo.toLowerCase().includes(q) ||
         r.partyName.toLowerCase().includes(q) ||
-        r.categoryName.toLowerCase().includes(q)
+        r.categoryName.toLowerCase().includes(q) ||
+        (r.jobCardNo || '').toLowerCase().includes(q)
       )
     })
   }, [data.requests, jobQuery, selectedJobs])
@@ -104,43 +135,216 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     setSelectedJobs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  const createSheet = () => {
+  function autofillRows(
+    prev: SheetRow[],
+    pur: string,
+    avg: number,
+    silverStrip: number,
+    lead: number,
+  ): SheetRow[] {
+    const byReq = new Map<string, SheetRow[]>()
+    for (const r of prev) {
+      const k = r.requestNo || r.key
+      const list = byReq.get(k) || []
+      list.push(r)
+      byReq.set(k, list)
+    }
+    const out: SheetRow[] = []
+    let lot = 1
+    for (const [, group] of byReq) {
+      const jobCards = group.map((g) => g.jobCardNo)
+      const reqId = data.requests.find((x) => x.requestNo === group[0].requestNo)?.id || ''
+      if (reqId) {
+        const built = buildPairRows(reqId, group[0].lotNo || lot, avg, silverStrip, lead, pur)
+        built[0].jobCardNo = jobCards[0] || ''
+        built[1].jobCardNo = jobCards[1] || jobCards[0] || ''
+        out.push(...built)
+      } else {
+        out.push(
+          ...group.map((g) => ({
+            ...g,
+            silver: silverStrip.toFixed(1),
+            lead: lead.toFixed(1),
+          })),
+        )
+      }
+      lot += 1
+    }
+    return out
+  }
+
+  const buildPairRows = (
+    reqId: string,
+    lotNo: number,
+    avg: number,
+    silverStrip: number,
+    lead: number,
+    pur: string,
+  ): SheetRow[] => {
+    const req = data.requests.find((r) => r.id === reqId)
+    const rough =
+      data.roughSheets.find((r) => r.requestNo === req?.requestNo && r.status !== 'Rejected') ||
+      data.roughSheets.find((r) => r.jobCardNo && r.jobCardNo === req?.jobCardNo)
+    const drawn = sampleDrawnMgFromRequest(Number(rough?.sampleWeight) || 0, pur)
+    const [sw1, sw2] = splitSampleWeights(drawn)
+    const w1 = expectedWotgcaa(sw1, pur, avg, 0.02)
+    const w2 = expectedWotgcaa(sw2, pur, avg, -0.01)
+    const f1 = finenessPpt(sw1, w1)
+    const f2 = finenessPpt(sw2, w2)
+    const mean = Number(((f1 + f2) / 2).toFixed(3))
+    const base = {
+      partyName: req?.partyName || '',
+      requestNo: req?.requestNo || '',
+      lotNo,
+      jobCardNo: '',
+      silver: silverStrip.toFixed(1),
+      lead: lead.toFixed(1),
+    }
+    return [
+      {
+        key: `row-${Date.now()}-${lotNo}-a`,
+        sampleDrawn: drawn.toFixed(3),
+        sampleWeight: sw1.toFixed(3),
+        wotgcaa: w1.toFixed(3),
+        fineness: f1.toFixed(3),
+        meanFineness: '0.0',
+        ...base,
+      },
+      {
+        key: `row-${Date.now()}-${lotNo}-b`,
+        sampleDrawn: drawn.toFixed(3),
+        sampleWeight: sw2.toFixed(3),
+        wotgcaa: w2.toFixed(3),
+        fineness: f2.toFixed(3),
+        meanFineness: mean.toFixed(3),
+        ...base,
+      },
+    ]
+  }
+
+  /** Gold Shark: purity select → BIS requirements auto-fill. */
+  const applyPurityDefaults = (nextPurity: string, opts?: { quiet?: boolean }) => {
+    setPurity(nextPurity)
+    if (!nextPurity) return
+    const bis = getBisDefaults(nextPurity)
+    setSilverCg1(String(bis.silverCg1))
+    setSilverCg2(String(bis.silverCg2))
+    setLeadCg1(bis.lead.toFixed(1))
+    setLeadCg2(bis.lead.toFixed(1))
+
+    const stock = loadCgWeights()
+      .filter((r) => !r.used)
+      .filter((r) => !r.purity || r.purity === nextPurity)
+      .sort((a, b) => b.id - a.id)
+
+    let pick1: CgWeightRow | undefined
+    let pick2: CgWeightRow | undefined
+    if (stock.length >= 2) {
+      pick1 = stock[0]
+      pick2 = stock[1]
+    } else if (stock.length === 1) {
+      pick1 = stock[0]
+    }
+
+    if (pick1) {
+      setCg1Id(String(pick1.id))
+      setCopperCg1(String(copperForCg(pick1.weight, nextPurity)))
+      setWotgcaa1((pick1.weight - 0.05).toFixed(3))
+    } else {
+      setCg1Id('')
+      setCopperCg1('')
+      setWotgcaa1('')
+    }
+    if (pick2) {
+      setCg2Id(String(pick2.id))
+      setCopperCg2(String(copperForCg(pick2.weight, nextPurity)))
+      setWotgcaa2((pick2.weight - 0.03).toFixed(3))
+    } else {
+      setCg2Id('')
+      setCopperCg2('')
+      setWotgcaa2('')
+    }
+
+    setCgTick((t) => t + 1)
+
+    if (!opts?.quiet) {
+      if (stock.length === 0) {
+        toast('Purity set — add Unused CG weights in QM Stock → CG WEIGHT first')
+      } else if (stock.length <= 2) {
+        window.alert('You have last pair of CG.')
+        toast(`BIS fields filled for purity ${nextPurity}`)
+      } else {
+        toast(`BIS fields auto-filled for purity ${nextPurity}`)
+      }
+    }
+
+    setRows((prev) => {
+      if (!prev.length) return prev
+      return autofillRows(prev, nextPurity, Number(avgDelta) || 0, bis.silverStrip, bis.lead)
+    })
+  }
+
+  const onCgSelect = (which: 1 | 2, id: string) => {
+    if (which === 1) setCg1Id(id)
+    else setCg2Id(id)
+    const row = unusedCg.find((r) => String(r.id) === id)
+    if (!row || !purity) return
+    const cu = String(copperForCg(row.weight, purity))
+    if (which === 1) {
+      setCopperCg1(cu)
+      if (!wotgcaa1) setWotgcaa1((row.weight - 0.05).toFixed(3))
+    } else {
+      setCopperCg2(cu)
+      if (!wotgcaa2) setWotgcaa2((row.weight - 0.03).toFixed(3))
+    }
+  }
+
+  useEffect(() => {
+    if (!purity) return
+    if (cg1Val) setCopperCg1(String(copperForCg(cg1Val, purity)))
+    if (cg2Val) setCopperCg2(String(copperForCg(cg2Val, purity)))
+  }, [purity, cg1Val, cg2Val])
+
+  const fillJobs = () => {
+    if (!purity) {
+      toast('Select Purity first (BIS auto-fill)')
+      return
+    }
     if (selectedJobs.length === 0) {
       toast('Search and select at least one job')
       return
     }
-    const maxRows = Math.min(Number(noOfRows) || 22, selectedJobs.length)
-    const picked = selectedJobs.slice(0, maxRows)
+    const bis = getBisDefaults(purity)
     const avg = Number(avgDelta) || 0
-
-    const nextRows: SheetRow[] = picked.map((id, i) => {
-      const req = data.requests.find((r) => r.id === id)!
-      const sampleWt = 0.25
-      const silver = Number(silverCg1) || Number(silverCg2) || 2.5
-      const lead = Number(leadCg1) || Number(leadCg2) || 30
-      const declared = Number(req.purity) || Number(purity) || 916
-      // Deterministic: declared ppt + avg CG delta (no random — Gold Shark lab sheet)
-      const fineness = Number((declared + avg).toFixed(2))
-      const wotg = Number(((fineness / 1000) * sampleWt).toFixed(4))
-      return {
-        key: `row-${Date.now()}-${i}`,
-        sampleDrawn: sampleWt.toFixed(3),
-        jobCardNo: req.jobCardNo || `JC-${req.requestNo.slice(-4)}`,
-        sampleWeight: sampleWt.toFixed(3),
-        silver: silver.toFixed(3),
-        lead: lead.toFixed(3),
-        wotgcaa: wotg.toFixed(4),
-        fineness: fineness.toFixed(2),
-        meanFineness: fineness.toFixed(2),
-        partyName: req.partyName,
-        requestNo: req.requestNo,
-      }
+    const maxPairs = Math.max(1, Math.floor((Number(noOfRows) || 22) / 2))
+    const picked = selectedJobs.slice(0, maxPairs)
+    const next: SheetRow[] = []
+    picked.forEach((id, i) => {
+      next.push(...buildPairRows(id, i + 1, avg, bis.silverStrip, bis.lead, purity))
     })
+    setRows(next)
+    toast(
+      `Filled ${picked.length} job(s) · ${next.length} strip rows — enter Job Card No (lot_jobcard)`,
+    )
+  }
 
-    setRows(nextRows)
+  const createSheet = () => {
+    if (!purity) {
+      toast('Select Purity first')
+      return
+    }
+    if (rows.length === 0) {
+      toast('Fill Jobs first, then enter Job Card numbers')
+      return
+    }
+    const missingJc = rows.filter((r) => !r.jobCardNo.trim())
+    if (missingJc.length) {
+      toast('Enter Job Card No for all rows (e.g. 1_8080132061 for Lot 1)')
+      return
+    }
 
-    // Persist each as fire assay record
-    for (const row of nextRows) {
+    const avg = Number(avgDelta) || 0
+    for (const row of rows) {
       const req = data.requests.find((r) => r.requestNo === row.requestNo)
       if (!req) continue
       store.addFireAssay({
@@ -148,38 +352,101 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         partyName: req.partyName,
         sampleWeight: Number(row.sampleWeight),
         purityFound: Number(row.fineness),
-        declaredPurity: req.purity,
+        declaredPurity: purity,
         status: 'Completed',
-        analyst: 'Auto Lab',
+        analyst: 'Lab',
         assayType: meta.assayType,
-        assayNo: sheetNo,
+        assayNo: `FS-${sheetNo}`,
       })
       store.updateRequestStatus(req.id, 'Assayed')
     }
 
-    toast(`Sheet ${sheetNo} created · ${nextRows.length} row(s)`)
+    const ids = [Number(cg1Id), Number(cg2Id)].filter((n) => n > 0)
+    markCgWeightsUsed(ids)
+    setCgTick((t) => t + 1)
+
+    const sheet: ManakFireAssaySheet = {
+      version: 1,
+      source: 'shrija-hallmark-suite',
+      createdAt: new Date().toISOString(),
+      purity,
+      shift,
+      sheetNo: String(sheetNo),
+      assayType: meta.assayType,
+      cg: {
+        cg1Id: Number(cg1Id) || undefined,
+        cg2Id: Number(cg2Id) || undefined,
+        cg1: cg1Val,
+        cg2: cg2Val,
+        silverCg1: Number(silverCg1) || 0,
+        silverCg2: Number(silverCg2) || 0,
+        copperCg1: Number(copperCg1) || 0,
+        copperCg2: Number(copperCg2) || 0,
+        leadCg1: Number(leadCg1) || 4,
+        leadCg2: Number(leadCg2) || 4,
+        wotgcaa1: Number(wotgcaa1) || 0,
+        wotgcaa2: Number(wotgcaa2) || 0,
+        delta1: Number(delta1) || 0,
+        delta2: Number(delta2) || 0,
+        avgDelta: avg,
+      },
+      rows: rows.map((r) => {
+        const { lotNo, jobCard } = parseLotJobCard(r.jobCardNo)
+        return {
+          lotNo: r.lotNo || lotNo,
+          jobCardNo: r.jobCardNo.trim() || `${lotNo}_${jobCard}`,
+          sampleDrawn: Number(r.sampleDrawn) || 0,
+          sampleWeight: Number(r.sampleWeight) || 0,
+          silver: Number(r.silver) || 0,
+          copper: 0,
+          lead: Number(r.lead) || 4,
+          wotgcaa: Number(r.wotgcaa) || 0,
+          fineness: Number(r.fineness) || 0,
+          meanFineness: Number(r.meanFineness) || 0,
+          partyName: r.partyName,
+          requestNo: r.requestNo,
+        }
+      }),
+    }
+
+    publishManakFireAssaySheet(sheet)
+    try {
+      void navigator.clipboard.writeText(JSON.stringify(sheet, null, 2))
+    } catch {
+      /* ignore */
+    }
+
+    toast('Sheet created — Manak fill payload ready (extension / clipboard)')
+    window.open(MANAK_FIRE_ASSAY_URL, '_blank', 'noopener,noreferrer')
   }
 
   const updateRow = (key: string, patch: Partial<SheetRow>) => {
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.key !== key) return r
-        const next = { ...r, ...patch }
-        const sw = Number(next.sampleWeight)
-        const w = Number(next.wotgcaa)
-        if (sw > 0 && w > 0) {
-          next.fineness = ((w / sw) * 1000).toFixed(2)
-          next.meanFineness = next.fineness
+    setRows((prev) => {
+      const next = prev.map((r) => (r.key === key ? { ...r, ...patch } : r))
+      const byReq = new Map<string, number[]>()
+      next.forEach((r, idx) => {
+        const sw = Number(r.sampleWeight)
+        const w = Number(r.wotgcaa)
+        if (sw > 0 && w > 0) r.fineness = finenessPpt(sw, w).toFixed(3)
+        const k = r.requestNo || String(Math.floor(idx / 2))
+        const list = byReq.get(k) || []
+        list.push(idx)
+        byReq.set(k, list)
+      })
+      for (const idxs of byReq.values()) {
+        if (idxs.length < 2) continue
+        const a = next[idxs[0]]
+        const b = next[idxs[1]]
+        const mean = ((Number(a.fineness) + Number(b.fineness)) / 2).toFixed(3)
+        a.meanFineness = '0.0'
+        b.meanFineness = mean
+        if (patch.jobCardNo != null && (key === a.key || key === b.key)) {
+          a.jobCardNo = patch.jobCardNo
+          b.jobCardNo = patch.jobCardNo
         }
-        if (next.requestNo) {
-          store.updateFireAssayByRequestNo(next.requestNo, {
-            sampleWeight: Number(next.sampleWeight) || undefined,
-            purityFound: Number(next.fineness) || undefined,
-          })
-        }
-        return next
-      }),
-    )
+      }
+      return [...next]
+    })
   }
 
   const downloadTemplate = () => {
@@ -193,7 +460,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       'Fineness In PPT',
       'Mean Fineness In PPT',
     ]
-    const sample = ['0.250', 'JC-1001', '0.250', '2.500', '30.000', '0.2290', '', '']
+    const sample = ['330.310', '1_8080132061', '163.655', '373.3', '4.0', '150.135', '', '']
     const csv = [header.join(','), sample.join(',')].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -247,24 +514,24 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         const wotgcaa = c[5] || ''
         const sw = Number(sampleWeight)
         const w = Number(wotgcaa)
-        const fineness =
-          c[6] || (sw > 0 && w > 0 ? ((w / sw) * 1000).toFixed(2) : '')
+        const fineness = c[6] || (sw > 0 && w > 0 ? finenessPpt(sw, w).toFixed(3) : '')
         return {
           key: `upload-${Date.now()}-${i}`,
           sampleDrawn: c[0] || sampleWeight,
-          jobCardNo: c[1] || `JC-${1000 + i}`,
+          jobCardNo: c[1] || '',
           sampleWeight,
           silver: c[3] || '',
-          lead: c[4] || '',
+          lead: c[4] || '4.0',
           wotgcaa,
           fineness,
-          meanFineness: c[7] || fineness,
+          meanFineness: c[7] || (i % 2 === 1 ? fineness : '0.0'),
           partyName: '',
           requestNo: '',
+          lotNo: Math.floor(i / 2) + 1,
         }
       })
       setRows(nextRows)
-      toast(`Uploaded ${nextRows.length} row(s) from Excel/CSV`)
+      toast(`Uploaded ${nextRows.length} row(s)`)
     }
     reader.readAsText(file)
     if (excelInputRef.current) excelInputRef.current.value = ''
@@ -272,26 +539,33 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
   return (
     <div className="cg-assay-page">
-      {!isManual && (
-        <div className="cg-tabs">
-          <button
-            type="button"
-            className={`cg-tab ${mode === 'cg-auto' ? 'active' : ''}`}
-            onClick={() => navigate('/create-fire-assay/cg-auto')}
-          >
-            Cg Fire Assay
-          </button>
-          <button type="button" className="cg-tab" onClick={() => navigate('/create-fire-assay/manual')}>
-            Manual Fire Assay
-          </button>
-        </div>
-      )}
+      <div className="cg-tabs">
+        <button
+          type="button"
+          className={`cg-tab ${isCornet || mode === 'cg-auto' ? 'active' : ''}`}
+          onClick={() => navigate('/create-fire-assay/cornet-auto')}
+        >
+          Cornet Fire Assay
+        </button>
+        <button
+          type="button"
+          className={`cg-tab ${isManual ? 'active' : ''}`}
+          onClick={() => navigate('/create-fire-assay/manual')}
+        >
+          Manual Fire Assay
+        </button>
+      </div>
 
       <div className="panel cg-form-panel">
+        <p className="cg-flow-hint">
+          Flow: QM Stock → CG WEIGHT add → select Purity (BIS auto-fill) → Fill Jobs → paste Job
+          Card as 1_8080132061 (Lot_JobCard) → Create Sheet → Manak (extension).
+        </p>
         <div className="cg-form-grid">
           <div className="field">
             <label>Select Purity</label>
-            <select value={purity} onChange={(e) => setPurity(e.target.value)}>
+            <select value={purity} onChange={(e) => applyPurityDefaults(e.target.value)}>
+              <option value="">Select</option>
               {['999', '916', '750', '585', '925'].map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -302,6 +576,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           <div className="field">
             <label>Select Shift</label>
             <select value={shift} onChange={(e) => setShift(e.target.value)}>
+              <option value="">Select</option>
               <option>Day</option>
               <option>Night</option>
             </select>
@@ -309,17 +584,19 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           <div className="field">
             <label>Sheet no</label>
             <select value={sheetNo} onChange={(e) => setSheetNo(e.target.value)}>
-              <option value={sheetNo}>{sheetNo}</option>
-              <option value="FS-1001">FS-1001</option>
-              <option value="FS-1002">FS-1002</option>
-              <option value="FS-1003">FS-1003</option>
+              <option value="">Select</option>
+              {['1', '2', '3', '4', '5', '6', '7', '8'].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
             </select>
           </div>
           <div className="field">
             <label>No. of Rows</label>
             <input
               type="number"
-              min="1"
+              min="2"
               max="50"
               value={noOfRows}
               onChange={(e) => setNoOfRows(e.target.value)}
@@ -329,7 +606,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           <div className="field">
             <label>Silver CG1</label>
             <input
-              placeholder="Silver CG 1"
+              placeholder="Silver CG1"
               value={silverCg1}
               onChange={(e) => setSilverCg1(e.target.value)}
             />
@@ -337,15 +614,15 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           <div className="field">
             <label>Silver CG2</label>
             <input
-              placeholder="Silver CG 2"
+              placeholder="Silver CG2"
               value={silverCg2}
               onChange={(e) => setSilverCg2(e.target.value)}
             />
           </div>
           <div className="field">
-            <label>{isCornet || isManual ? 'Lead Cg1' : 'Lead CG1'}</label>
+            <label>Lead Cg1</label>
             <input
-              placeholder="Lead CG 1"
+              placeholder="Lead Cg1"
               value={leadCg1}
               onChange={(e) => setLeadCg1(e.target.value)}
             />
@@ -353,124 +630,67 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           <div className="field">
             <label>Lead CG2</label>
             <input
-              placeholder="Lead CG 2"
+              placeholder="Lead CG2"
               value={leadCg2}
               onChange={(e) => setLeadCg2(e.target.value)}
             />
           </div>
 
-          {isCornet ? (
-            <>
-              <div className="field">
-                <label>CG1</label>
-                <input
-                  placeholder="wotgca1"
-                  value={cg1}
-                  onChange={(e) => setCg1(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>CG2</label>
-                <input
-                  placeholder="wotgca2"
-                  value={cg2}
-                  onChange={(e) => setCg2(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Copper CG1</label>
-                <input
-                  placeholder="Copper CG1"
-                  value={copperCg1}
-                  onChange={(e) => setCopperCg1(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Copper CG2</label>
-                <input
-                  placeholder="Copper CG2"
-                  value={copperCg2}
-                  onChange={(e) => setCopperCg2(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>WOTGCAA1</label>
-                <select value={wotgcaa1} onChange={(e) => setWotgcaa1(e.target.value)}>
-                  <option value="">Select CG1</option>
-                  <option value="0.229">0.229</option>
-                  <option value="0.230">0.230</option>
-                  <option value="0.231">0.231</option>
-                  <option value="0.232">0.232</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>WOTGCAA2</label>
-                <select value={wotgcaa2} onChange={(e) => setWotgcaa2(e.target.value)}>
-                  <option value="">Select CG2</option>
-                  <option value="0.229">0.229</option>
-                  <option value="0.230">0.230</option>
-                  <option value="0.231">0.231</option>
-                  <option value="0.232">0.232</option>
-                </select>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="field">
-                <label>WOTGCAA1</label>
-                <input
-                  placeholder="wotgca1"
-                  value={wotgcaa1}
-                  onChange={(e) => setWotgcaa1(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>WOTGCAA2</label>
-                <input
-                  placeholder="wotgca2"
-                  value={wotgcaa2}
-                  onChange={(e) => setWotgcaa2(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Copper CG1</label>
-                <input
-                  placeholder={isManual ? 'Copper C' : 'Copper CG 1'}
-                  value={copperCg1}
-                  onChange={(e) => setCopperCg1(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>Copper CG2</label>
-                <input
-                  placeholder={isManual ? 'Copper C' : 'Copper CG 2'}
-                  value={copperCg2}
-                  onChange={(e) => setCopperCg2(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label>CG1</label>
-                <select value={cg1} onChange={(e) => setCg1(e.target.value)}>
-                  <option value="">Select CG1</option>
-                  <option value="0.229">0.229</option>
-                  <option value="0.230">0.230</option>
-                  <option value="0.231">0.231</option>
-                  <option value="0.232">0.232</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>CG2</label>
-                <select value={cg2} onChange={(e) => setCg2(e.target.value)}>
-                  <option value="">Select CG2</option>
-                  <option value="0.229">0.229</option>
-                  <option value="0.230">0.230</option>
-                  <option value="0.231">0.231</option>
-                  <option value="0.232">0.232</option>
-                </select>
-              </div>
-            </>
-          )}
+          <div className="field">
+            <label>WOTGCAA1</label>
+            <input
+              placeholder="WOTGCAA1"
+              value={wotgcaa1}
+              onChange={(e) => setWotgcaa1(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>WOTGCAA2</label>
+            <input
+              placeholder="WOTGCAA2"
+              value={wotgcaa2}
+              onChange={(e) => setWotgcaa2(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Copper CG1</label>
+            <input
+              placeholder="Copper CG1"
+              value={copperCg1}
+              onChange={(e) => setCopperCg1(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Copper CG2</label>
+            <input
+              placeholder="Copper CG2"
+              value={copperCg2}
+              onChange={(e) => setCopperCg2(e.target.value)}
+            />
+          </div>
 
+          <div className="field">
+            <label>CG1</label>
+            <select value={cg1Id} onChange={(e) => onCgSelect(1, e.target.value)}>
+              <option value="">Select CG1</option>
+              {unusedCg.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.weight.toFixed(3)} (#{r.id})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>CG2</label>
+            <select value={cg2Id} onChange={(e) => onCgSelect(2, e.target.value)}>
+              <option value="">Select CG2</option>
+              {unusedCg.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.weight.toFixed(3)} (#{r.id})
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="field">
             <label>Delta In Mg 1</label>
             <input placeholder="Delta1" value={delta1} readOnly className="table-input-disabled" />
@@ -479,7 +699,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
             <label>Delta In Mg 2</label>
             <input placeholder="Delta2" value={delta2} readOnly className="table-input-disabled" />
           </div>
-          <div className="field">
+          <div className="field" style={{ gridColumn: 'span 2' }}>
             <label>Average Delta In Mg</label>
             <input
               placeholder="average-delta"
@@ -507,7 +727,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
             />
             {jobOpen && jobOptions.length > 0 && (
               <div className="party-dropdown">
-                {jobOptions.slice(0, 8).map((r) => (
+                {jobOptions.slice(0, 10).map((r) => (
                   <button
                     key={r.id}
                     type="button"
@@ -524,6 +744,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
                     </strong>
                     <span>
                       {r.categoryName} · {r.weight}g · {r.purity}
+                      {r.jobCardNo ? ` · JC ${r.jobCardNo}` : ''}
                     </span>
                   </button>
                 ))}
@@ -546,10 +767,13 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
               })}
             </div>
           )}
-          <div className="cg-count">Count : {selectedJobs.length || ''}</div>
+          <div className="cg-count">Count: {selectedJobs.length || ''}</div>
         </div>
 
         <div className="form-actions">
+          <button type="button" className="btn btn-navy" onClick={fillJobs}>
+            Fill Jobs
+          </button>
           <button type="button" className="btn btn-navy" onClick={createSheet}>
             Create Sheet
           </button>
@@ -595,7 +819,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="empty-state" />
+                  <td colSpan={8} className="empty-state">
+                    Select purity → Fill Jobs. Job Card stays empty until you paste Manak lot nos.
+                  </td>
                 </tr>
               ) : (
                 rows.map((row) => (
@@ -607,7 +833,14 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
                         onChange={(e) => updateRow(row.key, { sampleDrawn: e.target.value })}
                       />
                     </td>
-                    <td>{row.jobCardNo}</td>
+                    <td>
+                      <input
+                        className="table-input"
+                        placeholder="Enter Job Card No"
+                        value={row.jobCardNo}
+                        onChange={(e) => updateRow(row.key, { jobCardNo: e.target.value })}
+                      />
+                    </td>
                     <td>
                       <input
                         className="table-input"
@@ -657,7 +890,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 }
 
 export function CgAutoFireAssay() {
-  return <FireAssaySheet mode="cg-auto" />
+  return <FireAssaySheet mode="cornet-auto" />
 }
 
 export function CornetAutoFireAssay() {

@@ -12,7 +12,7 @@ import { store } from '../data/store'
  * 3) Edit / Delete / Template upload / date+search filters
  */
 
-type CgWeightRow = {
+export type CgWeightRow = {
   id: number
   weight: number
   purity: string
@@ -21,10 +21,10 @@ type CgWeightRow = {
   tag?: string
 }
 
-const CG_WEIGHT_KEY = 'shrija-qm-cg-weights'
+export const CG_WEIGHT_KEY = 'shrija-qm-cg-weights'
 const CG_PURITIES = ['999', '916', '750', '585', '925']
 
-function loadCgWeights(): CgWeightRow[] {
+export function loadCgWeights(): CgWeightRow[] {
   try {
     const raw = tenantGet(CG_WEIGHT_KEY)
     if (!raw) return []
@@ -35,10 +35,18 @@ function loadCgWeights(): CgWeightRow[] {
   }
 }
 
-function saveCgWeights(rows: CgWeightRow[]) {
+export function saveCgWeights(rows: CgWeightRow[]) {
   tenantSet(CG_WEIGHT_KEY, JSON.stringify(rows))
   const unused = rows.filter((r) => !r.used).reduce((s, r) => s + r.weight, 0)
   store.upsertStockByName('QM cg weight unused', 'QM', Number(unused.toFixed(6)), 'g')
+}
+
+/** Mark CG stock rows used after they are consumed on a fire assay sheet. */
+export function markCgWeightsUsed(ids: number[]) {
+  if (!ids.length) return
+  const set = new Set(ids)
+  const next = loadCgWeights().map((r) => (set.has(r.id) ? { ...r, used: true } : r))
+  saveCgWeights(next)
 }
 
 function nextCgId(rows: CgWeightRow[]) {
