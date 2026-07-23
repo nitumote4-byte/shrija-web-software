@@ -9,11 +9,6 @@ type SheetRow = RoughSheetEntry & {
   dirty?: boolean
 }
 
-function calcCornet(weight: number, purity: string) {
-  const p = Number(purity) || 916
-  return Number(((weight * p) / 72.6).toFixed(3))
-}
-
 function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
   return entries.map((r) => ({
     ...r,
