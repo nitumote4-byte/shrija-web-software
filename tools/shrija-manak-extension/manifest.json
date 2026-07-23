@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "2.0.0",
-  "description": "AUTO: Create Sheet → Manak Lot select → all fields fill. No extra buttons.",
+  "version": "2.0.1",
+  "description": "AUTO: Create Sheet → Manak Lot select → fill. Safe after extension Reload.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",

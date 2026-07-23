@@ -9,37 +9,95 @@ const FLOW_KEY = 'shrija-manak-fill-flow'
 const MF = globalThis.ManakFill
 if (!MF) console.error('[Shrija] manak-fill-lib.js missing — reload extension')
 
+/** True while this content-script can still talk to the extension (false after Reload). */
+function extAlive() {
+  try {
+    return Boolean(chrome?.runtime?.id)
+  } catch {
+    return false
+  }
+}
+
 function showToast(msg, ms = 7000) {
-  const n = document.createElement('div')
-  n.textContent = msg
-  Object.assign(n.style, {
-    position: 'fixed',
-    top: '12px',
-    right: '12px',
-    zIndex: 999999,
-    background: '#0f2744',
-    color: '#fff',
-    padding: '10px 14px',
-    borderRadius: '8px',
-    font: '600 13px/1.35 system-ui,sans-serif',
-    boxShadow: '0 8px 24px rgba(0,0,0,.25)',
-    maxWidth: '380px',
-  })
-  document.body.appendChild(n)
-  setTimeout(() => n.remove(), ms)
+  try {
+    const n = document.createElement('div')
+    n.textContent = msg
+    Object.assign(n.style, {
+      position: 'fixed',
+      top: '12px',
+      right: '12px',
+      zIndex: 999999,
+      background: '#0f2744',
+      color: '#fff',
+      padding: '10px 14px',
+      borderRadius: '8px',
+      font: '600 13px/1.35 system-ui,sans-serif',
+      boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+      maxWidth: '380px',
+    })
+    document.body.appendChild(n)
+    setTimeout(() => n.remove(), ms)
+  } catch {
+    /* ignore */
+  }
 }
 
 function storageGet(keys) {
-  return new Promise((resolve) => chrome.storage.local.get(keys, resolve))
+  return new Promise((resolve) => {
+    if (!extAlive()) return resolve({})
+    try {
+      chrome.storage.local.get(keys, (data) => {
+        if (chrome.runtime.lastError) return resolve({})
+        resolve(data || {})
+      })
+    } catch {
+      resolve({})
+    }
+  })
 }
 function storageSet(obj) {
-  return new Promise((resolve) => chrome.storage.local.set(obj, resolve))
+  return new Promise((resolve) => {
+    if (!extAlive()) return resolve()
+    try {
+      chrome.storage.local.set(obj, () => {
+        void chrome.runtime.lastError
+        resolve()
+      })
+    } catch {
+      resolve()
+    }
+  })
 }
 function storageRemove(keys) {
-  return new Promise((resolve) => chrome.storage.local.remove(keys, resolve))
+  return new Promise((resolve) => {
+    if (!extAlive()) return resolve()
+    try {
+      chrome.storage.local.remove(keys, () => {
+        void chrome.runtime.lastError
+        resolve()
+      })
+    } catch {
+      resolve()
+    }
+  })
+}
+
+function stopTimers() {
+  if (window.__shrijaM2Timer) {
+    clearInterval(window.__shrijaM2Timer)
+    window.__shrijaM2Timer = null
+  }
+  if (window.__shrijaBadgeTimer) {
+    clearInterval(window.__shrijaBadgeTimer)
+    window.__shrijaBadgeTimer = null
+  }
 }
 
 function ensureStatusBadge() {
+  if (!extAlive()) {
+    stopTimers()
+    return
+  }
   let el = document.getElementById('shrija-manak-auto-status')
   if (!el) {
     el = document.createElement('div')
@@ -59,38 +117,52 @@ function ensureStatusBadge() {
     })
     document.body.appendChild(el)
   }
-  chrome.storage.local.get([KEY], (data) => {
-    const sheet = data[KEY]
-    const n = sheet?.rows?.length || sheet?.viewRows?.length || 0
-    if (n) {
-      el.style.background = '#15803d'
-      el.textContent = `AUTO · FS-${sheet.sheetNo || '?'} · ${n} rows — sirf Lot select karo`
-    } else {
-      el.style.background = '#b45309'
-      el.textContent = 'AUTO · No sheet — Shrija Create Sheet pehle'
-    }
-  })
+  try {
+    chrome.storage.local.get([KEY], (data) => {
+      if (!extAlive() || chrome.runtime.lastError) return
+      const sheet = data[KEY]
+      const n = sheet?.rows?.length || sheet?.viewRows?.length || 0
+      if (n) {
+        el.style.background = '#15803d'
+        el.textContent = `AUTO · FS-${sheet.sheetNo || '?'} · ${n} rows — sirf Lot select karo`
+      } else {
+        el.style.background = '#b45309'
+        el.textContent = 'AUTO · No sheet — Shrija Create Sheet pehle'
+      }
+    })
+  } catch {
+    stopTimers()
+  }
 }
 
 function watchM2Unlock(m2Values) {
+  if (!extAlive()) return
   chrome.storage.local.set({ [M2_PENDING_KEY]: { m2Values, at: Date.now() } })
   if (window.__shrijaM2Timer) clearInterval(window.__shrijaM2Timer)
   let tries = 0
   window.__shrijaM2Timer = setInterval(async () => {
+    if (!extAlive()) {
+      stopTimers()
+      return
+    }
     tries += 1
-    const cols = MF.collectAssayInputs(document)
-    const open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
-    if (open) {
-      cols.m2.forEach((el, i) => MF.setNativeValue(el, m2Values[i]))
-      await MF.delay(300)
-      MF.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
-      showToast('Shrija AUTO: M2 + Cornet Save')
-      clearInterval(window.__shrijaM2Timer)
-      window.__shrijaM2Timer = null
-      chrome.storage.local.remove(M2_PENDING_KEY)
-    } else if (tries > 180) {
-      clearInterval(window.__shrijaM2Timer)
-      window.__shrijaM2Timer = null
+    try {
+      const cols = MF.collectAssayInputs(document)
+      const open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
+      if (open) {
+        cols.m2.forEach((el, i) => MF.setNativeValue(el, m2Values[i]))
+        await MF.delay(300)
+        MF.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
+        showToast('Shrija AUTO: M2 + Cornet Save')
+        clearInterval(window.__shrijaM2Timer)
+        window.__shrijaM2Timer = null
+        await storageRemove(M2_PENDING_KEY)
+      } else if (tries > 180) {
+        clearInterval(window.__shrijaM2Timer)
+        window.__shrijaM2Timer = null
+      }
+    } catch {
+      stopTimers()
     }
   }, 2000)
 }
@@ -120,8 +192,8 @@ async function stepSampleDrawn(sheet, flow) {
   if (btn) btn.click()
   else showToast('Shrija AUTO: Sample Drawn Save button nahi mila')
 
-  // If no postback, continue after short wait
   await MF.delay(1500)
+  if (!extAlive()) return
   const still = (await storageGet([FLOW_KEY]))[FLOW_KEY]
   if (still?.step === 'button') await stepButtonWeight(sheet, still)
 }
@@ -144,6 +216,7 @@ async function stepButtonWeight(sheet, flow) {
   else showToast('Shrija AUTO: Button Weight Save nahi mila')
 
   await MF.delay(1500)
+  if (!extAlive()) return
   const still = (await storageGet([FLOW_KEY]))[FLOW_KEY]
   if (still?.step === 'assay') await stepAssay(sheet, still)
 }
@@ -153,15 +226,13 @@ async function stepAssay(sheet, flow) {
   if (!resolved.rows.length) return showToast('Shrija AUTO: assay lot match nahi')
 
   const { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
-  const sd = Number(sampleDrawn?.value || 0)
-  const bw = Number(buttonWt?.value || 0)
   const drawn = Number(flow.drawn || 0)
-  if (sd <= 0 && drawn) MF.setNativeValue(sampleDrawn, drawn)
-  if (bw <= 0 && drawn) MF.setNativeValue(buttonWt, drawn)
+  if (Number(sampleDrawn?.value || 0) <= 0 && drawn) MF.setNativeValue(sampleDrawn, drawn)
+  if (Number(buttonWt?.value || 0) <= 0 && drawn) MF.setNativeValue(buttonWt, drawn)
 
-  // Re-check — Manak blocks initial save if sampling empty
-  const sd2 = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
-  const bw2 = Number(MF.findSamplingInputs(document).buttonWt?.value || 0)
+  const again = MF.findSamplingInputs(document)
+  const sd2 = Number(again.sampleDrawn?.value || 0)
+  const bw2 = Number(again.buttonWt?.value || 0)
   if (sd2 <= 0 && bw2 <= 0) {
     showToast('Shrija AUTO: Sampling abhi 0 — pehle Sample/Button Save hona chahiye')
     await storageSet({ [FLOW_KEY]: { ...flow, step: 'sample', at: Date.now() } })
@@ -215,6 +286,7 @@ async function stepAssay(sheet, flow) {
 }
 
 async function runAutoFill(selectText, preferredLot) {
+  if (!extAlive() || !MF) return
   if (window.__shrijaFilling) return
   window.__shrijaFilling = true
   try {
@@ -241,6 +313,7 @@ async function runAutoFill(selectText, preferredLot) {
 }
 
 async function resumeFlow() {
+  if (!extAlive() || !MF) return
   const data = await storageGet([FLOW_KEY, KEY, M2_PENDING_KEY])
   if (data[M2_PENDING_KEY]?.m2Values) watchM2Unlock(data[M2_PENDING_KEY].m2Values)
 
@@ -252,7 +325,6 @@ async function resumeFlow() {
     return
   }
 
-  // Re-bind lot text if dropdown still has selection
   const sel = MF.findLotSelect(document)
   if (sel && sel.selectedIndex > 0) {
     flow.selectText = sel.options[sel.selectedIndex]?.text || flow.selectText
@@ -265,10 +337,12 @@ async function resumeFlow() {
 }
 
 function bindLotAuto() {
+  if (!MF || !extAlive()) return
   const sel = MF.findLotSelect(document)
   if (!sel || sel.dataset.shrijaAutoBound) return
   sel.dataset.shrijaAutoBound = '1'
   sel.addEventListener('change', () => {
+    if (!extAlive()) return
     const opt = sel.options[sel.selectedIndex]
     const text = (opt?.text || '').trim()
     const parsed = MF.parseLotOptionText(text)
@@ -277,13 +351,18 @@ function bindLotAuto() {
   })
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'SHRIJA_FILL_MANAK_NOW') {
-    const sel = MF.findLotSelect(document)
-    const text = sel?.options?.[sel.selectedIndex]?.text || ''
-    runAutoFill(text)
-  }
-})
+try {
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (!extAlive()) return
+    if (msg?.type === 'SHRIJA_FILL_MANAK_NOW') {
+      const sel = MF.findLotSelect(document)
+      const text = sel?.options?.[sel.selectedIndex]?.text || ''
+      runAutoFill(text)
+    }
+  })
+} catch {
+  /* context already dead */
+}
 
 const onAssayPage = /Samplingweighting|Fire Assaying|Sample Drawn|Assaying Sheet/i.test(
   `${location.href} ${document.body?.innerText || ''}`,
@@ -294,13 +373,19 @@ if (onAssayPage && MF) {
   setTimeout(bindLotAuto, 1500)
   setTimeout(bindLotAuto, 4000)
   setTimeout(ensureStatusBadge, 500)
-  setInterval(ensureStatusBadge, 2500)
-  // Resume after ASP.NET Save postback BEFORE auto-firing on existing lot
+  window.__shrijaBadgeTimer = setInterval(() => {
+    if (!extAlive()) {
+      stopTimers()
+      return
+    }
+    ensureStatusBadge()
+  }, 2500)
   setTimeout(resumeFlow, 900)
 
   setTimeout(() => {
-    // Only auto-start from existing lot if no pending flow
+    if (!extAlive()) return
     chrome.storage.local.get([FLOW_KEY], (d) => {
+      if (!extAlive() || chrome.runtime.lastError) return
       if (d[FLOW_KEY]) return
       const sel = MF.findLotSelect(document)
       if (!sel || sel.selectedIndex <= 0) return
