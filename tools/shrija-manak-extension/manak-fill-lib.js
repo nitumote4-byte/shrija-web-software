@@ -142,11 +142,19 @@
     return Math.abs(Number(el.value) - num) < 0.05 || String(el.value).includes(String(Math.floor(num)))
   }
 
-  /** Prefer scan simulation (Fire Assaying); fall back to native set. */
-  ManakFill.forceSetWeight = async function forceSetWeight(el, value, attempts = 3) {
+  /** Prefer scan simulation (Fire Assaying); fall back to native set.
+   *  opts.skipIfFilled — don't overwrite field that already has a weight (>0).
+   *  opts.force — overwrite anyway (badge retry).
+   */
+  ManakFill.forceSetWeight = async function forceSetWeight(el, value, attempts = 3, opts = {}) {
     if (!el) return false
     const v = Number(value)
     if (!(v > 0)) return false
+    const cur = Number(el.value || 0)
+    if (!opts.force && opts.skipIfFilled !== false && cur > 0.01) {
+      // Already filled — keep Manak/user value
+      return true
+    }
     for (let i = 0; i < attempts; i++) {
       const okScan = await ManakFill.setByScanWeight(el, v)
       if (okScan) return true
