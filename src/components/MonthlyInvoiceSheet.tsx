@@ -203,9 +203,9 @@ export function MonthlyInvoiceSheet({
           </div>
         </div>
         <div className="invoice-bank">
-          {firm.bankName || 'ICICI BANK'}
-          {firm.accountNo ? ` | AC No. ${firm.accountNo}` : ''}
-          {firm.ifsc ? ` | IFSC Code: ${firm.ifsc}` : ''}
+          {header.bankName || 'ICICI BANK'}
+          {header.accountNo ? ` | AC No. ${header.accountNo}` : ''}
+          {header.ifsc ? ` | IFSC Code: ${header.ifsc}` : ''}
         </div>
       </div>
     </div>
