@@ -1,138 +1,540 @@
 import { useMemo, useState } from 'react'
-import { PageHeader } from '../components/PageHeader'
-import { statusBadge, useToast } from '../components/ui'
-import { store, type HallmarkRequest } from '../data/store'
+import { Link } from 'react-router-dom'
+import { CloudUpload } from 'lucide-react'
+import { useToast } from '../components/ui'
+import { store, type RoughSheetEntry } from '../data/store'
 
-const STATUSES: HallmarkRequest['status'][] = [
-  'Pending',
-  'In Progress',
-  'Assayed',
-  'Hallmarked',
-  'Billed',
-  'Delivered',
-]
+const SAMPLING_METHODS = ['Cutting', 'Drill', 'Cut', 'Scrap', 'Touch'] as const
 
+type SheetRow = RoughSheetEntry & {
+  checked: boolean
+  dirty?: boolean
+  /** Keep raw sample-weight text so formats like .374 stay while typing */
+  sampleWeightText: string
+}
+
+/** Accept 0.350, .374, 0.123, 1.23, etc. */
+function parseSampleWeight(raw: string): number | null {
+  const t = raw.trim()
+  if (!t) return 0
+  if (!/^\d*\.?\d+$/.test(t) && !/^\.\d+$/.test(t)) return null
+  const n = Number(t.startsWith('.') ? `0${t}` : t)
+  return Number.isFinite(n) ? n : null
+}
+
+function formatSampleWeight(n: number) {
+  if (!n) return '0.000'
+  const s = String(n)
+  if (s.includes('.')) return s
+  return n.toFixed(3)
+}
+
+function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
+  return entries.map((r) => ({
+    ...r,
+    jobCardNo: r.jobCardNo || '',
+    jobCardSaved: Boolean(r.jobCardSaved),
+    co: r.co || '',
+    sampleTagId: r.sampleTagId || '',
+    sampleQty: r.sampleQty ?? 1,
+    samplingMethod: r.samplingMethod || '',
+    cornet: r.cornet ?? 0,
+    rejectPic: r.rejectPic ?? 0,
+    sampleWeightText: formatSampleWeight(Number(r.sampleWeight) || 0),
+    checked: false,
+    dirty: false,
+  }))
+}
+
+function persistRow(row: SheetRow, markSaved: boolean) {
+  const jobCardNo = (row.jobCardNo || '').trim()
+  const sw = parseSampleWeight(row.sampleWeightText)
+  store.updateRoughSheetRow(row.id, {
+    jobCardNo,
+    jobCardSaved: markSaved ? Boolean(jobCardNo) : Boolean(row.jobCardSaved && jobCardNo),
+    co: row.co,
+    sampleWeight: sw ?? (Number(row.sampleWeight) || 0),
+    sampleQty: Number(row.sampleQty) || 0,
+    sampleTagId: (row.sampleTagId || '').trim(),
+    samplingMethod: row.samplingMethod || '',
+    cornet: Number(row.cornet) || 0,
+    rejectPic: Number(row.rejectPic) || 0,
+    weight: Number(row.weight) || 0,
+  })
+}
+
+/**
+ * Gold Shark QM Daily Sheet (qm_daily_sheet.php)
+ * Editable: Job Card, Sample Weight, Sample Tag Id, Sampling Method (dropdown)
+ * Flow: edit → Save / Save All → Complete
+ */
 export function QMRequestList() {
   const { toast, Toast } = useToast()
+
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [shift, setShift] = useState('Day')
+  const [metal, setMetal] = useState('')
+  const [purity, setPurity] = useState('')
+  const [status, setStatus] = useState('')
+  const [requestNo, setRequestNo] = useState('')
+  const [jobCardQ, setJobCardQ] = useState('')
+  const [bulkMethod, setBulkMethod] = useState('')
+  const [editMode, setEditMode] = useState(true)
   const [tick, setTick] = useState(0)
-  const requests = store.getAll().requests
-  const [q, setQ] = useState('')
-  const [status, setStatus] = useState('All')
+  const [rows, setRows] = useState<SheetRow[]>(() => toSheetRows(store.getAll().roughSheets))
+
+  const reload = () => {
+    setRows(toSheetRows(store.getAll().roughSheets))
+    setTick((t) => t + 1)
+  }
+
   void tick
 
   const filtered = useMemo(() => {
-    return requests.filter((r) => {
-      const matchQ =
-        !q ||
-        r.requestNo.toLowerCase().includes(q.toLowerCase()) ||
-        r.partyName.toLowerCase().includes(q.toLowerCase())
-      const matchS = status === 'All' || r.status === status
-      return matchQ && matchS
-    })
-  }, [requests, q, status])
-
-  const setRowStatus = (id: string, next: HallmarkRequest['status']) => {
-    store.updateRequestStatus(id, next)
-    // Mirror on rough sheet when hallmarking completes
-    const req = store.getAll().requests.find((r) => r.id === id)
-    if (req?.requestNo && next === 'Hallmarked') {
-      const rough = store.getAll().roughSheets.filter((r) => r.requestNo === req.requestNo)
-      if (rough.length) {
-        store.updateRoughSheetStatus(
-          rough.map((r) => r.id),
-          'Completed',
-        )
+    return rows.filter((r) => {
+      if (date && r.date !== date) return false
+      if (shift && r.shift !== shift) return false
+      if (purity && r.purity !== purity) return false
+      if (status && r.status !== status) return false
+      if (metal) {
+        const m = r.purity === '925' ? 'Silver' : 'Gold'
+        if (m !== metal) return false
       }
+      if (requestNo && !(r.requestNo || '').toLowerCase().includes(requestNo.trim().toLowerCase())) {
+        return false
+      }
+      if (jobCardQ && !(r.jobCardNo || '').toLowerCase().includes(jobCardQ.trim().toLowerCase())) {
+        return false
+      }
+      return true
+    })
+  }, [rows, date, shift, metal, purity, status, requestNo, jobCardQ])
+
+  const allChecked = filtered.length > 0 && filtered.every((r) => r.checked)
+  const selected = filtered.filter((r) => r.checked)
+  const selectedIds = selected.map((r) => r.id)
+
+  const totals = useMemo(() => {
+    return filtered.reduce(
+      (acc, r) => {
+        acc.pic += r.pic
+        acc.weight += r.weight
+        acc.sampleWeight += parseSampleWeight(r.sampleWeightText) ?? 0
+        acc.sampleQty += r.sampleQty
+        acc.cornet += Number(r.cornet) || 0
+        return acc
+      },
+      { pic: 0, weight: 0, sampleWeight: 0, sampleQty: 0, cornet: 0 },
+    )
+  }, [filtered])
+
+  const patchRow = (id: string, patch: Partial<SheetRow>) => {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r
+        const next = { ...r, ...patch }
+        const dataChanged = Object.keys(patch).some((k) => k !== 'checked')
+        if (dataChanged) {
+          next.dirty = true
+          if (patch.jobCardNo !== undefined) next.jobCardSaved = false
+        }
+        return next
+      }),
+    )
+  }
+
+  const toggleAll = (checked: boolean) => {
+    const ids = new Set(filtered.map((r) => r.id))
+    setRows((prev) => prev.map((r) => (ids.has(r.id) ? { ...r, checked } : r)))
+  }
+
+  const applyBulkMethod = () => {
+    if (!bulkMethod) {
+      toast('Select a bulk sampling method')
+      return
     }
-    setTick((t) => t + 1)
-    toast(`Status → ${next}`)
+    if (selectedIds.length === 0) {
+      toast('Please select at least one row to update the status.')
+      return
+    }
+    setRows((prev) =>
+      prev.map((r) =>
+        selectedIds.includes(r.id)
+          ? { ...r, samplingMethod: bulkMethod, dirty: true, jobCardSaved: r.jobCardSaved }
+          : r,
+      ),
+    )
+    toast(`Sampling method → ${bulkMethod} on ${selectedIds.length} row(s)`)
+  }
+
+  const saveRow = (id: string) => {
+    const row = rows.find((r) => r.id === id)
+    if (!row) return
+    const jc = (row.jobCardNo || '').trim()
+    if (!jc) {
+      toast('Job Card No is mandatory — enter Job Card, then Save')
+      return
+    }
+    if (parseSampleWeight(row.sampleWeightText) === null) {
+      toast('Sample Weight format invalid (use 0.350, .374, 1.23, …)')
+      return
+    }
+    persistRow(row, true)
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, dirty: false, jobCardSaved: true, jobCardNo: jc } : r)),
+    )
+    toast('Record updated successfully.')
+  }
+
+  const saveAll = () => {
+    const targets = filtered.filter((r) => r.checked || r.dirty || !r.jobCardSaved)
+    const list = targets.length ? targets : filtered
+    if (list.length === 0) {
+      toast('No rows to save')
+      return
+    }
+    const missingJc = list.filter((r) => !(r.jobCardNo || '').trim())
+    if (missingJc.length) {
+      toast(`Job Card No is mandatory on ${missingJc.length} row(s)`)
+      return
+    }
+    const badSw = list.filter((r) => parseSampleWeight(r.sampleWeightText) === null)
+    if (badSw.length) {
+      toast('Sample Weight must be like 0.350, .374, 0.123, 1.23')
+      return
+    }
+    for (const row of list) persistRow(row, true)
+    reload()
+    toast('Record updated successfully.')
+  }
+
+  const completeSelected = () => {
+    if (selectedIds.length === 0) {
+      toast('Please select at least one row to update the status.')
+      return
+    }
+    const noJob = selected.filter((r) => !(r.jobCardNo || '').trim())
+    if (noJob.length) {
+      toast('Job Card No is mandatory — Save first, then Complete')
+      return
+    }
+    const unsaved = selected.filter((r) => r.dirty || !r.jobCardSaved)
+    if (unsaved.length) {
+      toast('Save first, then Complete')
+      return
+    }
+    store.updateRoughSheetStatus(selectedIds, 'Completed')
+    reload()
+    toast(`${selectedIds.length} row(s) completed`)
+  }
+
+  const rejectSelected = () => {
+    if (selectedIds.length === 0) {
+      toast('Please select at least one row to update the status.')
+      return
+    }
+    store.updateRoughSheetStatus(selectedIds, 'Rejected')
+    reload()
+    toast(`${selectedIds.length} row(s) rejected`)
+  }
+
+  const deleteSelected = () => {
+    if (selectedIds.length === 0) {
+      toast('Please select at least one row to update the status.')
+      return
+    }
+    if (!window.confirm(`Delete ${selectedIds.length} row(s) from QM day sheet?`)) return
+    for (const id of selectedIds) store.removeRoughSheet(id)
+    reload()
+    toast(`${selectedIds.length} row(s) deleted`)
+  }
+
+  const weighRow = (id: string) => {
+    const captured = Number((0.2 + Math.random() * 0.6).toFixed(3))
+    patchRow(id, {
+      sampleWeight: captured,
+      sampleWeightText: captured.toFixed(3),
+    })
+    toast(`Weighing captured: ${captured} g`)
   }
 
   return (
-    <>
-      <PageHeader
-        title="QM Request List"
-        subtitle="Overall branch operations — advance job status toward billing."
-      />
-      <div className="panel">
-        <h2>Search & Filter</h2>
-        <div className="form-grid">
-          <div className="field">
-            <label>Search party / request</label>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Type to filter..."
-            />
-          </div>
-          <div className="field">
-            <label>Status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {['All', ...STATUSES].map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+    <div className="reqlist-page qm-reqlist-page">
+      <div className="reqlist-filters">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <select value={shift} onChange={(e) => setShift(e.target.value)}>
+          <option value="">Select Shift</option>
+          <option value="Day">Day</option>
+          <option value="Night">Night</option>
+        </select>
+        <select value={metal} onChange={(e) => setMetal(e.target.value)}>
+          <option value="">Select Metal</option>
+          <option value="Gold">Gold</option>
+          <option value="Silver">Silver</option>
+        </select>
+        <select value={purity} onChange={(e) => setPurity(e.target.value)}>
+          <option value="">Select Purity</option>
+          {['999', '916', '750', '585', '925'].map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        <input
+          placeholder="Request number"
+          value={requestNo}
+          onChange={(e) => setRequestNo(e.target.value)}
+        />
+        <input
+          placeholder="Job card number"
+          value={jobCardQ}
+          onChange={(e) => setJobCardQ(e.target.value)}
+        />
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">Select Status</option>
+          <option value="Pending">Pending</option>
+          <option value="Accepted">Accepted</option>
+          <option value="Completed">Completed</option>
+          <option value="Rejected">Rejected</option>
+        </select>
       </div>
-      <div className="panel">
-        <h2>Results ({filtered.length})</h2>
-        <div className="table-wrap">
-          <table className="data-table">
+
+      <div className="reqlist-actions qm-reqlist-actions">
+        <button type="button" className="btn btn-navy" onClick={rejectSelected}>
+          Reject
+        </button>
+        <button type="button" className="btn btn-navy" onClick={completeSelected}>
+          Complete
+        </button>
+        <button type="button" className="btn btn-navy" onClick={deleteSelected}>
+          Delete
+        </button>
+        <button
+          type="button"
+          className={`btn btn-navy ${editMode ? '' : 'btn-ghost'}`}
+          onClick={() => {
+            setEditMode((v) => !v)
+            toast(editMode ? 'Edit locked' : 'Edit enabled')
+          }}
+        >
+          Edit
+        </button>
+        <button type="button" className="btn btn-navy" onClick={saveAll}>
+          Save All
+        </button>
+        <select
+          className="qm-bulk-method"
+          value={bulkMethod}
+          onChange={(e) => setBulkMethod(e.target.value)}
+          aria-label="Bulk Sampling Method"
+        >
+          <option value="">Bulk Sampling Method</option>
+          {SAMPLING_METHODS.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="btn btn-ghost" onClick={applyBulkMethod}>
+          Apply Method
+        </button>
+      </div>
+
+      <p className="reqlist-hint">
+        Edit Job Card, Sample Weight (0.350 / .374 / 1.23), Sample Id, Sampling Method →{' '}
+        <strong>Save</strong> → then <strong>Complete</strong>.
+      </p>
+
+      <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="table-wrap reqlist-table-wrap">
+          <table className="data-table navy-head-table reqlist-table">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Request</th>
-                <th>Party</th>
-                <th>Item</th>
-                <th>Category</th>
-                <th>Purity</th>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    onChange={(e) => toggleAll(e.target.checked)}
+                    aria-label="Select all"
+                  />
+                </th>
+                <th>Party Name</th>
+                <th>C/O</th>
+                <th>Item Name</th>
+                <th>Pic</th>
                 <th>Weight</th>
-                <th>Status</th>
-                <th>Advance</th>
+                <th>Purity</th>
+                <th>Request No</th>
+                <th>Job Card No</th>
+                <th>Sample Weight</th>
+                <th>sample Qty</th>
+                <th>sample Tag Id</th>
+                <th>Sampling Method</th>
+                <th>Cornet Weight</th>
+                <th>Reject pic</th>
+                <th>Weighing</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.date}</td>
-                  <td>{r.requestNo}</td>
-                  <td>{r.partyName}</td>
-                  <td>{r.item || '—'}</td>
-                  <td>{r.categoryName}</td>
-                  <td>{r.purity}</td>
-                  <td>{r.weight.toFixed(2)} g</td>
-                  <td>{statusBadge(r.status)}</td>
-                  <td>
-                    <select
-                      className="auto-night-select"
-                      value={r.status}
-                      onChange={(e) =>
-                        setRowStatus(r.id, e.target.value as HallmarkRequest['status'])
-                      }
-                      aria-label={`Status for ${r.requestNo}`}
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
+              {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="empty-state">
-                    No matching requests
+                  <td colSpan={17} className="empty-state">
+                    No records — save Manual/Auto Request first.
                   </td>
                 </tr>
+              ) : (
+                filtered.map((r) => (
+                  <tr key={r.id} className={r.dirty ? 'reqlist-dirty' : ''}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={r.checked}
+                        onChange={(e) => patchRow(r.id, { checked: e.target.checked })}
+                      />
+                    </td>
+                    <td className="qm-linkish">{r.partyName}</td>
+                    <td>
+                      <input
+                        className="table-input"
+                        value={r.co || ''}
+                        disabled={!editMode}
+                        onChange={(e) => patchRow(r.id, { co: e.target.value })}
+                      />
+                    </td>
+                    <td className="qm-linkish">{r.item}</td>
+                    <td>{r.pic}</td>
+                    <td>{r.weight.toFixed(3)}</td>
+                    <td>{r.purity}</td>
+                    <td>{r.requestNo || '—'}</td>
+                    <td>
+                      <input
+                        className={`table-input reqlist-jobcard ${!(r.jobCardNo || '').trim() ? 'reqlist-jobcard-missing' : ''}`}
+                        value={r.jobCardNo || ''}
+                        disabled={!editMode}
+                        onChange={(e) => patchRow(r.id, { jobCardNo: e.target.value })}
+                        placeholder="Job card"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="table-input"
+                        inputMode="decimal"
+                        value={r.sampleWeightText}
+                        disabled={!editMode}
+                        placeholder="0.350"
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === '' || /^\d*\.?\d*$/.test(v) || /^\.\d*$/.test(v)) {
+                            const parsed = parseSampleWeight(v)
+                            patchRow(r.id, {
+                              sampleWeightText: v,
+                              sampleWeight: parsed ?? r.sampleWeight,
+                            })
+                          }
+                        }}
+                      />
+                    </td>
+                    <td>{r.sampleQty}</td>
+                    <td>
+                      <input
+                        className="table-input"
+                        value={r.sampleTagId || ''}
+                        disabled={!editMode}
+                        placeholder="Sample Tag Id"
+                        onChange={(e) => patchRow(r.id, { sampleTagId: e.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <select
+                        className="table-input"
+                        value={r.samplingMethod || ''}
+                        disabled={!editMode}
+                        onChange={(e) => patchRow(r.id, { samplingMethod: e.target.value })}
+                      >
+                        <option value="">Select</option>
+                        {SAMPLING_METHODS.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        className="table-input reqlist-cornet"
+                        type="number"
+                        step="0.001"
+                        value={Number(r.cornet || 0)}
+                        disabled={!editMode}
+                        onChange={(e) =>
+                          patchRow(r.id, { cornet: Number(e.target.value) || 0 })
+                        }
+                      />
+                    </td>
+                    <td>{r.rejectPic ?? 0}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="reqlist-weigh"
+                        title="Capture weighing"
+                        onClick={() => weighRow(r.id)}
+                      >
+                        <CloudUpload size={18} />
+                      </button>
+                    </td>
+                    <td>
+                      {(r.dirty || !r.jobCardSaved) && (
+                        <button
+                          type="button"
+                          className="btn btn-navy reqlist-save"
+                          onClick={() => saveRow(r.id)}
+                        >
+                          Save
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
+            {filtered.length > 0 && (
+              <tfoot>
+                <tr className="reqlist-totals">
+                  <td colSpan={4}>
+                    <strong>Totals:</strong>
+                  </td>
+                  <td>
+                    <strong>{totals.pic}</strong>
+                  </td>
+                  <td>
+                    <strong>{totals.weight.toFixed(3)}</strong>
+                  </td>
+                  <td colSpan={3} />
+                  <td>
+                    <strong>{totals.sampleWeight.toFixed(3)}</strong>
+                  </td>
+                  <td>
+                    <strong>{totals.sampleQty}</strong>
+                  </td>
+                  <td colSpan={2} />
+                  <td>
+                    <strong>{totals.cornet.toFixed(3)}</strong>
+                  </td>
+                  <td colSpan={3} />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
+
+      <div className="manual-actions">
+        <Link to="/" className="btn btn-reset">
+          Back
+        </Link>
+      </div>
       {Toast}
-    </>
+    </div>
   )
 }

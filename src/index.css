@@ -3039,6 +3039,25 @@ button {
   background: #fef2f2 !important;
 }
 
+.qm-reqlist-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.qm-bulk-method {
+  min-width: 180px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.85rem;
+}
+
+.qm-linkish {
+  color: #15803d;
+  font-weight: 600;
+}
+
 .reqlist-dirty {
   background: #fffbeb;
 }
