@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "1.0.0",
-  "description": "Fills BIS Manak Fire Assaying Sheet from Shrija Hallmark Suite Create Sheet payload (Gold Shark–style bridge).",
+  "version": "1.1.0",
+  "description": "Fills Manak Fire Assaying Sheet in steps: Sample Drawn/Button Save → Initial Weight Save → wait timing → M2 Cornet Save.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",

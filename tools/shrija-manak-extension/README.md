@@ -1,28 +1,28 @@
-# Shrija CG & Cornet — Manak Fill Extension
+# Shrija CG & Cornet — Manak Fill Extension v1.1
 
-Gold Shark–style bridge: **Create Sheet** in Shrija Hallmark Suite publishes a fire-assay payload; this Chrome extension fills **BIS Manak Online → Fire Assaying Sheet**.
+Fills **BIS Manak Online → Fire Assaying Sheet** from Shrija **Create Sheet**.
 
-## Install (Chrome)
+## Manak official steps (this extension follows)
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. **Load unpacked** → select this folder: `tools/shrija-manak-extension`
-4. Allow access to:
-   - `https://shrija-web-software.vercel.app/*`
-   - `https://huid.manakonline.in/*`
+1. **Sampling Details**
+   - Sample Drawn Weight → **Save**
+   - Button Weight → **Save**
+2. **Fire Assaying Details**
+   - Fill **M1**, Silver, Copper, Lead (Strip1 / Strip2 / C1 / C2)
+   - Click **Save (Initial Weight)**
+3. Wait until Manak **timing** completes (M2 unlocks)
+4. Extension auto-fills **M2** (cornet) → **Save (Cornet Weight)**
 
-## Flow
+## Install / update
 
-1. QM Stock → CG WEIGHT — add unused CG1/CG2
-2. **Cg Auto Fire Assay** → select **Purity** → **22 rows auto-created** (BIS fill)
-3. Paste Job Card Nos: `1_127087789`, `2_127087793`, …
-4. **Create Sheet** → saves payload for extension (does **not** open Chrome)
-5. Open Manak yourself → Fire Assaying Sheet → **select Lot No** (e.g. `Lot 1:127087789`)
-6. Extension matches that job/lot and auto-fills Strip + CG weights
-7. Review → Save → Submit For HUID
+1. `chrome://extensions` → Developer mode
+2. **Load unpacked** → `tools/shrija-manak-extension`  
+   (or **Reload** if already loaded — version **1.1.0**)
+3. Allow `huid.manakonline.in` + Shrija Vercel
 
-## Notes
+## App flow
 
-- Manak DOM can change; filler is best-effort — always verify before Submit.
-- Click the extension icon on a Manak tab to re-run fill.
-- Payload key: `shrija-manak-fire-assay-sheet` (also copied to clipboard as JSON).
+1. Shrija: CG WEIGHT → Create Fire Assay → Purity → fill Job Cards → **Create Sheet**
+2. Open Manak Fire Assaying Sheet yourself
+3. Select **Lot No** (e.g. `Lot 1:104736831`)
+4. Extension runs steps 1–2, then watches for M2 unlock

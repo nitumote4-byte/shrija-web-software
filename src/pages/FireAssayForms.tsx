@@ -565,7 +565,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
     const filledLots = new Set(sheet.rows.map((r) => r.lotNo)).size
     toast(
-      `Sheet FS-${sheetNo} saved for View Fire Assay (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s) filled). Open Manak → select Lot No.`,
+      `Sheet FS-${sheetNo} saved (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)). Manak: Lot select → Sample Drawn/Button Save → Initial Weight Save → wait timing → M2 auto-fill.`,
     )
   }
 
@@ -726,7 +726,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       <div className="panel cg-form-panel">
         <p className="cg-flow-hint">
           {noJobPick
-            ? 'Flow: Select Purity → 22 rows auto → fill Job Cards for jobs that arrived (rest empty OK) → Create Sheet → Manak Lot No → auto-fill.'
+            ? 'Flow: Select Purity → 22 rows → fill Job Cards (rest empty OK) → Create Sheet → Manak Lot select → Sample Drawn/Button Save → Initial Weight Save → wait timing → M2 auto-fill + Cornet Save.'
             : 'Flow: Select Purity → Fill Jobs → Job Card → Create Sheet → Manak extension.'}
         </p>
         <div className="cg-form-grid">

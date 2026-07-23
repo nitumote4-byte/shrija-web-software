@@ -1,37 +1,117 @@
 /**
- * Fills Manak Online Fire Assaying Sheet from Shrija Create Sheet payload.
- * Matches Lot dropdown text like "Lot 1:127087789" to rows with job 1_127087789.
+ * Manak Online Fire Assaying Sheet filler (Gold Shark–style).
+ *
+ * Official Manak steps:
+ * 1) Sampling Details → Sample Drawn Wt → Save, Button Wt → Save
+ * 2) Fire Assaying Details → M1 + Silver + Copper + Lead → Save (Initial Weight)
+ * 3) Wait until Manak timing completes (M2 unlocks)
+ * 4) Fill M2 (cornet) → Save (Cornet Weight)
+ *
+ * URL example: /MANAK/SamplingweightingDeatils?...
  */
 const KEY = 'shrija-manak-fire-assay-sheet'
+const M2_PENDING_KEY = 'shrija-manak-m2-pending'
 
-function setInput(el, value) {
-  if (!el || value == null || value === '') return
-  const v = String(value)
-  el.focus()
-  el.value = v
-  el.dispatchEvent(new Event('input', { bubbles: true }))
-  el.dispatchEvent(new Event('change', { bubbles: true }))
-  el.blur()
+function delay(ms) {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
-function findByLabel(textRe) {
-  const labels = Array.from(document.querySelectorAll('label, td, th, span, div'))
-  for (const node of labels) {
-    const t = (node.textContent || '').replace(/\s+/g, ' ').trim()
-    if (!textRe.test(t)) continue
-    const input =
-      node.querySelector('input, select, textarea') ||
-      node.parentElement?.querySelector('input, select, textarea') ||
-      node.nextElementSibling?.querySelector?.('input, select, textarea') ||
-      (node.nextElementSibling?.matches?.('input, select, textarea')
+function setNativeValue(el, value) {
+  if (!el || value == null || value === '') return false
+  if (el.disabled || el.readOnly) return false
+  const v = String(value)
+  const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+  const desc = Object.getOwnPropertyDescriptor(proto, 'value')
+  el.focus()
+  if (desc && desc.set) desc.set.call(el, v)
+  else el.value = v
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+  el.dispatchEvent(new Event('change', { bubbles: true }))
+  el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }))
+  el.blur()
+  return true
+}
+
+function visible(el) {
+  if (!el) return false
+  const s = window.getComputedStyle(el)
+  return s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null
+}
+
+function allControls() {
+  return Array.from(
+    document.querySelectorAll('input, select, textarea, button, a'),
+  ).filter(visible)
+}
+
+function textOf(el) {
+  return `${el.value || ''} ${el.textContent || ''} ${el.title || ''} ${el.getAttribute('aria-label') || ''}`
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function clickByText(re) {
+  const nodes = allControls().filter((el) => {
+    const tag = el.tagName
+    if (tag === 'INPUT') {
+      const t = (el.type || '').toLowerCase()
+      return t === 'button' || t === 'submit' || t === 'image'
+    }
+    return tag === 'BUTTON' || tag === 'A' || el.getAttribute('role') === 'button'
+  })
+  const btn = nodes.find((el) => re.test(textOf(el)))
+  if (!btn) return false
+  btn.click()
+  return true
+}
+
+/** Find input closest to a label / header matching regex */
+function findInputByLabel(labelRe) {
+  const candidates = Array.from(
+    document.querySelectorAll('label, td, th, span, div, b, strong, font'),
+  ).filter((n) => labelRe.test((n.textContent || '').replace(/\s+/g, ' ').trim()))
+
+  for (const node of candidates) {
+    const direct =
+      node.querySelector('input:not([type="hidden"]), select, textarea') ||
+      (node.nextElementSibling &&
+      /INPUT|SELECT|TEXTAREA/.test(node.nextElementSibling.tagName)
         ? node.nextElementSibling
         : null)
-    if (input) return input
+    if (direct && visible(direct)) return direct
+
+    const parent = node.closest('td, tr, div, table, fieldset, form') || node.parentElement
+    if (!parent) continue
+    const input = parent.querySelector('input:not([type="hidden"]), select, textarea')
+    if (input && visible(input)) return input
+  }
+
+  // name/id heuristics
+  const byName = allControls().find((el) => {
+    if (!/INPUT|TEXTAREA|SELECT/.test(el.tagName)) return false
+    const id = `${el.id || ''} ${el.name || ''} ${el.placeholder || ''}`
+    return labelRe.test(id)
+  })
+  return byName || null
+}
+
+function findSaveNear(labelRe) {
+  const labelNodes = Array.from(
+    document.querySelectorAll('label, td, th, span, div, b, strong'),
+  ).filter((n) => labelRe.test((n.textContent || '').replace(/\s+/g, ' ').trim()))
+
+  for (const node of labelNodes) {
+    const scope =
+      node.closest('td, tr, div.form-group, div.row, fieldset, table') || node.parentElement
+    if (!scope) continue
+    const btn = Array.from(
+      scope.querySelectorAll('input[type="button"], input[type="submit"], button, a'),
+    ).find((el) => /save/i.test(textOf(el)) && !/initial|cornet/i.test(textOf(el)))
+    if (btn) return btn
   }
   return null
 }
 
-/** Parse Manak lot option: "Lot 1:127087789" | "Lot 1 : 127087789" | "Lot 1" */
 function parseLotOptionText(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim()
   const m = /Lot\s*(\d+)\s*[:：]?\s*(\d+)?/i.exec(t)
@@ -53,7 +133,6 @@ function resolveStripRows(sheet, preferredLot, selectText) {
   const lotNum = preferredLot != null ? Number(preferredLot) : fromOpt.lot
   const jobCard = fromOpt.jobCard || ''
 
-  // 1) Match Manak job card number (most accurate)
   if (jobCard) {
     const byCard = allRows.filter((r) => {
       const card = String(r.manakJobCard || parseShrijaJob(r.jobCardNo).card || '')
@@ -61,14 +140,13 @@ function resolveStripRows(sheet, preferredLot, selectText) {
     })
     if (byCard.length >= 2) return { rows: byCard.slice(0, 2), lotNum: byCard[0].lotNo, jobCard }
     if (byCard.length === 1) {
-      // find pair with same lotNo
       const lot = byCard[0].lotNo
       const pair = allRows.filter((r) => Number(r.lotNo) === Number(lot))
       if (pair.length >= 2) return { rows: pair.slice(0, 2), lotNum: lot, jobCard }
+      return { rows: byCard, lotNum: lot, jobCard }
     }
   }
 
-  // 2) Match by lot number from dropdown / preference
   if (lotNum != null && !Number.isNaN(lotNum)) {
     const byLot = allRows.filter((r) => Number(r.lotNo) === Number(lotNum))
     if (byLot.length >= 2) return { rows: byLot.slice(0, 2), lotNum, jobCard }
@@ -79,76 +157,67 @@ function resolveStripRows(sheet, preferredLot, selectText) {
   return { rows: [], lotNum, jobCard }
 }
 
-function fillSheet(sheet, preferredLot, selectText) {
-  if (!sheet) {
-    alert('No Shrija fire assay sheet found. Create Sheet in Shrija after filling Job Card Nos.')
-    return false
-  }
+/** Locate assay table column inputs by header keywords (4 rows: Strip1, Strip2, C1, C2). */
+function columnInputs(headerRe) {
+  const tables = Array.from(document.querySelectorAll('table'))
+  for (const table of tables) {
+    const headers = Array.from(table.querySelectorAll('th, thead td, tr:first-child td'))
+    let col = -1
+    headers.forEach((h, i) => {
+      if (headerRe.test((h.textContent || '').replace(/\s+/g, ' '))) col = i
+    })
+    if (col < 0) continue
 
-  let selText = selectText || ''
-  if (!selText) {
-    const lotSel = findByLabel(/Lot No/i)
-    if (lotSel && lotSel.tagName === 'SELECT') {
-      selText = lotSel.options[lotSel.selectedIndex]?.text || ''
+    const bodyRows = Array.from(table.querySelectorAll('tr')).filter((tr) => {
+      const t = (tr.textContent || '').replace(/\s+/g, ' ')
+      return /Strip\s*1|Strip\s*2|C1|C2|Check\s*Gold/i.test(t)
+    })
+    if (bodyRows.length < 2) continue
+
+    const inputs = []
+    for (const tr of bodyRows.slice(0, 4)) {
+      const cells = Array.from(tr.querySelectorAll('td'))
+      const cell = cells[col] || cells.find((c) => c.querySelector('input'))
+      const input = cell?.querySelector('input:not([type="hidden"])')
+      inputs.push(input || null)
     }
+    if (inputs.filter(Boolean).length >= 2) return inputs
   }
-
-  const resolved = resolveStripRows(sheet, preferredLot, selText)
-  if (!resolved.rows.length) {
-    console.warn('[Shrija] No matching lot/job rows for', selText, preferredLot)
-    return false
-  }
-
-  const stripRows = resolved.rows
-  const first = stripRows[0]
-  const cg = sheet.cg || {}
-
-  if (first) {
-    setInput(findByLabel(/Sample Drawn Weight/i), first.sampleDrawn)
-    setInput(findByLabel(/Button Weight/i), first.sampleDrawn)
-  }
-
-  const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
-  const silvers = [stripRows[0]?.silver, stripRows[1]?.silver, cg.silverCg1, cg.silverCg2]
-  const coppers = [0, 0, cg.copperCg1, cg.copperCg2]
-  const leads = [
-    stripRows[0]?.lead || 4,
-    stripRows[1]?.lead || 4,
-    cg.leadCg1 || 4,
-    cg.leadCg2 || 4,
-  ]
-  const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
-
-  const table = document.querySelector('table')
-  if (table) {
-    const inputs = Array.from(table.querySelectorAll('input')).filter(
-      (el) => !el.disabled && el.type !== 'hidden',
-    )
-    let idx = 0
-    for (let row = 0; row < 4; row++) {
-      if (inputs[idx]) setInput(inputs[idx++], m1s[row])
-      if (inputs[idx]) setInput(inputs[idx++], silvers[row])
-      if (inputs[idx]) setInput(inputs[idx++], coppers[row])
-      if (inputs[idx]) setInput(inputs[idx++], leads[row])
-      if (inputs[idx]) setInput(inputs[idx++], m2s[row])
-    }
-  }
-
-  setInput(findByLabel(/Avg\.?\s*Delta/i), cg.avgDelta)
-  setInput(findByLabel(/Delta\s*1/i), cg.delta1)
-  setInput(findByLabel(/Delta\s*2/i), cg.delta2)
-  setInput(findByLabel(/Strip1\s*\(W1\)|Fineness.*Strip\s*1/i), stripRows[0]?.fineness)
-  setInput(findByLabel(/Strip2\s*\(W2\)|Fineness.*Strip\s*2/i), stripRows[1]?.fineness)
-  setInput(
-    findByLabel(/Mean Fineness/i),
-    stripRows[1]?.meanFineness || stripRows[0]?.meanFineness,
-  )
-
-  console.info('[Shrija] Filled lot', resolved.lotNum, 'job', resolved.jobCard || first?.manakJobCard)
-  return true
+  return []
 }
 
-function showToast(msg) {
+function collectAssayInputs() {
+  // Prefer header-based columns
+  let m1 = columnInputs(/Initial weight|M1/i)
+  let silver = columnInputs(/Weight of Silver|Silver/i)
+  let copper = columnInputs(/Weight of Copper|Copper/i)
+  let lead = columnInputs(/Weight of Lead|Lead/i)
+  let m2 = columnInputs(/cornet after|M2/i)
+
+  // Fallback: first big table with many inputs — group by row
+  if (m1.filter(Boolean).length < 2) {
+    const table = Array.from(document.querySelectorAll('table')).find((t) =>
+      /Strip\s*1|Check\s*Gold|Fire Assaying/i.test(t.textContent || ''),
+    )
+    if (table) {
+      const rows = Array.from(table.querySelectorAll('tr')).filter((tr) =>
+        /Strip|C1|C2|Check/i.test(tr.textContent || ''),
+      )
+      const grid = rows.slice(0, 4).map((tr) =>
+        Array.from(tr.querySelectorAll('input:not([type="hidden"])')),
+      )
+      m1 = grid.map((g) => g[0] || null)
+      silver = grid.map((g) => g[1] || null)
+      copper = grid.map((g) => g[2] || null)
+      lead = grid.map((g) => g[3] || null)
+      m2 = grid.map((g) => g[4] || null)
+    }
+  }
+
+  return { m1, silver, copper, lead, m2 }
+}
+
+function showToast(msg, ms = 6000) {
   const n = document.createElement('div')
   n.textContent = msg
   Object.assign(n.style, {
@@ -160,34 +229,160 @@ function showToast(msg) {
     color: '#fff',
     padding: '10px 14px',
     borderRadius: '8px',
-    font: '600 13px/1.3 system-ui,sans-serif',
+    font: '600 13px/1.35 system-ui,sans-serif',
     boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+    maxWidth: '360px',
   })
   document.body.appendChild(n)
-  setTimeout(() => n.remove(), 4500)
+  setTimeout(() => n.remove(), ms)
+}
+
+function isM2Unlocked(m2Inputs) {
+  return m2Inputs.some((el) => el && !el.disabled && !el.readOnly)
+}
+
+async function fillM2AndSave(m2Values) {
+  const { m2 } = collectAssayInputs()
+  if (!isM2Unlocked(m2)) return false
+  m2.forEach((el, i) => setNativeValue(el, m2Values[i]))
+  await delay(400)
+  const ok =
+    clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i) ||
+    clickByText(/Cornet\s*Weight/i)
+  showToast(ok ? 'Shrija: M2 filled + Save (Cornet Weight)' : 'Shrija: M2 filled (click Save Cornet Weight)')
+  return true
+}
+
+function watchM2Unlock(m2Values) {
+  chrome.storage.local.set({
+    [M2_PENDING_KEY]: { m2Values, at: Date.now() },
+  })
+  if (window.__shrijaM2Timer) clearInterval(window.__shrijaM2Timer)
+  let tries = 0
+  window.__shrijaM2Timer = setInterval(async () => {
+    tries += 1
+    const done = await fillM2AndSave(m2Values)
+    if (done || tries > 180) {
+      // ~6 min @ 2s
+      clearInterval(window.__shrijaM2Timer)
+      window.__shrijaM2Timer = null
+      if (done) chrome.storage.local.remove(M2_PENDING_KEY)
+    }
+  }, 2000)
+}
+
+async function fillInitialPhase(sheet, preferredLot, selectText) {
+  const resolved = resolveStripRows(sheet, preferredLot, selectText)
+  if (!resolved.rows.length) {
+    showToast('Shrija: no matching Job/Lot in Create Sheet payload')
+    return false
+  }
+
+  const stripRows = resolved.rows
+  const first = stripRows[0]
+  const cg = sheet.cg || {}
+
+  // ——— Step 1: Sampling Details ———
+  const drawn = first?.sampleDrawn
+  const sampleDrawnEl =
+    findInputByLabel(/Sample Drawn Weight/i) || findInputByLabel(/Sample Drawn/i)
+  const buttonWtEl = findInputByLabel(/Button Weight/i)
+
+  setNativeValue(sampleDrawnEl, drawn)
+  await delay(300)
+  const saveDrawn = findSaveNear(/Sample Drawn/i)
+  if (saveDrawn) saveDrawn.click()
+  else clickByText(/^Save$/i)
+  await delay(700)
+
+  setNativeValue(buttonWtEl, drawn)
+  await delay(300)
+  const saveBtn = findSaveNear(/Button Weight/i)
+  if (saveBtn) saveBtn.click()
+  else clickByText(/^Save$/i)
+  await delay(900)
+
+  // ——— Step 2: Initial weights (NOT M2 yet) ———
+  const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
+  const silvers = [stripRows[0]?.silver, stripRows[1]?.silver, cg.silverCg1, cg.silverCg2]
+  const coppers = [0, 0, cg.copperCg1, cg.copperCg2]
+  const leads = [
+    stripRows[0]?.lead || 4,
+    stripRows[1]?.lead || 4,
+    cg.leadCg1 || 4,
+    cg.leadCg2 || 4,
+  ]
+  const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
+
+  const cols = collectAssayInputs()
+  for (let i = 0; i < 4; i++) {
+    setNativeValue(cols.m1[i], m1s[i])
+    setNativeValue(cols.silver[i], silvers[i])
+    setNativeValue(cols.copper[i], coppers[i])
+    setNativeValue(cols.lead[i], leads[i])
+  }
+
+  // Deltas (if editable before cornet save)
+  setNativeValue(findInputByLabel(/Avg\.?\s*Delta/i), cg.avgDelta)
+  setNativeValue(findInputByLabel(/Delta\s*1/i), cg.delta1)
+  setNativeValue(findInputByLabel(/Delta\s*2/i), cg.delta2)
+
+  await delay(500)
+  const savedInit =
+    clickByText(/Save\s*\(?\s*Initial\s*Weight\s*\)?/i) ||
+    clickByText(/Initial\s*Weight/i)
+
+  showToast(
+    savedInit
+      ? `Shrija: Lot ${resolved.lotNum || ''} sampling + initial weight saved. Wait for Manak timing — M2 will auto-fill.`
+      : `Shrija: initial fields filled. Click Save (Initial Weight), wait timing, M2 auto-fills.`,
+    8000,
+  )
+
+  // ——— Step 3: M2 after timing ———
+  // Never force-fill locked M2; wait until unlocked
+  if (isM2Unlocked(cols.m2)) {
+    await fillM2AndSave(m2s)
+  } else {
+    watchM2Unlock(m2s)
+  }
+
+  return true
+}
+
+function currentLotContext() {
+  const lotSel =
+    findInputByLabel(/Lot No/i) ||
+    Array.from(document.querySelectorAll('select')).find((s) =>
+      /Lot/i.test(s.options?.[1]?.text || s.id || s.name || ''),
+    )
+  if (lotSel && lotSel.tagName === 'SELECT') {
+    const text = lotSel.options[lotSel.selectedIndex]?.text || ''
+    const parsed = parseLotOptionText(text)
+    return { text, ...parsed }
+  }
+  return { text: '', lot: null, jobCard: '' }
 }
 
 function runFill(preferredLot, selectText) {
-  chrome.storage.local.get([KEY], (data) => {
+  chrome.storage.local.get([KEY], async (data) => {
     const sheet = data[KEY]
-    if (!sheet) return
-    // Wait until a Lot is selected (Gold Shark behaviour)
-    const lotSel = findByLabel(/Lot No/i)
-    const text =
-      selectText ||
-      (lotSel && lotSel.tagName === 'SELECT'
-        ? lotSel.options[lotSel.selectedIndex]?.text || ''
-        : '')
-    const parsed = parseLotOptionText(text)
-    if (preferredLot == null && !parsed.lot && !parsed.jobCard) {
+    if (!sheet) {
+      showToast('Shrija: Create Sheet pehle Shrija app mein karo')
       return
     }
-    const ok = fillSheet(sheet, preferredLot ?? parsed.lot, text)
-    if (ok) {
-      showToast(
-        `Shrija: filled Lot ${preferredLot || parsed.lot || ''} ${parsed.jobCard || ''}`.trim(),
-      )
+    if (!/Fire Assaying|Sampling|Sample Drawn|cornet|M1|Assaying Sheet/i.test(document.body?.innerText || '')) {
+      return
     }
+    const ctx = currentLotContext()
+    const text = selectText || ctx.text
+    const parsed = parseLotOptionText(text)
+    const lot = preferredLot ?? parsed.lot ?? ctx.lot
+    if (lot == null && !parsed.jobCard && !ctx.jobCard) {
+      showToast('Shrija: pehle Lot No select karo')
+      return
+    }
+    await fillInitialPhase(sheet, lot, text)
   })
 }
 
@@ -198,9 +393,8 @@ chrome.runtime.onMessage.addListener((msg) => {
 function bindLotChange() {
   document.querySelectorAll('select').forEach((sel) => {
     if (sel.dataset.shrijaBound) return
-    const probe = `${sel.id || ''} ${sel.name || ''} ${sel.getAttribute('aria-label') || ''}`
-    const nearby = (sel.closest('td,div,tr,label')?.textContent || '').slice(0, 80)
-    if (!/Lot/i.test(probe + nearby) && !/Lot\s*\d+/i.test(sel.options?.[1]?.text || '')) return
+    const probe = `${sel.id || ''} ${sel.name || ''} ${(sel.closest('td,div,tr')?.textContent || '').slice(0, 60)}`
+    if (!/Lot/i.test(probe) && !/Lot\s*\d+/i.test(sel.options?.[1]?.text || '')) return
     sel.dataset.shrijaBound = '1'
     sel.addEventListener('change', () => {
       const opt = sel.options[sel.selectedIndex]
@@ -210,10 +404,28 @@ function bindLotChange() {
   })
 }
 
-// Bind lot dropdown; fill only after Lot No is chosen (not on blind page load)
-if (/Fire Assaying|assaying|Lot No|HUID/i.test(document.body?.innerText || '')) {
-  setTimeout(bindLotChange, 800)
+function resumePendingM2() {
+  chrome.storage.local.get([M2_PENDING_KEY], async (data) => {
+    const pending = data[M2_PENDING_KEY]
+    if (!pending?.m2Values) return
+    if (Date.now() - (pending.at || 0) > 30 * 60 * 1000) {
+      chrome.storage.local.remove(M2_PENDING_KEY)
+      return
+    }
+    const ok = await fillM2AndSave(pending.m2Values)
+    if (!ok) watchM2Unlock(pending.m2Values)
+    else chrome.storage.local.remove(M2_PENDING_KEY)
+  })
+}
+
+const onAssayPage = /Fire Assaying|Samplingweighting|Sample Drawn|Assaying Sheet/i.test(
+  `${location.href} ${document.body?.innerText || ''}`,
+)
+
+if (onAssayPage) {
+  setTimeout(bindLotChange, 600)
   setTimeout(bindLotChange, 2000)
+  setTimeout(resumePendingM2, 1500)
 }
 
 document.addEventListener('change', (e) => {
@@ -221,7 +433,5 @@ document.addEventListener('change', (e) => {
   if (!t || t.tagName !== 'SELECT') return
   const opt = t.options[t.selectedIndex]
   const parsed = parseLotOptionText(opt?.text || '')
-  if (parsed.lot != null || parsed.jobCard) {
-    runFill(parsed.lot, opt?.text || '')
-  }
+  if (parsed.lot != null || parsed.jobCard) runFill(parsed.lot, opt?.text || '')
 })
