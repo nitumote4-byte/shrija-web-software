@@ -5687,6 +5687,15 @@ table.data-table tr:hover td {
   font-size: 0.8rem;
 }
 
+.ahc-filename-text {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  word-break: break-all;
+}
+
 .ahc-filename {
   width: 100%;
   border: 1px solid var(--border);

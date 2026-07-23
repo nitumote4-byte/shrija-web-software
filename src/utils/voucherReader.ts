@@ -14,6 +14,10 @@ export type VoucherLine = {
 }
 
 const ITEM_KEYWORDS = [
+  'jhumka',
+  'Jhumka',
+  'TOPS',
+  'Tops',
   'Locket',
   'Necklace',
   'Bangles',
@@ -182,11 +186,11 @@ function demoLinesFromVoucher(
 ): VoucherLine[] {
   const seed = [...fileName, ...partyName].reduce((a, c) => a + c.charCodeAt(0), 0)
   const catalog = [
+    { item: 'jhumka', pic: '13', weight: '28.0', purity: '22K916' },
+    { item: 'TOPS', pic: '13', weight: '22.0', purity: '22K916' },
     { item: 'Locket', pic: '174', weight: '212.65', purity: '22K916' },
     { item: 'Bangles', pic: '8', weight: '62.10', purity: '22K916' },
     { item: 'Earrings', pic: '20', weight: '28.40', purity: '18K750' },
-    { item: 'Necklace', pic: '12', weight: '86.42', purity: '22K916' },
-    { item: 'Chain', pic: '15', weight: '45.20', purity: '22K916' },
   ]
   const count = 1 + (seed % 3)
   const lines: VoucherLine[] = []

@@ -6,6 +6,8 @@ import { store } from '../data/store'
 import { readVoucherFile } from '../utils/voucherReader'
 
 const ITEM_OPTIONS = [
+  'jhumka',
+  'TOPS',
   'Locket',
   'Necklace',
   'Bangles',
@@ -15,6 +17,7 @@ const ITEM_OPTIONS = [
   'Pendant',
   'Bracelet',
   'Coin',
+  'Mangalsutra',
   'Other',
 ]
 
@@ -29,6 +32,7 @@ type ItemEntry = {
   requestNo: string
   receiptNo: string
   jobCardNo: string
+  selected: boolean
 }
 
 function toInputDate(d = new Date()) {
@@ -53,9 +57,17 @@ function emptyEntry(nos: { requestNo: string; receiptNo: string }): ItemEntry {
     requestNo: nos.requestNo,
     receiptNo: nos.receiptNo,
     jobCardNo: '',
+    selected: true,
   }
 }
 
+/**
+ * Gold Shark Manual Entry flow:
+ * 1) Open → party / Day / date / Upload AHC + empty Pending rough table
+ * 2) Load voucher → all lines in editable grid + add-row (+)
+ * 3) Save → persist + “Data saved successfully!”
+ * 4) After save → full clear back to step 1
+ */
 export function ManualRequest() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
@@ -66,17 +78,18 @@ export function ManualRequest() {
   const [partyOpen, setPartyOpen] = useState(false)
   const [partyId, setPartyId] = useState('')
   const [partyName, setPartyName] = useState('')
-  const [night, setNight] = useState('')
+  const [night, setNight] = useState('Day')
   const [date, setDate] = useState(toInputDate())
   const [ahcFileName, setAhcFileName] = useState('')
   const [batchNos, setBatchNos] = useState(defaultNos)
-  const [summaryRows, setSummaryRows] = useState<ItemEntry[]>([])
+  const [rows, setRows] = useState<ItemEntry[]>([])
   const [entry, setEntry] = useState<ItemEntry>(() => emptyEntry(defaultNos()))
   const [itemOpen, setItemOpen] = useState(false)
   const [reading, setReading] = useState(false)
-  const [readNote, setReadNote] = useState('')
+  const [voucherLoaded, setVoucherLoaded] = useState(false)
 
   const party = data.parties.find((p) => p.id === partyId)
+  const hasRows = rows.length > 0
 
   const partyMatches = useMemo(() => {
     const q = partyQuery.trim().toLowerCase()
@@ -95,62 +108,56 @@ export function ManualRequest() {
     return ITEM_OPTIONS.filter((i) => i.toLowerCase().includes(q))
   }, [entry.item])
 
-  const canRead = Boolean(partyId && night && voucherFileRef.current)
-
   const resetEntry = (nos = batchNos) => {
     setEntry(emptyEntry(nos))
     setItemOpen(false)
   }
 
+  /** Step 4 — clear everything like Gold Shark after save */
+  const clearAll = () => {
+    setPartyId('')
+    setPartyName('')
+    setPartyQuery('')
+    setNight('Day')
+    setDate(toInputDate())
+    setAhcFileName('')
+    voucherFileRef.current = null
+    if (fileRef.current) fileRef.current.value = ''
+    const nos = defaultNos()
+    setBatchNos(nos)
+    setRows([])
+    resetEntry(nos)
+    setVoucherLoaded(false)
+  }
+
   const fillFromVoucher = async (file: File, selectedPartyName: string) => {
     setReading(true)
-    setReadNote('Reading voucher…')
     try {
-      const { lines, source } = await readVoucherFile(file, selectedPartyName)
+      const { lines } = await readVoucherFile(file, selectedPartyName)
       const nos = {
         requestNo: lines[0]?.requestNo || defaultNos().requestNo,
         receiptNo: lines[0]?.receiptNo || defaultNos().receiptNo,
       }
       setBatchNos(nos)
-
-      // First voucher line goes into Entry grid for review/Save;
-      // remaining lines accumulate in Summary grid.
-      const [first, ...rest] = lines
-      if (first) {
-        setEntry({
-          key: `entry-${Date.now()}`,
-          item: first.item,
-          pic: first.pic,
-          weight: first.weight,
-          purity: first.purity,
-          requestNo: first.requestNo || nos.requestNo,
-          receiptNo: first.receiptNo || nos.receiptNo,
-          jobCardNo: first.jobCardNo,
-        })
-      } else {
-        resetEntry(nos)
-      }
-
-      setSummaryRows(
-        rest.map((line, i) => ({
-          key: `sum-${Date.now()}-${i}`,
+      // Gold Shark: ALL voucher lines go into the main editable grid
+      setRows(
+        lines.map((line, i) => ({
+          key: `v-${Date.now()}-${i}`,
           item: line.item,
           pic: line.pic,
           weight: line.weight,
-          purity: line.purity,
+          purity: line.purity || '22K916',
           requestNo: line.requestNo || nos.requestNo,
           receiptNo: line.receiptNo || nos.receiptNo,
-          jobCardNo: line.jobCardNo,
+          jobCardNo: line.jobCardNo || '',
+          selected: true,
         })),
       )
-
-      setReadNote(
-        `Loaded ${lines.length} line(s) from ${source} — review Entry grid, then Save`,
-      )
-      toast(`Voucher read · ${lines.length} item(s) ready`)
+      resetEntry(nos)
+      setVoucherLoaded(true)
+      toast(`Voucher loaded · ${lines.length} item(s)`)
     } catch (err) {
       console.error(err)
-      setReadNote('Could not read voucher')
       toast('Failed to read voucher file')
     } finally {
       setReading(false)
@@ -183,11 +190,6 @@ export function ManualRequest() {
     setPartyId('')
     setPartyName('')
     setPartyQuery('')
-    setSummaryRows([])
-    const nos = defaultNos()
-    setBatchNos(nos)
-    resetEntry(nos)
-    setReadNote('')
   }
 
   const onNightChange = (value: string) => {
@@ -199,9 +201,9 @@ export function ManualRequest() {
     voucherFileRef.current = file
     setAhcFileName(file?.name ?? '')
     if (!file) {
-      setSummaryRows([])
+      setRows([])
+      setVoucherLoaded(false)
       resetEntry(batchNos)
-      setReadNote('')
       return
     }
     if (!partyId) {
@@ -209,26 +211,22 @@ export function ManualRequest() {
       return
     }
     if (!night) {
-      toast('Select Night/Day shift, then voucher will be read')
+      toast('Select Day/Night, then voucher will be read')
       return
     }
     void tryAutoRead({ file })
   }
 
-  const setEntryField = <K extends keyof ItemEntry>(key: K, value: ItemEntry[K]) => {
-    setEntry((prev) => ({ ...prev, [key]: value }))
+  const updateRow = (key: string, patch: Partial<ItemEntry>) => {
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
   }
 
-  /** Save entry row → push into Summary grid, then clear Entry grid */
-  const saveEntryToSummary = () => {
-    if (!partyId) {
-      toast('Please select a Party Name')
-      return
-    }
-    if (!night) {
-      toast('Please select Night/Day')
-      return
-    }
+  const removeRow = (key: string) => {
+    setRows((prev) => prev.filter((r) => r.key !== key))
+  }
+
+  /** + adds current entry line into grid (Gold Shark Actions +) */
+  const addEntryRow = () => {
     if (!entry.item.trim()) {
       toast('Items is required')
       return
@@ -245,104 +243,96 @@ export function ManualRequest() {
       toast('Purity is required')
       return
     }
-
-    const next: ItemEntry = {
-      ...entry,
-      key: `sum-${Date.now()}`,
-      item: entry.item.trim(),
-      pic: entry.pic.trim(),
-      weight: entry.weight.trim(),
+    const nos = {
       requestNo: entry.requestNo || batchNos.requestNo,
       receiptNo: entry.receiptNo || batchNos.receiptNo,
     }
-
-    setSummaryRows((prev) => [...prev, next])
-    resetEntry({
-      requestNo: next.requestNo,
-      receiptNo: next.receiptNo,
-    })
-    toast(`${next.item} added to summary`)
+    setRows((prev) => [
+      ...prev,
+      {
+        ...entry,
+        key: `row-${Date.now()}`,
+        item: entry.item.trim(),
+        pic: entry.pic.trim(),
+        weight: entry.weight.trim(),
+        requestNo: nos.requestNo,
+        receiptNo: nos.receiptNo,
+        selected: true,
+      },
+    ])
+    setBatchNos(nos)
+    resetEntry(nos)
+    setVoucherLoaded(true)
   }
 
-  const removeSummaryRow = (key: string) => {
-    setSummaryRows((prev) => prev.filter((r) => r.key !== key))
-  }
-
-  /** + clears entry for next item (keeps request/receipt nos) */
-  const clearEntryForNext = () => {
-    resetEntry({
-      requestNo: entry.requestNo || batchNos.requestNo,
-      receiptNo: entry.receiptNo || batchNos.receiptNo,
-    })
-  }
-
-  /** Final submit — persist all summary rows */
-  const submitRequest = () => {
+  /**
+   * Step 3 — Save Request (Gold Shark)
+   * Persist → alert success → clear form (step 4)
+   */
+  const saveRequest = () => {
     if (!partyId) {
       toast('Please select a Party Name')
       return
     }
     if (!night) {
-      toast('Please select Night/Day')
+      toast('Please select Day/Night')
       return
     }
-    if (summaryRows.length === 0) {
-      toast('Add at least one item via Save before submitting')
+    const selected = rows.filter((r) => r.selected)
+    if (selected.length === 0) {
+      toast('Add or load at least one item before saving')
       return
     }
 
-    for (const row of summaryRows) {
-      const purityCode = row.purity.replace(/^[^\d]*/, '').replace(/\D/g, '') || row.purity
-      const category =
-        data.categories.find((c) => row.purity.includes(c.purity) || c.purity === purityCode) ??
-        data.categories[0]
-
-      store.addRequest({
-        partyId,
-        partyName,
-        categoryId: category.id,
-        categoryName: category.name,
-        pieces: Number(row.pic) || 1,
-        weight: Number(row.weight),
-        purity: purityCode || category.purity,
-        status: 'Pending',
-        source: 'Manual',
-        remarks: [
-          `Night: ${night}`,
-          `Item: ${row.item}`,
-          `Req: ${row.requestNo}`,
-          `Rcpt: ${row.receiptNo}`,
-          row.jobCardNo ? `JC: ${row.jobCardNo}` : '',
-          ahcFileName ? `AHC: ${ahcFileName}` : '',
-        ]
-          .filter(Boolean)
-          .join(' · '),
-      })
-
-      store.addPendingRough({
+    const ids: string[] = []
+    for (const row of selected) {
+      const purity = row.purity.replace(/^[^\d]*/, '').replace(/\D/g, '') || row.purity
+      const pr = store.addPendingRough({
         partyId,
         partyName,
         item: row.item,
         pic: Number(row.pic) || 1,
         weight: Number(row.weight),
-        purity: purityCode || category.purity,
+        purity: purity || '916',
         requestNo: row.requestNo,
         receiptNo: row.receiptNo,
-        jobCardNo: row.jobCardNo || `JC-${row.requestNo.slice(-4)}`,
+        jobCardNo: row.jobCardNo || '',
         cml: party?.licenseNo || '',
         night,
         date,
         ahcFileName: ahcFileName || undefined,
       })
+      ids.push(pr.id)
     }
 
-    toast(`Request submitted · ${summaryRows.length} item(s)`)
-    setSummaryRows([])
-    resetEntry(batchNos)
+    const created = store.saveManualRequest({
+      partyId,
+      partyName,
+      night,
+      date,
+      ahcFileName: ahcFileName || undefined,
+      selectedIds: ids,
+      source: 'Manual',
+    })
+
+    window.alert('Data saved successfully!')
+    toast(`Saved ${created.length} request(s)`)
+    clearAll()
   }
+
+  const setEntryField = <K extends keyof ItemEntry>(key: K, value: ItemEntry[K]) => {
+    setEntry((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const toggleAll = (checked: boolean) => {
+    setRows((prev) => prev.map((r) => ({ ...r, selected: checked })))
+  }
+
+  const allSelected = hasRows && rows.every((r) => r.selected)
 
   return (
     <div className="manual-request-page">
+      {/* ——— Header form (Gold Shark step 1/2) ——— */}
       <div className="panel manual-form-panel">
         <div className="manual-form-row">
           <div className="field party-search-field">
@@ -351,7 +341,7 @@ export function ManualRequest() {
               <div className="party-input-wrap">
                 <input
                   type="text"
-                  placeholder="Search and select Party."
+                  placeholder="Search and select Party"
                   value={partyQuery}
                   onChange={(e) => {
                     setPartyQuery(e.target.value)
@@ -397,9 +387,8 @@ export function ManualRequest() {
           </div>
 
           <div className="field">
-            <label>Night:</label>
+            <label>Shift:</label>
             <select value={night} onChange={(e) => onNightChange(e.target.value)}>
-              <option value="">Select</option>
               <option value="Day">Day</option>
               <option value="Night">Night</option>
             </select>
@@ -411,7 +400,7 @@ export function ManualRequest() {
           </div>
 
           <div className="field ahc-field">
-            <label>Upload AHC:</label>
+            <label>Upload AHC</label>
             <div className="ahc-box">
               <input
                 ref={fileRef}
@@ -428,238 +417,311 @@ export function ManualRequest() {
               >
                 Choose File
               </button>
-              <input type="text" readOnly className="ahc-filename" value={ahcFileName} />
+              <span className="ahc-filename-text">
+                {reading ? (
+                  <>
+                    <Loader2 size={14} className="spin" /> Reading…
+                  </>
+                ) : (
+                  ahcFileName || 'No file chosen'
+                )}
+              </span>
             </div>
           </div>
         </div>
 
         {party && <div className="party-address-bar">{party.address || '—'}</div>}
 
-        <div className="party-echo-field">
-          <input type="text" readOnly value={partyName} placeholder="Party" />
-        </div>
-
-        <div className="voucher-status">
-          {reading ? (
-            <span className="voucher-reading">
-              <Loader2 size={14} className="spin" /> Reading voucher…
-            </span>
-          ) : readNote ? (
-            <span className="voucher-ready">{readNote}</span>
-          ) : (
-            <span className="voucher-hint">
-              Select Party + Night/Day, upload voucher — then Save each entry into the summary
-              grid.
-            </span>
-          )}
-          {canRead && !reading && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() =>
-                voucherFileRef.current && fillFromVoucher(voucherFileRef.current, partyName)
-              }
-            >
-              Re-read Voucher
-            </button>
-          )}
-        </div>
+        {(partyName || voucherLoaded) && (
+          <div className="party-echo-field">
+            <input type="text" readOnly value={partyName} placeholder="Party" />
+          </div>
+        )}
       </div>
 
-      {/* ——— Summary Grid (top) ——— */}
-      <div className="panel pending-table-panel manual-entry-panel">
-        <div className="grid-section-label">
-          Summary Grid
-          <span>{summaryRows.length} item(s)</span>
-        </div>
-        <div className="table-wrap">
-          <table className="data-table navy-head-table manual-entry-table">
-            <thead>
-              <tr>
-                <th>Items</th>
-                <th>PIC</th>
-                <th>Weight</th>
-                <th>Purity</th>
-                <th>Request No</th>
-                <th>Receipt No</th>
-                <th>Job Card No</th>
-                <th style={{ width: 56 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {summaryRows.length === 0 ? (
+      {/* ——— Step 1: empty Pending rough Requests ——— */}
+      {!voucherLoaded && !hasRows && (
+        <div className="panel pending-table-panel">
+          <h2 className="pending-title">Pending rough Requests</h2>
+          <div className="table-wrap">
+            <table className="data-table navy-head-table">
+              <thead>
                 <tr>
-                  <td colSpan={8} className="empty-state summary-empty">
-                    Saved items will appear here
+                  <th>Check</th>
+                  <th>Party Name</th>
+                  <th>Item</th>
+                  <th>PIC</th>
+                  <th>Weight</th>
+                  <th>Purity</th>
+                  <th>Request No</th>
+                  <th>Receipt No</th>
+                  <th>Job Card No</th>
+                  <th>CML</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={10} className="empty-state">
+                    Select party, Day/Night, and upload AHC voucher to load items.
                   </td>
                 </tr>
-              ) : (
-                summaryRows.map((row) => (
-                  <tr key={row.key} className="summary-row">
-                    <td>{row.item}</td>
-                    <td>{row.pic}</td>
-                    <td>{row.weight}</td>
-                    <td>{row.purity}</td>
-                    <td>{row.requestNo}</td>
-                    <td>{row.receiptNo}</td>
-                    <td>{row.jobCardNo || '—'}</td>
+              </tbody>
+            </table>
+          </div>
+          <div className="manual-actions">
+            <button type="button" className="btn btn-navy btn-save-request" onClick={saveRequest}>
+              Save Request
+            </button>
+            <Link to="/" className="btn btn-back">
+              Back
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ——— Step 2: voucher loaded — editable rows + add line ——— */}
+      {(voucherLoaded || hasRows) && (
+        <>
+          <div className="panel pending-table-panel manual-entry-panel">
+            <div className="table-wrap">
+              <table className="data-table navy-head-table manual-entry-table">
+                <thead>
+                  <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={(e) => toggleAll(e.target.checked)}
+                        aria-label="Select all"
+                      />
+                    </th>
+                    <th>Items</th>
+                    <th>PIC</th>
+                    <th>Weight</th>
+                    <th>Purity</th>
+                    <th>Request No</th>
+                    <th>Receipt No</th>
+                    <th>Job Card No</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.key}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={row.selected}
+                          onChange={(e) => updateRow(row.key, { selected: e.target.checked })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="table-input"
+                          value={row.item}
+                          onChange={(e) => updateRow(row.key, { item: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="table-input"
+                          value={row.pic}
+                          onChange={(e) => updateRow(row.key, { pic: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="table-input"
+                          value={row.weight}
+                          onChange={(e) => updateRow(row.key, { weight: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          className="table-input"
+                          value={row.purity}
+                          onChange={(e) => updateRow(row.key, { purity: e.target.value })}
+                        >
+                          {PURITY_OPTIONS.map((p) => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          ))}
+                          {!PURITY_OPTIONS.includes(row.purity) && row.purity && (
+                            <option value={row.purity}>{row.purity}</option>
+                          )}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          className="table-input"
+                          value={row.requestNo}
+                          onChange={(e) => updateRow(row.key, { requestNo: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="table-input"
+                          value={row.receiptNo}
+                          onChange={(e) => updateRow(row.key, { receiptNo: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="table-input"
+                          placeholder="Job Card No"
+                          value={row.jobCardNo}
+                          onChange={(e) => updateRow(row.key, { jobCardNo: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="icon-action danger"
+                          title="Delete row"
+                          onClick={() => removeRow(row.key)}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="manual-row-saves">
+              <button type="button" className="btn btn-navy btn-row-save" onClick={saveRequest}>
+                Save
+              </button>
+            </div>
+          </div>
+
+          <div className="panel pending-table-panel manual-entry-panel">
+            <div className="table-wrap">
+              <table className="data-table navy-head-table manual-entry-table">
+                <thead>
+                  <tr>
+                    <th>Items</th>
+                    <th>PIC</th>
+                    <th>Weight</th>
+                    <th>Purity</th>
+                    <th>Request No</th>
+                    <th>Receipt No</th>
+                    <th>Job Card No</th>
+                    <th style={{ width: 56 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <div className="party-search">
+                        <input
+                          className="table-input"
+                          placeholder="Search and select..."
+                          value={entry.item}
+                          onChange={(e) => {
+                            setEntryField('item', e.target.value)
+                            setItemOpen(true)
+                          }}
+                          onFocus={() => setItemOpen(true)}
+                          onBlur={() => setTimeout(() => setItemOpen(false), 150)}
+                        />
+                        {itemOpen && (
+                          <div className="party-dropdown">
+                            {itemMatches.map((item) => (
+                              <button
+                                key={item}
+                                type="button"
+                                className="party-option"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setEntryField('item', item)
+                                  setItemOpen(false)
+                                }}
+                              >
+                                <strong>{item}</strong>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <input
+                        className="table-input"
+                        placeholder="PIC"
+                        value={entry.pic}
+                        onChange={(e) => setEntryField('pic', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="table-input"
+                        placeholder="Weight"
+                        type="number"
+                        step="0.01"
+                        value={entry.weight}
+                        onChange={(e) => setEntryField('weight', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <select
+                        className="table-input"
+                        value={entry.purity}
+                        onChange={(e) => setEntryField('purity', e.target.value)}
+                      >
+                        <option value="">Select</option>
+                        {PURITY_OPTIONS.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        className="table-input"
+                        value={entry.requestNo}
+                        onChange={(e) => setEntryField('requestNo', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="table-input"
+                        value={entry.receiptNo}
+                        onChange={(e) => setEntryField('receiptNo', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="table-input"
+                        placeholder="Job Card No"
+                        value={entry.jobCardNo}
+                        onChange={(e) => setEntryField('jobCardNo', e.target.value)}
+                      />
+                    </td>
                     <td>
                       <button
                         type="button"
-                        className="icon-action danger"
-                        title="Remove"
-                        onClick={() => removeSummaryRow(row.key)}
+                        className="add-line-btn"
+                        onClick={addEntryRow}
+                        title="Add row"
                       >
-                        <Trash2 size={15} />
+                        <Plus size={18} />
                       </button>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ——— Entry Grid (bottom) ——— */}
-      <div className="panel pending-table-panel manual-entry-panel">
-        <div className="grid-section-label">
-          Entry Grid
-          <span>Fill one item, then Save</span>
-        </div>
-        <div className="table-wrap">
-          <table className="data-table navy-head-table manual-entry-table">
-            <thead>
-              <tr>
-                <th>Items</th>
-                <th>PIC</th>
-                <th>Weight</th>
-                <th>Purity</th>
-                <th>Request No</th>
-                <th>Receipt No</th>
-                <th>Job Card No</th>
-                <th style={{ width: 56 }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>
-                  <div className="party-search">
-                    <input
-                      className="table-input"
-                      placeholder="Search and select..."
-                      value={entry.item}
-                      onChange={(e) => {
-                        setEntryField('item', e.target.value)
-                        setItemOpen(true)
-                      }}
-                      onFocus={() => setItemOpen(true)}
-                      onBlur={() => setTimeout(() => setItemOpen(false), 150)}
-                    />
-                    {itemOpen && (
-                      <div className="party-dropdown">
-                        {itemMatches.map((item) => (
-                          <button
-                            key={item}
-                            type="button"
-                            className="party-option"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              setEntryField('item', item)
-                              setItemOpen(false)
-                            }}
-                          >
-                            <strong>{item}</strong>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td>
-                  <input
-                    className="table-input"
-                    placeholder="PIC"
-                    value={entry.pic}
-                    onChange={(e) => setEntryField('pic', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="table-input"
-                    placeholder="Weight"
-                    type="number"
-                    step="0.01"
-                    value={entry.weight}
-                    onChange={(e) => setEntryField('weight', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <select
-                    className="table-input"
-                    value={entry.purity}
-                    onChange={(e) => setEntryField('purity', e.target.value)}
-                  >
-                    <option value="">Select</option>
-                    {PURITY_OPTIONS.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <input
-                    className="table-input"
-                    value={entry.requestNo}
-                    onChange={(e) => setEntryField('requestNo', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="table-input"
-                    value={entry.receiptNo}
-                    onChange={(e) => setEntryField('receiptNo', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="table-input"
-                    placeholder="Job Card No"
-                    value={entry.jobCardNo}
-                    onChange={(e) => setEntryField('jobCardNo', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="add-line-btn"
-                    onClick={clearEntryForNext}
-                    title="Clear entry for next item"
-                  >
-                    <Plus size={18} />
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div className="manual-row-saves">
-          <button type="button" className="btn btn-navy btn-row-save" onClick={saveEntryToSummary}>
-            Save
-          </button>
-        </div>
-      </div>
-
-      <div className="manual-actions">
-        <button type="button" className="btn btn-primary btn-save-request" onClick={submitRequest}>
-          Save Request
-        </button>
-        <Link to="/" className="btn btn-back">
-          Back
-        </Link>
-      </div>
+                </tbody>
+              </table>
+            </div>
+            <div className="manual-row-saves">
+              <button type="button" className="btn btn-navy btn-row-save" onClick={saveRequest}>
+                Save
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {Toast}
     </div>
