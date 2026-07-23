@@ -404,7 +404,23 @@ async function stepAssay(sheet, flow) {
 
   const stripRows = resolved.rows
   const cg = sheet.cg || {}
-  const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
+  // Manak rule: Strip M1 cannot be more than half of Button Weight
+  const buttonWtNow = Number(MF.findSamplingInputs(document).buttonWt?.value || drawn || 0)
+  const maxStripM1 = buttonWtNow > 0 ? buttonWtNow / 2 - 0.001 : Infinity
+  const clampStrip = (w) => {
+    const n = Number(w) || 0
+    if (!(n > 0)) return n
+    if (!(maxStripM1 < Infinity)) return n
+    return Math.min(n, maxStripM1)
+  }
+
+  // Index: 0=Strip1, 1=Strip2, 2=C1, 3=C2
+  const m1s = [
+    clampStrip(stripRows[0]?.sampleWeight),
+    clampStrip(stripRows[1]?.sampleWeight),
+    cg.cg1,
+    cg.cg2,
+  ]
   const silvers = [stripRows[0]?.silver, stripRows[1]?.silver, cg.silverCg1, cg.silverCg2]
   const coppers = [0, 0, cg.copperCg1 ?? 0, cg.copperCg2 ?? 0]
   const leads = [
@@ -415,12 +431,15 @@ async function stepAssay(sheet, flow) {
   ]
   const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
 
-  showToast('Shrija AUTO: Fire Assaying — scan-style weight fill (M1/Ag/Cu/Pb)…')
+  // Manak order: Check Gold (C1/C2) FIRST, then Strip 1 / Strip 2
+  const fillOrder = [2, 3, 0, 1]
+
+  showToast('Shrija AUTO: pehle Check Gold (C1/C2), phir Strip 1/2…')
 
   const cols = MF.collectAssayInputs(document)
   let filledM1 = 0
-  // Sequential like balance scan: focus field → wedge keys → next
-  for (let i = 0; i < 4; i++) {
+
+  async function fillAssayRow(i) {
     if (await MF.forceSetWeight(cols.m1[i], m1s[i])) filledM1 += 1
     await MF.delay(120)
     await MF.forceSetWeight(cols.silver[i], silvers[i])
@@ -430,8 +449,18 @@ async function stepAssay(sheet, flow) {
       await MF.delay(80)
     }
     await MF.forceSetWeight(cols.lead[i], leads[i])
-    await MF.delay(100)
+    await MF.delay(120)
   }
+
+  // 1) C1 then C2
+  showToast('Shrija AUTO: Check Gold C1…')
+  await fillAssayRow(2)
+  showToast('Shrija AUTO: Check Gold C2…')
+  await fillAssayRow(3)
+  // 2) Strip 1 then Strip 2 (M1 capped ≤ half Button Weight)
+  showToast(`Shrija AUTO: Strip 1/2 (max M1 ${maxStripM1 < Infinity ? maxStripM1.toFixed(3) : '—'})…`)
+  await fillAssayRow(0)
+  await fillAssayRow(1)
 
   await storageRemove(FLOW_KEY)
   await MF.delay(400)
@@ -441,22 +470,26 @@ async function stepAssay(sheet, flow) {
 
   const m2Open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
   if (m2Open) {
-    showToast('Shrija AUTO: M2 scan-fill…')
-    for (let i = 0; i < 4; i++) {
+    showToast('Shrija AUTO: M2 — C1/C2 phir Strips…')
+    for (const i of fillOrder) {
       await MF.forceSetWeight(cols.m2[i], m2s[i])
       await MF.delay(120)
     }
     await MF.delay(300)
     MF.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
-    showToast(`Shrija AUTO: complete · M1 ${filledM1}/4 + M2 (scan mode)`)
+    showToast(`Shrija AUTO: complete · M1 ${filledM1}/4 + M2`)
   } else {
+    // Keep M2 pending in CG-first order
+    const m2Ordered = fillOrder.map((i) => m2s[i])
+    // watchM2Unlock expects [s1,s2,c1,c2] index order — keep original m2s array
     watchM2Unlock(m2s)
     showToast(
       saved
-        ? `Shrija AUTO: M1 ${filledM1}/4 scan-filled + Initial Save · timing → M2 auto`
-        : `Shrija AUTO: M1 ${filledM1}/4 scan-filled · Initial Save check karo`,
+        ? `Shrija AUTO: CG→Strip filled (${filledM1}/4) + Initial Save · timing → M2`
+        : `Shrija AUTO: CG→Strip filled (${filledM1}/4) · Initial Save check`,
       9000,
     )
+    void m2Ordered
   }
   ensureStatusBadge()
 }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "2.0.5",
-  "description": "AUTO: Sample Drawn BEFORE Button Weight (same-row field map fix).",
+  "version": "2.0.6",
+  "description": "AUTO: Check Gold C1/C2 first, then Strip 1/2; Strip M1 ≤ half Button Weight.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",
