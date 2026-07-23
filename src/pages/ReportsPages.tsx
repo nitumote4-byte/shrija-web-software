@@ -22,17 +22,25 @@ import {
   RefreshCw,
   Scale,
   Search,
+  Send,
   Trash2,
   TrendingDown,
   TrendingUp,
   Trophy,
   Wallet,
+  X,
 } from 'lucide-react'
 import { statusBadge, useToast } from '../components/ui'
 import { getFirmProfile, getInvoiceHeader } from '../data/firmProfile'
 import { CENTRE_NAME } from '../data/modules'
 import { computeInvoicePaymentStatuses, store } from '../data/store'
 import { tenantGet, tenantSet } from '../data/tenant'
+import {
+  printPartyLedger,
+  sharePartyLedger,
+  statementFileBase,
+  type PartyLedgerDoc,
+} from '../utils/partyStatementPdf'
 
 /** Local calendar YYYY-MM-DD (avoids UTC day shift in IST late night / early morning). */
 function localYmd(d = new Date()) {
@@ -473,6 +481,8 @@ export function PartyStatement() {
   const [partyId, setPartyId] = useState('')
   const [fetched, setFetched] = useState(false)
   const [page, setPage] = useState(1)
+  const [waOpen, setWaOpen] = useState(false)
+  const [waMessage, setWaMessage] = useState('')
   const pageSize = 20
 
   const party = data.parties.find((p) => p.id === partyId)
@@ -529,6 +539,17 @@ export function PartyStatement() {
 
     const rows: StmtRow[] = [
       {
+        key: `${partyName}-opy`,
+        jeweller: '',
+        type: 'Opening Balance From Previous Year',
+        date: '',
+        pcs: 0,
+        credit: 0,
+        debit: 0,
+        balance: 0,
+        remarks: '',
+      },
+      {
         key: `${partyName}-op`,
         jeweller: '',
         type: labelOpening,
@@ -580,15 +601,18 @@ export function PartyStatement() {
       }
     }
 
-    const body = rows.filter((r) => r.key !== `${partyName}-op`)
+    // GoldShark selected: Total = period txs only (opening not added into credit/debit totals)
+    const body = rows.filter(
+      (r) => !r.key.endsWith('-opy') && !r.key.endsWith('-op') && !r.key.endsWith('-total'),
+    )
     rows.push({
       key: `${partyName}-total`,
       jeweller: '',
       type: 'Total',
       date: '',
       pcs: body.reduce((s, r) => s + r.pcs, 0),
-      credit: body.reduce((s, r) => s + r.credit, 0) + Math.max(0, -opening),
-      debit: body.reduce((s, r) => s + r.debit, 0) + Math.max(0, opening),
+      credit: body.reduce((s, r) => s + r.credit, 0),
+      debit: body.reduce((s, r) => s + r.debit, 0),
       balance: bal,
       remarks: '',
     })
@@ -716,43 +740,104 @@ export function PartyStatement() {
     )
   }
 
+  const sheetName =
+    header.centreKind === 'osc'
+      ? `${header.centreName}${header.firmName ? ` (Outlet of ${header.firmName})` : ''}`
+      : header.centreName || firm.firmName
+
+  const buildLedgerDoc = (): PartyLedgerDoc | null => {
+    if (!fetched || statementRows.length === 0) return null
+    const ledgerName = mode === 'all' ? 'All Parties' : party?.name || 'Party'
+    const ledgerAddress =
+      mode === 'all' ? `${data.parties.length} parties` : party?.address || ''
+    return {
+      centreName: sheetName,
+      centreAddress: header.centreAddress || firm.address || '',
+      email: firm.email || '',
+      gstin: header.centreGstin || firm.gstNo || '',
+      ledgerName,
+      ledgerAddress,
+      fromDate: formatStmtDate(startDate),
+      toDate: formatStmtDate(endDate),
+      rows: statementRows.map((r) => ({
+        jeweller: r.jeweller,
+        type: r.type,
+        date: r.date ? formatStmtDate(r.date) : '',
+        pcs: r.pcs,
+        credit: r.credit,
+        debit: r.debit,
+        balance: r.balance,
+        remarks: r.remarks,
+      })),
+    }
+  }
+
   const download = () => {
+    const doc = buildLedgerDoc()
+    if (!doc) {
+      toast('Fetch data first')
+      return
+    }
+    const ok = printPartyLedger(doc)
+    if (!ok) {
+      toast('Allow pop-ups to download / print the report')
+      return
+    }
+    toast(`Opening ${statementFileBase(formatStmtDate(startDate), formatStmtDate(endDate))} — use Save as PDF`)
+  }
+
+  const defaultWaMessage = () => {
+    const name = mode === 'selected' ? party?.name || 'Party' : 'All Parties'
+    return `Hello ${name}, Please find the attached Party Statement for the period ${formatStmtDate(startDate)} to ${formatStmtDate(endDate)}.`
+  }
+
+  const openWhatsappModal = () => {
     if (!fetched || statementRows.length === 0) {
       toast('Fetch data first')
       return
     }
-    const scope = mode === 'all' ? 'all-parties' : (party?.name || 'party').replace(/\s+/g, '-')
-    downloadCsv(`party-statement-${scope}.csv`, [
-      ['Name of Jeweller', 'Type', 'Date', 'Pcs', 'Credit', 'Debit', 'Balance', 'Remarks'],
-      ...statementRows.map((r) => [
-        r.jeweller,
-        r.type,
-        r.date,
-        String(r.pcs),
-        r.credit.toFixed(2),
-        r.debit.toFixed(2),
-        r.balance.toFixed(2),
-        r.remarks,
-      ]),
-    ])
-    toast('Report downloaded')
+    if (mode === 'selected' && !partyId) {
+      toast('Select a party first')
+      return
+    }
+    setWaMessage(defaultWaMessage())
+    setWaOpen(true)
   }
 
-  const sendWhatsapp = () => {
-    if (!fetched) {
+  const confirmWhatsappSend = async () => {
+    const doc = buildLedgerDoc()
+    if (!doc) {
       toast('Fetch data first')
       return
     }
-    const name = mode === 'selected' ? party?.name || 'Party' : 'All Parties'
-    const closing = statementRows.find((r) => r.type === 'Total')
-    const text = encodeURIComponent(
-      `${header.centreName}\nParty Statement: ${name}\nPeriod: ${formatStmtDate(startDate)} — ${formatStmtDate(endDate)}\nClosing Balance: ₹ ${money2(closing?.balance || 0)}\nGSTIN: ${header.centreGstin}`,
-    )
-    const phone = (party?.phone || '').replace(/\D/g, '')
+    const msg = waMessage.trim() || defaultWaMessage()
+
+    // GoldShark: share statement file (All Parties) or WhatsApp text (Selected Party)
+    try {
+      const result = await sharePartyLedger(
+        doc,
+        formatStmtDate(startDate),
+        formatStmtDate(endDate),
+        msg,
+      )
+      if (result === 'shared' || result === 'shared-text') {
+        setWaOpen(false)
+        toast(result === 'shared' ? 'Share sheet opened — pick WhatsApp' : 'Shared')
+        return
+      }
+    } catch {
+      /* user cancelled share */
+    }
+
+    // Fallback: print PDF + open WhatsApp Web with message
+    printPartyLedger(doc)
+    const phone = mode === 'selected' ? (party?.phone || '').replace(/\D/g, '') : ''
     const url = phone
-      ? `https://wa.me/91${phone.slice(-10)}?text=${text}`
-      : `https://wa.me/?text=${text}`
+      ? `https://wa.me/91${phone.slice(-10)}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`
     window.open(url, '_blank')
+    setWaOpen(false)
+    toast('Statement opened for PDF · WhatsApp message ready')
   }
 
   const addressHint =
@@ -761,11 +846,6 @@ export function PartyStatement() {
         ? party.address || party.name
         : 'Select a party to view address.'
       : `${data.parties.length} parties · combined ledger`
-
-  const sheetName =
-    header.centreKind === 'osc'
-      ? `${header.centreName}${header.firmName ? ` (Outlet of ${header.firmName})` : ''}`
-      : header.centreName || firm.firmName
 
   return (
     <div className="pstmt-page">
@@ -861,7 +941,7 @@ export function PartyStatement() {
           <button type="button" className="btn btn-green" onClick={download}>
             <Download size={16} /> Download Report
           </button>
-          <button type="button" className="btn btn-green" onClick={sendWhatsapp}>
+          <button type="button" className="btn btn-green" onClick={openWhatsappModal}>
             <MessageCircle size={16} /> Send To Whatsapp
           </button>
         </div>
@@ -967,6 +1047,43 @@ export function PartyStatement() {
           Back
         </Link>
       </div>
+
+      {waOpen && (
+        <div className="pstmt-wa-backdrop" onClick={() => setWaOpen(false)}>
+          <div
+            className="pstmt-wa-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pstmt-wa-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="pstmt-wa-head">
+              <MessageCircle size={20} />
+              <h3 id="pstmt-wa-title">Send WhatsApp</h3>
+            </header>
+            <p className="pstmt-wa-scope">
+              {mode === 'all' ? 'All Parties statement' : party?.name || 'Selected party'}
+            </p>
+            <label className="field">
+              <span>Edit Message:</span>
+              <textarea
+                rows={5}
+                value={waMessage}
+                onChange={(e) => setWaMessage(e.target.value)}
+              />
+            </label>
+            <div className="pstmt-wa-actions">
+              <button type="button" className="btn btn-green" onClick={() => void confirmWhatsappSend()}>
+                <Send size={15} /> Send
+              </button>
+              <button type="button" className="btn btn-danger" onClick={() => setWaOpen(false)}>
+                <X size={15} /> Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {Toast}
     </div>
   )
