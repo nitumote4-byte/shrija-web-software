@@ -6661,7 +6661,7 @@ table.data-table tr:hover td {
   }
 }
 
-/* Party Details (Gold Shark–style list) */
+/* Party Details (Gold Sharkâ€"style list) */
 .party-details-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -6810,5 +6810,203 @@ table.data-table tr:hover td {
   .job-card-preview {
     border-style: solid;
     max-width: 100%;
+  }
+}
+
+/* QM Stock - CG Weight (Gold Shark cg_weight.php) */
+.cgw-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.cgw-top {
+  padding: 1.1rem 1.25rem;
+}
+
+.cgw-add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 180px;
+  gap: 0.85rem;
+  align-items: end;
+}
+
+.cgw-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.95rem;
+}
+
+.cgw-btn-green {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+}
+
+.cgw-btn-green:hover {
+  background: #15803d;
+}
+
+.cgw-btn-orange {
+  background: #ea580c;
+  color: #fff;
+  border: none;
+}
+
+.cgw-btn-orange:hover {
+  background: #c2410c;
+}
+
+.cgw-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.cgw-col {
+  padding: 1rem 1.1rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+}
+
+.cgw-col h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: center;
+  color: #0f2744;
+}
+
+.cgw-filters {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 0.45rem;
+  margin-bottom: 0.7rem;
+}
+
+.cgw-filters input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #c5d0de;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.cgw-list {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  background: #fff;
+  min-height: 240px;
+  max-height: 360px;
+}
+
+.cgw-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.cgw-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-bottom: 1px solid #e8eef5;
+  padding: 0.15rem 0.35rem;
+}
+
+.cgw-row:last-child {
+  border-bottom: none;
+}
+
+.cgw-row-main {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.4rem;
+  font-size: 0.88rem;
+  color: #0f2744;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.cgw-row-main:hover {
+  background: #f1f6fb;
+  border-radius: 4px;
+}
+
+.cgw-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: #334155;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.cgw-icon-btn:hover {
+  background: #e8eef5;
+}
+
+.cgw-icon-btn.danger {
+  color: #dc2626;
+}
+
+.cgw-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  padding: 0.25rem;
+}
+
+.cgw-edit-row .table-input {
+  width: 110px;
+}
+
+.cgw-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.92rem;
+}
+
+.cgw-trash-lg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: #dc2626;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.cgw-trash-lg:hover {
+  background: #fee2e2;
+}
+
+@media (max-width: 900px) {
+  .cgw-add-row,
+  .cgw-columns,
+  .cgw-filters {
+    grid-template-columns: 1fr;
   }
 }

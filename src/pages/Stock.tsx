@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react'
 import { useToast } from '../components/ui'
 import { tenantGet, tenantSet } from '../data/tenant'
 import { store } from '../data/store'
+import { QMCGWeightPage } from './CGWeight'
 
 type StockKind =
   | 'gold'
@@ -1831,6 +1832,33 @@ function StockItemPage({
   const { item, bisItem } = useParams<{ item?: string; bisItem?: string }>()
   const slug = bisItem ? `bis/${bisItem}` : item || ''
   const kind = KIND_BY_SLUG[slug]
+
+  // Gold Shark cg_weight.php — dedicated Unused / Used CG weight flow
+  if (kind === 'cg-weight') {
+    return <QMCGWeightPage hubPath={hubPath} />
+  }
+
+  return (
+    <StockItemLedgerPage
+      kind={kind}
+      scope={scope}
+      hubPath={hubPath}
+      hubLabel={hubLabel}
+    />
+  )
+}
+
+function StockItemLedgerPage({
+  kind,
+  scope,
+  hubPath,
+  hubLabel,
+}: {
+  kind: StockKind | undefined
+  scope: 'qm' | 'lab'
+  hubPath: string
+  hubLabel: string
+}) {
   const { toast, Toast } = useToast()
   const [tick, setTick] = useState(0)
   const [qty, setQty] = useState('')
