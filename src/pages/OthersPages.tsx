@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { useToast } from '../components/ui'
@@ -14,7 +14,7 @@ function SubPageShell({
 }: {
   title: string
   subtitle: string
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <div className="others-subpage">
@@ -32,69 +32,415 @@ function SubPageShell({
   )
 }
 
+function flagLabel(on: boolean) {
+  return on ? 'Checked' : 'Unchecked'
+}
+
 export function PartyDetails() {
-  const parties = store.getAll().parties
+  const { toast, Toast } = useToast()
+  const [tick, setTick] = useState(0)
+  const parties = useMemo(() => {
+    void tick
+    return store.getAll().parties
+  }, [tick])
   const [q, setQ] = useState('')
+  const [group, setGroup] = useState('All')
+  const [page, setPage] = useState(1)
+  const pageSize = 15
+  const [editing, setEditing] = useState<null | (typeof parties)[0]>(null)
+
+  const groups = useMemo(
+    () => [...new Set(parties.map((p) => p.groupName).filter(Boolean))].sort(),
+    [parties],
+  )
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return parties
-    return parties.filter(
-      (p) =>
+    return parties.filter((p) => {
+      const matchQ =
+        !s ||
         p.name.toLowerCase().includes(s) ||
         p.phone.includes(s) ||
         p.gstin.toLowerCase().includes(s) ||
-        p.address.toLowerCase().includes(s),
+        p.licenseNo.toLowerCase().includes(s)
+      const matchG = group === 'All' || p.groupName === group
+      return matchQ && matchG
+    })
+  }, [parties, q, group])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageSafe = Math.min(page, totalPages)
+  const rows = filtered.slice((pageSafe - 1) * pageSize, pageSafe * pageSize)
+
+  const exportAll = () => {
+    const header = [
+      'Date',
+      'Party Name',
+      'Address',
+      'Contact No',
+      'GSTNO',
+      'CMLNO',
+      'IGST',
+      'Skip Minimum Bill Charger',
+      'Skip Rejected Pic Charger',
+      'Skip Cutting Charger',
+      'State',
+      'State Code',
+      'Discount',
+      'Min. Bill Calc.',
+      'Transaction',
+      'Group',
+    ]
+    const lines = filtered.map((p) =>
+      [
+        p.createdAt,
+        p.name,
+        p.address,
+        p.phone,
+        p.gstin,
+        p.licenseNo,
+        flagLabel(p.igstApplicable),
+        flagLabel(p.skipMinBill),
+        flagLabel(p.skipRejectedPics),
+        flagLabel(p.skipCutting),
+        p.state,
+        p.stateCode,
+        (p.discount ?? 0).toFixed(2),
+        flagLabel(p.minBillCalc),
+        p.transactionType,
+        p.groupName,
+      ]
+        .map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`)
+        .join(','),
     )
-  }, [parties, q])
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], {
+      type: 'text/csv;charset=utf-8;',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `party-details-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast(`Exported ${filtered.length} partie(s)`)
+  }
+
+  const remove = (id: string, name: string) => {
+    if (!window.confirm(`Delete party "${name}"?`)) return
+    if (store.deleteParty(id)) {
+      setTick((t) => t + 1)
+      toast('Party deleted')
+      if (editing?.id === id) setEditing(null)
+    }
+  }
+
+  const saveEdit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!editing) return
+    if (!editing.name.trim()) {
+      toast('Party name is required')
+      return
+    }
+    store.updateParty(editing.id, {
+      name: editing.name.trim(),
+      address: editing.address.trim(),
+      phone: editing.phone.trim(),
+      gstin: editing.gstin.trim().toUpperCase(),
+      licenseNo: editing.licenseNo.trim(),
+      state: editing.state.trim(),
+      stateCode: editing.stateCode.trim(),
+      groupName: editing.groupName.trim(),
+      transactionType: editing.transactionType,
+      igstApplicable: editing.igstApplicable,
+      skipMinBill: editing.skipMinBill,
+      skipRejectedPics: editing.skipRejectedPics,
+      skipCutting: editing.skipCutting,
+      discount: Number(editing.discount) || 0,
+      minBillCalc: editing.minBillCalc,
+    })
+    setEditing(null)
+    setTick((t) => t + 1)
+    toast('Party updated')
+  }
 
   return (
-    <SubPageShell title="Party Details" subtitle="View customer information.">
-      <div className="panel">
-        <div className="form-grid" style={{ marginBottom: '1rem' }}>
+    <div className="others-subpage party-details-page">
+      <Link to="/others" className="back-link">
+        <ArrowLeft size={16} /> Back to Others
+      </Link>
+      <div className="page-header">
+        <div>
+          <h1>Party Details</h1>
+          <p>View, edit and delete centre parties (Gold Shark style).</p>
+        </div>
+      </div>
+
+      <div className="panel party-details-panel">
+        <div className="party-details-toolbar">
           <div className="field">
-            <label>Search</label>
+            <label>Search by Party Name</label>
             <input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Name, phone, GST, address…"
+              onChange={(e) => {
+                setQ(e.target.value)
+                setPage(1)
+              }}
+              placeholder="Search by Party Name"
             />
           </div>
+          <div className="field">
+            <label>Filter By Group</label>
+            <select
+              value={group}
+              onChange={(e) => {
+                setGroup(e.target.value)
+                setPage(1)
+              }}
+            >
+              <option value="All">{groups.length ? 'All groups' : 'No parties found'}</option>
+              {groups.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="button" className="btn btn-navy" onClick={exportAll}>
+            Export All
+          </button>
         </div>
-        <div className="table-wrap">
-          <table className="data-table">
+
+        <div className="table-wrap party-details-table-wrap">
+          <table className="data-table party-details-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Contact</th>
+                <th>Date</th>
+                <th>Party Name</th>
                 <th>Address</th>
-                <th>GST</th>
+                <th>Contact No</th>
+                <th>GSTNO</th>
+                <th>CMLNO</th>
+                <th>IGST</th>
+                <th>Skip Minimum Bill Charger</th>
+                <th>Skip Rejected Pic Charger</th>
+                <th>Skip Cutting Charger</th>
                 <th>State</th>
-                <th>License / CML</th>
-                <th>Txn</th>
-                <th>Group</th>
+                <th>State Code</th>
+                <th>Discount</th>
+                <th>Min. Bill Calc.</th>
+                <th>Transaction</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
+              {rows.map((p) => (
                 <tr key={p.id}>
+                  <td>{p.createdAt}</td>
                   <td>{p.name}</td>
-                  <td>{p.phone || '—'}</td>
                   <td>{p.address || '—'}</td>
+                  <td>{p.phone || '—'}</td>
                   <td>{p.gstin || '—'}</td>
-                  <td>
-                    {p.state || '—'}
-                    {p.stateCode ? ` (${p.stateCode})` : ''}
-                  </td>
                   <td>{p.licenseNo || '—'}</td>
+                  <td>{flagLabel(p.igstApplicable)}</td>
+                  <td>{flagLabel(p.skipMinBill)}</td>
+                  <td>{flagLabel(p.skipRejectedPics)}</td>
+                  <td>{flagLabel(p.skipCutting)}</td>
+                  <td>{p.state || '—'}</td>
+                  <td>{p.stateCode || '—'}</td>
+                  <td>{(p.discount ?? 0).toFixed(2)}</td>
+                  <td>{flagLabel(p.minBillCalc)}</td>
                   <td>{p.transactionType}</td>
-                  <td>{p.groupName || '—'}</td>
+                  <td>
+                    <div className="party-row-actions">
+                      <button
+                        type="button"
+                        className="btn btn-navy party-action-btn"
+                        onClick={() => setEditing({ ...p })}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn party-action-btn party-action-delete"
+                        onClick={() => remove(p.id, p.name)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={16} className="empty-state">
+                    No parties found.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
+
+        <div className="party-details-footer">
+          <div className="party-details-pager">
+            <button type="button" className="btn btn-ghost" disabled={pageSafe <= 1} onClick={() => setPage(1)}>
+              First
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={pageSafe <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </button>
+            <span className="party-page-num">{pageSafe}</span>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={pageSafe >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={pageSafe >= totalPages}
+              onClick={() => setPage(totalPages)}
+            >
+              Last
+            </button>
+          </div>
+          <Link to="/others" className="btn btn-navy">
+            Back
+          </Link>
+        </div>
       </div>
-    </SubPageShell>
+
+      {editing && (
+        <div className="party-edit-overlay" role="dialog" aria-modal="true">
+          <form className="panel party-edit-modal" onSubmit={saveEdit}>
+            <h2>Edit Party</h2>
+            <div className="form-grid">
+              <div className="field">
+                <label>Party Name</label>
+                <input
+                  value={editing.name}
+                  onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="field">
+                <label>Contact No</label>
+                <input
+                  value={editing.phone}
+                  onChange={(e) => setEditing({ ...editing, phone: e.target.value })}
+                />
+              </div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>Address</label>
+                <input
+                  value={editing.address}
+                  onChange={(e) => setEditing({ ...editing, address: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>GSTNO</label>
+                <input
+                  value={editing.gstin}
+                  onChange={(e) => setEditing({ ...editing, gstin: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>CMLNO</label>
+                <input
+                  value={editing.licenseNo}
+                  onChange={(e) => setEditing({ ...editing, licenseNo: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>State</label>
+                <input
+                  value={editing.state}
+                  onChange={(e) => setEditing({ ...editing, state: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>State Code</label>
+                <input
+                  value={editing.stateCode}
+                  onChange={(e) => setEditing({ ...editing, stateCode: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Discount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editing.discount ?? 0}
+                  onChange={(e) =>
+                    setEditing({ ...editing, discount: Number(e.target.value) || 0 })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Transaction</label>
+                <select
+                  value={editing.transactionType}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      transactionType: e.target.value as typeof editing.transactionType,
+                    })
+                  }
+                >
+                  <option value="Cash">Cash</option>
+                  <option value="Credit">Credit</option>
+                  <option value="Bank">Bank</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Group</label>
+                <input
+                  value={editing.groupName}
+                  onChange={(e) => setEditing({ ...editing, groupName: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="party-edit-flags">
+              {(
+                [
+                  ['igstApplicable', 'IGST'],
+                  ['skipMinBill', 'Skip Minimum Bill Charger'],
+                  ['skipRejectedPics', 'Skip Rejected Pic Charger'],
+                  ['skipCutting', 'Skip Cutting Charger'],
+                  ['minBillCalc', 'Min. Bill Calc.'],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="party-edit-flag">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(editing[key])}
+                    onChange={(e) => setEditing({ ...editing, [key]: e.target.checked })}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div className="auto-manak-actions">
+              <button type="submit" className="btn btn-navy">
+                Save
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {Toast}
+    </div>
   )
 }
 

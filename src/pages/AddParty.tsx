@@ -148,6 +148,8 @@ export function AddParty() {
       skipRejectedPics: form.skipRejectedPics,
       skipCutting: form.skipCutting,
       igstApplicable: form.igstApplicable,
+      discount: 0,
+      minBillCalc: false,
     })
 
     setTick((t) => t + 1)
@@ -197,6 +199,8 @@ export function AddParty() {
           skipRejectedPics: true,
           skipCutting: true,
           igstApplicable: false,
+          discount: 0,
+          minBillCalc: false,
         })
         imported += 1
       }

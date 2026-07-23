@@ -17,6 +17,8 @@ export type Party = {
   skipRejectedPics: boolean
   skipCutting: boolean
   igstApplicable: boolean
+  discount: number
+  minBillCalc: boolean
 }
 
 export type Category = {
@@ -257,6 +259,8 @@ function seed(): StoreShape {
       skipRejectedPics: true,
       skipCutting: true,
       igstApplicable: false,
+      discount: 0,
+      minBillCalc: false,
     },
     {
       id: 'p2',
@@ -274,6 +278,8 @@ function seed(): StoreShape {
       skipRejectedPics: false,
       skipCutting: false,
       igstApplicable: false,
+      discount: 0,
+      minBillCalc: false,
     },
     {
       id: 'p3',
@@ -291,6 +297,8 @@ function seed(): StoreShape {
       skipRejectedPics: true,
       skipCutting: false,
       igstApplicable: false,
+      discount: 0,
+      minBillCalc: false,
     },
   ]
 
@@ -622,6 +630,8 @@ function normalizeParty(p: Partial<Party> & { id: string; name: string }): Party
     skipRejectedPics: p.skipRejectedPics ?? false,
     skipCutting: p.skipCutting ?? false,
     igstApplicable: p.igstApplicable ?? false,
+    discount: Number(p.discount) || 0,
+    minBillCalc: p.minBillCalc ?? false,
   }
 }
 
@@ -667,10 +677,35 @@ export const store = {
 
   addParty(input: Omit<Party, 'id' | 'createdAt'>) {
     const data = load()
-    const party: Party = { ...input, id: uid('p'), createdAt: today() }
+    const party: Party = {
+      ...input,
+      id: uid('p'),
+      createdAt: today(),
+      discount: Number(input.discount) || 0,
+      minBillCalc: Boolean(input.minBillCalc),
+    }
     data.parties.unshift(party)
     save(data)
     return party
+  },
+
+  updateParty(id: string, patch: Partial<Omit<Party, 'id' | 'createdAt'>>) {
+    const data = load()
+    const party = data.parties.find((p) => p.id === id)
+    if (!party) return null
+    Object.assign(party, patch)
+    if (patch.discount !== undefined) party.discount = Number(patch.discount) || 0
+    save(data)
+    return party
+  },
+
+  deleteParty(id: string) {
+    const data = load()
+    const before = data.parties.length
+    data.parties = data.parties.filter((p) => p.id !== id)
+    if (data.parties.length === before) return false
+    save(data)
+    return true
   },
 
   updatePartyGroup(partyId: string, groupName: string) {
@@ -1295,6 +1330,8 @@ export const store = {
           skipRejectedPics: false,
           skipCutting: false,
           igstApplicable: false,
+          discount: 0,
+          minBillCalc: false,
         }
         data.parties.unshift(party)
       }
