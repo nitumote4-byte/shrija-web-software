@@ -364,11 +364,19 @@ export function oscTransferLabel(status?: OscTransferStatus | null) {
   }
 }
 
-/** Active OSC outlet id — null means Main/admin (no list filter). */
+/** Active OSC outlet id when logged into an Off-Site centre. */
 export function oscDataScopeId(): string | null {
   const s = getSession()
   if (s?.centreKind !== 'osc') return null
   return s.centreId || null
+}
+
+/** True when row belongs to an Off-Site outlet (not Main). */
+function isOscRecord(meta?: { centreId?: string; centreKind?: 'main' | 'osc' } | null) {
+  if (!meta) return false
+  if (meta.centreKind === 'osc') return true
+  if (meta.centreId && meta.centreId !== 'main') return true
+  return false
 }
 
 function matchesCentreScope(
@@ -377,7 +385,6 @@ function matchesCentreScope(
 ) {
   if (!meta) return false
   if (meta.centreId) return meta.centreId === scopeId
-  // Legacy OSC-tagged rows without id still visible to that outlet session
   if (meta.centreKind === 'osc') {
     const s = getSession()
     return s?.centreKind === 'osc' && (s.centreId || 'main') === scopeId
@@ -385,89 +392,112 @@ function matchesCentreScope(
   return false
 }
 
-/** OSC login: only that outlet's rows. Main sees full firm store. */
+function matchesMainScope(meta?: { centreId?: string; centreKind?: 'main' | 'osc' } | null) {
+  // Untagged legacy rows count as Main; OSC-tagged rows stay on OSC only
+  return !isOscRecord(meta)
+}
+
+/**
+ * Centre-scoped store for UI:
+ * - OSC login → only that outlet
+ * - Main login → Main only (OSC funds/bills/parties do not mix)
+ * Lab still uses getAllRaw() for OSC sample assay queue.
+ */
 function scopeStoreForSession(data: StoreShape): StoreShape {
-  const scopeId = oscDataScopeId()
-  if (!scopeId) return data
+  const session = getSession()
+  const oscId = oscDataScopeId()
 
-  const requests = data.requests.filter((r) => matchesCentreScope(scopeId, r))
-  const requestNos = new Set(requests.map((r) => r.requestNo))
+  const filterMoneyAndParties = (
+    match: (meta?: { centreId?: string; centreKind?: 'main' | 'osc' } | null) => boolean,
+    requestMatch: (r: HallmarkRequest) => boolean,
+  ) => {
+    const requests = data.requests.filter(requestMatch)
+    const requestNos = new Set(requests.map((r) => r.requestNo))
 
-  const roughSheets = data.roughSheets.filter((r) => {
-    if (matchesCentreScope(scopeId, r)) return true
-    if (r.requestNo && requestNos.has(r.requestNo)) return true
-    if (r.requestNo) {
-      const req = findRequestByNo(data, r.requestNo)
-      return matchesCentreScope(scopeId, req)
+    const roughSheets = data.roughSheets.filter((r) => {
+      if (match(r)) return true
+      if (r.requestNo && requestNos.has(r.requestNo)) return true
+      if (r.requestNo) {
+        const req = findRequestByNo(data, r.requestNo)
+        return req ? requestMatch(req) : false
+      }
+      return false
+    })
+
+    const parties = data.parties.filter((p) => match(p))
+    const pendingRough = data.pendingRough.filter((r) => {
+      if (match(r)) return true
+      const party = data.parties.find((p) => p.id === r.partyId)
+      return match(party)
+    })
+
+    const invoices = data.invoices.filter((inv) => {
+      if (match(inv)) return true
+      if (inv.requestNo && requestNos.has(inv.requestNo)) return true
+      if (inv.requestNo) {
+        const req = findRequestByNo(data, inv.requestNo)
+        return req ? requestMatch(req) : false
+      }
+      if (inv.partyId) {
+        const party = data.parties.find((p) => p.id === inv.partyId)
+        return match(party)
+      }
+      return false
+    })
+
+    const monthlyInvoices = (data.monthlyInvoices || []).filter((inv) => {
+      if (match(inv)) return true
+      if (inv.partyId) {
+        const party = data.parties.find((p) => p.id === inv.partyId)
+        return match(party)
+      }
+      return (inv.requestNos || []).some((no) => requestNos.has(no))
+    })
+
+    // Funds: strict centre tag only — never inherit via party (avoids OSC↔Main mix)
+    const funds = data.funds.filter((f) => match(f))
+    const expenses = data.expenses.filter((e) => match(e))
+    const touches = data.touches.filter((t) => match(t))
+    const xray = data.xray.filter((x) => {
+      if (match(x)) return true
+      if (x.requestNo && requestNos.has(x.requestNo)) return true
+      return false
+    })
+    const fireAssays = data.fireAssays.filter(
+      (fa) => fa.requestNo && requestNos.has(fa.requestNo),
+    )
+    const jewelleryCategories = data.jewelleryCategories
+
+    return {
+      ...data,
+      parties,
+      requests,
+      roughSheets,
+      pendingRough,
+      invoices,
+      monthlyInvoices,
+      funds,
+      expenses,
+      touches,
+      xray,
+      fireAssays,
+      jewelleryCategories,
     }
-    return false
-  })
-
-  const parties = data.parties.filter((p) => matchesCentreScope(scopeId, p))
-  const pendingRough = data.pendingRough.filter((r) => {
-    if (matchesCentreScope(scopeId, r)) return true
-    const party = data.parties.find((p) => p.id === r.partyId)
-    return matchesCentreScope(scopeId, party)
-  })
-
-  const invoices = data.invoices.filter((inv) => {
-    if (matchesCentreScope(scopeId, inv)) return true
-    if (inv.requestNo && requestNos.has(inv.requestNo)) return true
-    if (inv.requestNo) {
-      const req = findRequestByNo(data, inv.requestNo)
-      return matchesCentreScope(scopeId, req)
-    }
-    if (inv.partyId) {
-      const party = data.parties.find((p) => p.id === inv.partyId)
-      return matchesCentreScope(scopeId, party)
-    }
-    return false
-  })
-
-  const monthlyInvoices = (data.monthlyInvoices || []).filter((inv) => {
-    if (matchesCentreScope(scopeId, inv)) return true
-    if (inv.partyId) {
-      const party = data.parties.find((p) => p.id === inv.partyId)
-      return matchesCentreScope(scopeId, party)
-    }
-    return (inv.requestNos || []).some((no) => requestNos.has(no))
-  })
-
-  const funds = data.funds.filter((f) => {
-    if (matchesCentreScope(scopeId, f)) return true
-    if (f.partyId) {
-      const party = data.parties.find((p) => p.id === f.partyId)
-      return matchesCentreScope(scopeId, party)
-    }
-    return false
-  })
-
-  const expenses = data.expenses.filter((e) => matchesCentreScope(scopeId, e))
-  const touches = data.touches.filter((t) => matchesCentreScope(scopeId, t))
-  const xray = data.xray.filter((x) => {
-    if (matchesCentreScope(scopeId, x)) return true
-    if (x.requestNo && requestNos.has(x.requestNo)) return true
-    return false
-  })
-  const fireAssays = data.fireAssays.filter(
-    (fa) => fa.requestNo && requestNos.has(fa.requestNo),
-  )
-
-  return {
-    ...data,
-    parties,
-    requests,
-    roughSheets,
-    pendingRough,
-    invoices,
-    monthlyInvoices,
-    funds,
-    expenses,
-    touches,
-    xray,
-    fireAssays,
-    // categories + stock stay firm-wide (OSC has no lab stock UI)
   }
+
+  if (oscId) {
+    return filterMoneyAndParties(
+      (meta) => matchesCentreScope(oscId, meta),
+      (r) => matchesCentreScope(oscId, r),
+    )
+  }
+
+  // Main / QM / admin desk — exclude OSC outlet operational data
+  if (!session || session.centreKind !== 'osc') {
+    return filterMoneyAndParties(matchesMainScope, (r) => matchesMainScope(r))
+  }
+
+  return data
 }
 
 /** Normalize 22K916 / 916 / 22k → category purity code */
@@ -1516,10 +1546,16 @@ export const store = {
 
   addFund(input: Omit<FundEntry, 'id' | 'voucherNo'> & { voucherNo?: string }) {
     const data = load()
-    const n = data.funds.length + 1
+    const stamp = sessionCentreStamp()
+    const centreFunds = data.funds.filter((f) =>
+      stamp.centreKind === 'osc' ? f.centreId === stamp.centreId : !isOscRecord(f),
+    )
+    const n = centreFunds.length + 1
     const entry: FundEntry = {
-      ...sessionCentreStamp(),
       ...input,
+      ...stamp,
+      centreId: stamp.centreId,
+      centreKind: stamp.centreKind,
       id: uid('f'),
       voucherNo: input.voucherNo || String(n),
     }
@@ -1530,7 +1566,14 @@ export const store = {
 
   addExpense(input: Omit<ExpenseEntry, 'id'>) {
     const data = load()
-    const entry: ExpenseEntry = { ...sessionCentreStamp(), ...input, id: uid('e') }
+    const stamp = sessionCentreStamp()
+    const entry: ExpenseEntry = {
+      ...input,
+      ...stamp,
+      centreId: stamp.centreId,
+      centreKind: stamp.centreKind,
+      id: uid('e'),
+    }
     data.expenses.unshift(entry)
     save(data)
     return entry
