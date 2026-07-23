@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, FileText, Home, Search } from 'lucide-react'
-import { InvoiceChallan, invoiceToChallan, type ChallanView } from '../components/InvoiceChallan'
-import { InvoicePaperSizeToggle } from '../components/InvoicePaperSizeToggle'
+import { invoiceToChallan, type ChallanView } from '../components/InvoiceChallan'
+import { InvoicePreviewPanel } from '../components/InvoicePreviewPanel'
 import { useToast } from '../components/ui'
 import { store, type InvoiceLine } from '../data/store'
 import {
@@ -99,7 +99,31 @@ export function ViewGeneratedBills() {
       toast('Invoice not found')
       return null
     }
-    const view = invoiceToChallan(inv)
+    const all = store.getAll()
+    const view = invoiceToChallan(inv, all)
+    // Persist hydrated snapshot so reprint stays complete
+    if ((!inv.lines || inv.lines.length === 0) && view.lines.length > 0) {
+      store.updateInvoice(inv.id, {
+        lines: view.lines,
+        weightReceived: view.weightReceived,
+        sampleWeight: view.sampleWeight,
+        unusedSample: view.unusedSample,
+        fireboxScrap: view.fireboxScrap,
+        weightReturned: view.weightReturned,
+        partyAddress: view.partyAddress,
+        partyGstin: view.partyGstin,
+        partyCml: view.partyCml,
+        placeOfSupply: view.placeOfSupply,
+        stateCode: view.stateCode,
+        careOf: view.careOf,
+        requestDate: view.requestDate,
+        cgst: view.cgst,
+        sgst: view.sgst,
+        igst: view.igst,
+        useIgst: view.useIgst,
+        sac: '998346',
+      })
+    }
     setPreview(view)
     setActiveId(inv.id)
     setEditLines(view.lines.map((l) => ({ ...l })))
@@ -387,16 +411,12 @@ export function ViewGeneratedBills() {
         </section>
       )}
 
-      <section className="gb-card gb-preview-card">
-        <header className="gb-card-head no-print">
-          <FileText size={18} />
-          <h2>Invoice Preview</h2>
-          <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
-        </header>
-        <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
-          <InvoiceChallan view={livePreview} paperSize={paperSize} />
-        </div>
-      </section>
+      <InvoicePreviewPanel
+        view={livePreview}
+        paperSize={paperSize}
+        onPaperChange={setPaper}
+        hint="Get invoice → choose A4/A5 → Print / PDF · Update to edit lines & weights"
+      />
 
       <div className="gb-back-wrap no-print">
         <Link to="/" className="gb-btn gb-btn-back">

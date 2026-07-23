@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, Home, Printer, Search } from 'lucide-react'
-import { InvoiceChallan, type ChallanView } from '../components/InvoiceChallan'
-import { InvoicePaperSizeToggle } from '../components/InvoicePaperSizeToggle'
+import { type ChallanView } from '../components/InvoiceChallan'
+import { InvoicePreviewPanel } from '../components/InvoicePreviewPanel'
 import { useToast } from '../components/ui'
 import { store, type HallmarkRequest, type InvoiceLine, type RoughSheetEntry } from '../data/store'
 import { tenantGet } from '../data/tenant'
@@ -311,20 +311,12 @@ export function Billing() {
         </div>
       </section>
 
-      <section className="gb-card gb-preview-card">
-        <header className="gb-card-head gb-preview-toolbar no-print">
-          <FileText size={18} />
-          <h2>Invoice Preview</h2>
-          <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
-        </header>
-        <p className="invoice-hint no-print">
-          Select request → <strong>Get Data</strong> to fill challan · choose <strong>A4</strong> or{' '}
-          <strong>A5</strong> before Print / PDF
-        </p>
-        <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
-          <InvoiceChallan view={preview} paperSize={paperSize} />
-        </div>
-      </section>
+      <InvoicePreviewPanel
+        view={preview}
+        paperSize={paperSize}
+        onPaperChange={setPaper}
+        hint="Select request → Get Data to fill challan · choose A4 or A5 before Print / PDF"
+      />
 
       <div className="gb-back-wrap no-print">
         <Link to="/" className="gb-btn gb-btn-back">

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FileText, Home, Search } from 'lucide-react'
-import { formatInvoiceDateTime } from '../components/InvoiceChallan'
-import { InvoicePaperSizeToggle } from '../components/InvoicePaperSizeToggle'
+import { Home, Search } from 'lucide-react'
+import {
+  MonthlyInvoicePreviewPanel,
+  monthlyInvoiceToPreview,
+  type MonthlyPreview,
+} from '../components/MonthlyInvoiceSheet'
 import { useToast } from '../components/ui'
-import { getFirmProfile } from '../data/firmProfile'
-import { store, type MonthlyInvoice } from '../data/store'
+import { store } from '../data/store'
 import {
   applyInvoicePaperForPrint,
   loadInvoicePaperSize,
@@ -14,16 +16,12 @@ import {
   type InvoicePaperSize,
 } from '../utils/invoicePaper'
 
-function money(n: number) {
-  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
 export function ViewMonthlyBills() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
-  const firm = getFirmProfile()
   const [selectedKey, setSelectedKey] = useState('')
-  const [preview, setPreview] = useState<MonthlyInvoice | null>(null)
+  const [preview, setPreview] = useState<MonthlyPreview | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [paperSize, setPaperSize] = useState<InvoicePaperSize>(() => loadInvoicePaperSize())
   const [tick, setTick] = useState(0)
   void tick
@@ -53,18 +51,20 @@ export function ViewMonthlyBills() {
       toast('Not found')
       return
     }
-    setPreview(inv)
+    setPreview(monthlyInvoiceToPreview(inv))
+    setActiveId(inv.id)
     toast(`Loaded ${inv.invoiceNo}`)
   }
 
   const deleteBill = () => {
-    if (!preview) {
+    if (!preview || !activeId) {
       toast('Get a bill first')
       return
     }
     if (!window.confirm(`Delete monthly invoice ${preview.invoiceNo}?`)) return
-    store.deleteMonthlyInvoice(preview.id)
+    store.deleteMonthlyInvoice(activeId)
     setPreview(null)
+    setActiveId(null)
     setSelectedKey('')
     setTick((t) => t + 1)
     toast('Deleted · data pushed')
@@ -135,116 +135,11 @@ export function ViewMonthlyBills() {
         </div>
       </section>
 
-      <section className="gb-card gb-preview-card">
-        <header className="gb-card-head no-print">
-          <FileText size={18} />
-          <h2>Invoice Preview</h2>
-          <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
-        </header>
-        <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
-        <div className={`invoice-sheet paper-${paperSize.toLowerCase()}`}>
-          <div className="invoice-centre-head">
-            <strong>{firm.firmName || 'Hallmarking Centre'}</strong>
-            {firm.address ? <div className="invoice-centre-addr">{firm.address}</div> : null}
-            <div className="invoice-gstin">CENTRE GSTIN: {firm.gstNo || '—'}</div>
-          </div>
-          <div className="invoice-sheet-top">
-            <h2>MONTHLY CONSOLIDATED INVOICE</h2>
-          </div>
-          <div className="invoice-meta-grid">
-            <div className="invoice-party">
-              <div>
-                <span>Bill To:</span> {preview?.partyName || ''}
-              </div>
-              <div>
-                <span>GSTIN:</span> {preview?.partyGstin || ''}
-              </div>
-              <div>
-                <span>CML:</span> {preview?.partyCml || ''}
-              </div>
-              <div>
-                <span>Place of Supply:</span>{' '}
-                {preview?.placeOfSupply
-                  ? `${preview.placeOfSupply}${preview.stateCode ? ` (Code: ${preview.stateCode})` : ''}`
-                  : ''}
-              </div>
-            </div>
-            <div className="invoice-doc">
-              <div>
-                <span>Invoice No:</span> {preview?.invoiceNo || ''}
-              </div>
-              <div>
-                <span>Invoice Date:</span>{' '}
-                {preview ? formatInvoiceDateTime(preview.invoiceDateTime || preview.date) : ''}
-              </div>
-              <div>
-                <span>SAC:</span> {preview?.sac || '998346'}
-              </div>
-              <div>
-                <span>Period:</span> {preview?.period || 'Monthly Summary'}
-              </div>
-            </div>
-          </div>
-          <table className="invoice-items">
-            <thead>
-              <tr>
-                <th>S No.</th>
-                <th>Request No</th>
-                <th>Party Name</th>
-                <th>Date</th>
-                <th>No Of Articles HM</th>
-                <th>Amount (Taxable)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!preview || preview.lines.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="invoice-empty">
-                    &nbsp;
-                  </td>
-                </tr>
-              ) : (
-                preview.lines.map((line, i) => (
-                  <tr key={`${line.requestNo}-${i}`}>
-                    <td>{i + 1}</td>
-                    <td>{line.requestNo}</td>
-                    <td>{line.partyName}</td>
-                    <td>{line.date}</td>
-                    <td>{line.articlesHm}</td>
-                    <td>{money(line.amount)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-          <div className="invoice-bottom-grid">
-            <div />
-            <div className="invoice-tax">
-              <div>
-                <span>Total Taxable</span>
-                <strong>{preview ? money(preview.amount) : '0.00'}</strong>
-              </div>
-              <div>
-                <span>CGST @ 9%</span>
-                <strong>{preview && !preview.useIgst ? money(preview.cgst) : '0.00'}</strong>
-              </div>
-              <div>
-                <span>SGST @ 9%</span>
-                <strong>{preview && !preview.useIgst ? money(preview.sgst) : '0.00'}</strong>
-              </div>
-              <div>
-                <span>IGST @ 18%</span>
-                <strong>{preview?.useIgst ? money(preview.igst) : '0.00'}</strong>
-              </div>
-              <div className="invoice-grand">
-                <span>Grand Total (Incl. Tax)</span>
-                <strong>{preview ? money(preview.total) : '0.00'}</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-        </div>
-      </section>
+      <MonthlyInvoicePreviewPanel
+        view={preview}
+        paperSize={paperSize}
+        onPaperChange={setPaper}
+      />
 
       <div className="gb-back-wrap no-print">
         <Link to="/" className="gb-btn gb-btn-back">

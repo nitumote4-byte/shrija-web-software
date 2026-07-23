@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, FileText, Home, Printer, Search } from 'lucide-react'
-import { formatInvoiceDateTime } from '../components/InvoiceChallan'
-import { InvoicePaperSizeToggle } from '../components/InvoicePaperSizeToggle'
+import {
+  MonthlyInvoicePreviewPanel,
+  type MonthlyPreview,
+} from '../components/MonthlyInvoiceSheet'
 import { useToast } from '../components/ui'
-import { getFirmProfile } from '../data/firmProfile'
 import { store, type MonthlyInvoiceLine } from '../data/store'
 import { tenantGet } from '../data/tenant'
 import {
@@ -14,10 +15,6 @@ import {
   saveInvoicePaperSize,
   type InvoicePaperSize,
 } from '../utils/invoicePaper'
-
-function money(n: number) {
-  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
 
 function nextMonthlyNo(existingCount: number) {
   let prefix = 'M-'
@@ -35,27 +32,9 @@ function nextMonthlyNo(existingCount: number) {
   return `${prefix}${start + existingCount}`
 }
 
-type Preview = {
-  invoiceNo: string
-  invoiceDateTime: string
-  partyName: string
-  partyGstin: string
-  partyCml: string
-  placeOfSupply: string
-  stateCode: string
-  lines: MonthlyInvoiceLine[]
-  taxable: number
-  cgst: number
-  sgst: number
-  igst: number
-  grandTotal: number
-  useIgst: boolean
-}
-
 export function MonthlyBilling() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
-  const firm = getFirmProfile()
   const [partyId, setPartyId] = useState('')
   const [selectedReqs, setSelectedReqs] = useState<string[]>([])
   const [billDate, setBillDate] = useState(() => {
@@ -63,7 +42,7 @@ export function MonthlyBilling() {
     const pad = (n: number) => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
   })
-  const [preview, setPreview] = useState<Preview | null>(null)
+  const [preview, setPreview] = useState<MonthlyPreview | null>(null)
   const [paperSize, setPaperSize] = useState<InvoicePaperSize>(() => loadInvoicePaperSize())
   const [tick, setTick] = useState(0)
   void tick
@@ -81,10 +60,12 @@ export function MonthlyBilling() {
 
   const billedForParty = useMemo(() => {
     if (!partyId) return []
-    return data.invoices.filter((i) => i.partyId === partyId || partyRequests.some((r) => r.requestNo === i.requestNo))
+    return data.invoices.filter(
+      (i) => i.partyId === partyId || partyRequests.some((r) => r.requestNo === i.requestNo),
+    )
   }, [data.invoices, partyId, partyRequests])
 
-  const buildPreview = (): Preview | null => {
+  const buildPreview = (): MonthlyPreview | null => {
     const party = data.parties.find((p) => p.id === partyId)
     if (!party) {
       toast('Select a party')
@@ -98,11 +79,15 @@ export function MonthlyBilling() {
     const lines: MonthlyInvoiceLine[] = selectedReqs.map((reqNo) => {
       const inv = data.invoices.find((i) => i.requestNo === reqNo)
       const req = data.requests.find((r) => r.requestNo === reqNo)
-      const articlesHm =
-        inv?.lines?.reduce((s, l) => s + l.hm, 0) ??
-        req?.pieces ??
-        0
-      const amount = inv?.amount ?? Number(((articlesHm) * (data.categories.find((c) => c.id === req?.categoryId)?.rate || 45)).toFixed(2))
+      const articlesHm = inv?.lines?.reduce((s, l) => s + l.hm, 0) ?? req?.pieces ?? 0
+      const amount =
+        inv?.amount ??
+        Number(
+          (
+            articlesHm *
+            (data.categories.find((c) => c.id === req?.categoryId)?.rate || 45)
+          ).toFixed(2),
+        )
       return {
         requestNo: reqNo,
         partyName: party.name,
@@ -127,6 +112,8 @@ export function MonthlyBilling() {
       partyCml: party.licenseNo || '',
       placeOfSupply: party.state || '',
       stateCode: party.stateCode || '',
+      period: 'Monthly Summary',
+      sac: '998346',
       lines,
       taxable,
       cgst,
@@ -282,124 +269,11 @@ export function MonthlyBilling() {
         </div>
       </section>
 
-      <section className="gb-card gb-preview-card">
-        <header className="gb-card-head no-print">
-          <FileText size={18} />
-          <h2>Invoice Preview</h2>
-          <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
-        </header>
-        <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
-        <div className={`invoice-sheet paper-${paperSize.toLowerCase()}`} id="monthly-invoice-print">
-          <div className="invoice-centre-head">
-            <strong>{firm.firmName || 'Hallmarking Centre'}</strong>
-            {firm.address ? <div className="invoice-centre-addr">{firm.address}</div> : null}
-            <div className="invoice-gstin">CENTRE GSTIN: {firm.gstNo || '—'}</div>
-          </div>
-          <div className="invoice-sheet-top">
-            <h2>MONTHLY CONSOLIDATED INVOICE</h2>
-          </div>
-          <div className="invoice-meta-grid">
-            <div className="invoice-party">
-              <div>
-                <span>Bill To:</span> {preview?.partyName || ''}
-              </div>
-              <div>
-                <span>GSTIN:</span> {preview?.partyGstin || ''}
-              </div>
-              <div>
-                <span>CML:</span> {preview?.partyCml || ''}
-              </div>
-              <div>
-                <span>Place of Supply:</span>{' '}
-                {preview?.placeOfSupply
-                  ? `${preview.placeOfSupply}${preview.stateCode ? ` (Code: ${preview.stateCode})` : ''}`
-                  : ''}
-              </div>
-            </div>
-            <div className="invoice-doc">
-              <div>
-                <span>Invoice No:</span> {preview?.invoiceNo || '—'}
-              </div>
-              <div>
-                <span>Invoice Date:</span>{' '}
-                {preview ? formatInvoiceDateTime(preview.invoiceDateTime) : ''}
-              </div>
-              <div>
-                <span>SAC:</span> 998346
-              </div>
-              <div>
-                <span>Period:</span> Monthly Summary
-              </div>
-            </div>
-          </div>
-          <table className="invoice-items">
-            <thead>
-              <tr>
-                <th>S No.</th>
-                <th>Request No</th>
-                <th>Party Name</th>
-                <th>Date</th>
-                <th>No Of Articles HM</th>
-                <th>Amount (Taxable)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!preview || preview.lines.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="invoice-empty">
-                    &nbsp;
-                  </td>
-                </tr>
-              ) : (
-                preview.lines.map((line, i) => (
-                  <tr key={line.requestNo}>
-                    <td>{i + 1}</td>
-                    <td>{line.requestNo}</td>
-                    <td>{line.partyName}</td>
-                    <td>{line.date}</td>
-                    <td>{line.articlesHm}</td>
-                    <td>{money(line.amount)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-          <div className="invoice-bottom-grid">
-            <div />
-            <div className="invoice-tax">
-              <div>
-                <span>Total Taxable</span>
-                <strong>{preview ? money(preview.taxable) : '0.00'}</strong>
-              </div>
-              <div>
-                <span>CGST @ 9%</span>
-                <strong>{preview && !preview.useIgst ? money(preview.cgst) : '0.00'}</strong>
-              </div>
-              <div>
-                <span>SGST @ 9%</span>
-                <strong>{preview && !preview.useIgst ? money(preview.sgst) : '0.00'}</strong>
-              </div>
-              <div>
-                <span>IGST @ 18%</span>
-                <strong>{preview?.useIgst ? money(preview.igst) : '0.00'}</strong>
-              </div>
-              <div className="invoice-grand">
-                <span>Grand Total (Incl. Tax)</span>
-                <strong>{preview ? money(preview.grandTotal) : '0.00'}</strong>
-              </div>
-            </div>
-          </div>
-          <div className="invoice-sign-grid">
-            <div className="invoice-sign-label">CUSTOMER&apos;S SIGNATURE</div>
-            <div className="invoice-auth">
-              <div>FOR, {firm.firmName || 'Hallmarking Centre'}</div>
-              <div className="invoice-sign-space" />
-              <div className="invoice-sign-label">Authorized Signatory</div>
-            </div>
-          </div>
-        </div>
-        </div>
-      </section>
+      <MonthlyInvoicePreviewPanel
+        view={preview}
+        paperSize={paperSize}
+        onPaperChange={setPaper}
+      />
 
       <div className="gb-back-wrap no-print">
         <Link to="/" className="gb-btn gb-btn-back">

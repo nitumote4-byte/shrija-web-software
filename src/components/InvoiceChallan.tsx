@@ -87,7 +87,44 @@ export function formatInvoiceDateTime(raw?: string) {
   return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export function invoiceToChallan(inv: Invoice): ChallanView {
+export function invoiceToChallan(
+  inv: Invoice,
+  data?: {
+    requests?: {
+      requestNo: string
+      categoryName?: string
+      purity?: string
+      pieces?: number
+      date?: string
+      weight?: number
+      partyId?: string
+      categoryId?: string
+    }[]
+    roughSheets?: {
+      requestNo?: string
+      partyId?: string
+      date?: string
+      item?: string
+      pic?: number
+      rejectPic?: number
+      sampleQty?: number
+      purity?: string
+      weight?: number
+      sampleWeight?: number
+      co?: string
+    }[]
+    categories?: { id: string; rate: number }[]
+    parties?: {
+      id: string
+      address?: string
+      gstin?: string
+      licenseNo?: string
+      state?: string
+      stateCode?: string
+      name?: string
+    }[]
+  },
+): ChallanView {
   const taxable = inv.amount
   const useIgst = Boolean(inv.useIgst)
   const cgst = inv.cgst ?? (useIgst ? 0 : Number((taxable * 0.09).toFixed(2)))
@@ -95,23 +132,109 @@ export function invoiceToChallan(inv: Invoice): ChallanView {
   const igst = inv.igst ?? (useIgst ? Number((taxable * 0.18).toFixed(2)) : 0)
   const firebox = inv.fireboxScrap ?? 0
   const unused = inv.unusedSample ?? 0
-  const wr = inv.weightReceived ?? 0
-  const sw = inv.sampleWeight ?? 0
+  let wr = inv.weightReceived ?? 0
+  let sw = inv.sampleWeight ?? 0
+
+  let lines = inv.lines?.length ? [...inv.lines] : []
+  let careOf = inv.careOf || ''
+  let partyAddress = inv.partyAddress || ''
+  let partyGstin = inv.partyGstin || ''
+  let partyCml = inv.partyCml || ''
+  let placeOfSupply = inv.placeOfSupply || ''
+  let stateCode = inv.stateCode || ''
+  let requestDate = inv.requestDate || inv.date
+
+  if (data && (!lines.length || !(wr > 0))) {
+    const req = data.requests?.find((r) => r.requestNo === inv.requestNo)
+    const related =
+      data.roughSheets?.filter(
+        (r) =>
+          r.requestNo === inv.requestNo ||
+          (req && r.partyId === req.partyId && r.date === req.date),
+      ) || []
+    const party =
+      data.parties?.find((p) => p.id === inv.partyId) ||
+      data.parties?.find((p) => p.id === req?.partyId) ||
+      data.parties?.find((p) => p.name === inv.partyName)
+    const cat = data.categories?.find((c) => c.id === req?.categoryId)
+    const rate = cat?.rate ?? (lines[0]?.rate || 45)
+
+    if (!lines.length) {
+      if (related.length > 0) {
+        lines = related.map((r) => {
+          const pcs = r.pic || 0
+          const rej = r.rejectPic || 0
+          const melt = Number(r.sampleQty) > 0 ? Number(r.sampleQty) : 0
+          const hm = Math.max(0, pcs - rej)
+          return {
+            description: r.item || req?.categoryName || 'Jewellery',
+            purity: r.purity || req?.purity || '916',
+            pcsRec: pcs,
+            hm,
+            rej,
+            melt,
+            rate,
+            amount: Number((hm * rate).toFixed(2)),
+          }
+        })
+      } else if (req) {
+        const pcs = req.pieces || 0
+        lines = [
+          {
+            description: req.categoryName || 'Jewellery',
+            purity: req.purity || '916',
+            pcsRec: pcs,
+            hm: pcs,
+            rej: 0,
+            melt: 0,
+            rate,
+            amount: Number((pcs * rate).toFixed(2)) || taxable,
+          },
+        ]
+      } else if (taxable > 0) {
+        lines = [
+          {
+            description: 'Hallmarking charges',
+            purity: '916',
+            pcsRec: 0,
+            hm: 0,
+            rej: 0,
+            melt: 0,
+            rate: 0,
+            amount: taxable,
+          },
+        ]
+      }
+    }
+
+    if (!(wr > 0) && related.length) {
+      wr = related.reduce((s, r) => s + (r.weight || 0), 0) || req?.weight || 0
+      sw = related.reduce((s, r) => s + (r.sampleWeight || 0), 0)
+    }
+    if (!careOf) careOf = related.map((r) => r.co).find((c) => c && String(c).trim()) || ''
+    if (!partyAddress && party) partyAddress = party.address || ''
+    if (!partyGstin && party) partyGstin = party.gstin || ''
+    if (!partyCml && party) partyCml = party.licenseNo || ''
+    if (!placeOfSupply && party) placeOfSupply = party.state || ''
+    if (!stateCode && party) stateCode = party.stateCode || ''
+    if (req?.date) requestDate = req.date
+  }
+
   return {
     invoiceNo: inv.invoiceNo,
     date: inv.date,
     invoiceDateTime: inv.invoiceDateTime || inv.date,
     requestNo: inv.requestNo,
-    requestDate: inv.requestDate || inv.date,
+    requestDate,
     partyName: inv.partyName,
-    partyAddress: inv.partyAddress || '',
-    partyGstin: inv.partyGstin || '',
-    partyCml: inv.partyCml || '',
-    placeOfSupply: inv.placeOfSupply || '',
-    stateCode: inv.stateCode || '',
-    careOf: inv.careOf || '',
+    partyAddress,
+    partyGstin,
+    partyCml,
+    placeOfSupply,
+    stateCode,
+    careOf,
     sac: inv.sac || '998346',
-    lines: inv.lines || [],
+    lines,
     weightReceived: wr,
     sampleWeight: sw,
     unusedSample: unused,
