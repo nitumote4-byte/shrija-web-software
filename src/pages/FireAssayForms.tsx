@@ -489,8 +489,8 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       source: 'shrija-hallmark-suite',
       createdAt: new Date().toISOString(),
       purity,
-      shift,
-      sheetNo: String(sheetNo),
+      shift: shift || 'Day',
+      sheetNo: String(sheetNo || '1'),
       assayType: meta.assayType,
       cg: {
         cg1Id: Number(cg1Id) || undefined,
@@ -531,6 +531,29 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
             requestNo: r.requestNo,
           }
         }),
+      // Full 22-row grid for View Fire Assay (empty job cards kept)
+      viewRows: sheetRows.map((r, i) => {
+        const parsed = parseLotJobCard(r.jobCardNo)
+        const lot = parsed.lotNo || r.lotNo || Math.floor(i / 2) + 1
+        const manakJobCard = r.jobCardNo.trim()
+          ? parsed.jobCard || r.jobCardNo.replace(/^\d+[_\-/]/, '').trim()
+          : ''
+        return {
+          lotNo: lot,
+          jobCardNo: r.jobCardNo.trim(),
+          manakJobCard,
+          sampleDrawn: Number(r.sampleDrawn) || 0,
+          sampleWeight: Number(r.sampleWeight) || 0,
+          silver: Number(r.silver) || 0,
+          copper: 0,
+          lead: Number(r.lead) || 4,
+          wotgcaa: Number(r.wotgcaa) || 0,
+          fineness: Number(r.fineness) || 0,
+          meanFineness: Number(r.meanFineness) || 0,
+          partyName: r.partyName,
+          requestNo: r.requestNo,
+        }
+      }),
     }
 
     publishManakFireAssaySheet(sheet)
@@ -542,7 +565,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
     const filledLots = new Set(sheet.rows.map((r) => r.lotNo)).size
     toast(
-      `Sheet ready (${sheet.rows.length} strip rows / ${filledLots} lot(s) filled). Empty rows skipped. Open Manak → select Lot No.`,
+      `Sheet FS-${sheetNo} saved for View Fire Assay (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s) filled). Open Manak → select Lot No.`,
     )
   }
 

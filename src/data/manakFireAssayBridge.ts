@@ -2,6 +2,7 @@ import { tenantGet, tenantSet } from './tenant'
 
 export const MANAK_FIRE_ASSAY_KEY = 'shrija-manak-fire-assay-sheet'
 export const MANAK_FIRE_ASSAY_EVENT = 'shrija:manak-fire-assay-sheet'
+export const FIRE_ASSAY_SHEETS_KEY = 'shrija-fire-assay-sheets-archive'
 
 export type ManakFireAssayRow = {
   lotNo: number
@@ -46,10 +47,58 @@ export type ManakFireAssaySheet = {
     delta2: number
     avgDelta: number
   }
+  /** Filled lots only — used by Manak extension */
   rows: ManakFireAssayRow[]
+  /** Full grid (e.g. 22 rows) for View Fire Assay */
+  viewRows?: ManakFireAssayRow[]
+}
+
+function sheetArchiveKey(purity: string, shift: string, sheetNo: string) {
+  return `${purity}|${shift || 'Day'}|${sheetNo}`
+}
+
+export function loadFireAssaySheetArchive(): Record<string, ManakFireAssaySheet> {
+  try {
+    const raw = tenantGet(FIRE_ASSAY_SHEETS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, ManakFireAssaySheet>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+export function saveFireAssaySheetArchive(sheet: ManakFireAssaySheet) {
+  const map = loadFireAssaySheetArchive()
+  const key = sheetArchiveKey(sheet.purity, sheet.shift, sheet.sheetNo)
+  map[key] = sheet
+  tenantSet(FIRE_ASSAY_SHEETS_KEY, JSON.stringify(map))
+  return key
+}
+
+export function getFireAssaySheet(
+  purity: string,
+  shift: string,
+  sheetNo: string,
+): ManakFireAssaySheet | null {
+  if (!purity || !sheetNo) return null
+  const map = loadFireAssaySheetArchive()
+  return map[sheetArchiveKey(purity, shift, sheetNo)] || null
+}
+
+export function listFireAssaySheetNos(purity?: string, shift?: string): string[] {
+  const map = loadFireAssaySheetArchive()
+  const nos = new Set<string>()
+  for (const s of Object.values(map)) {
+    if (purity && s.purity !== purity) continue
+    if (shift && s.shift !== shift) continue
+    if (s.sheetNo) nos.add(s.sheetNo)
+  }
+  return [...nos].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b))
 }
 
 export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
+  saveFireAssaySheetArchive(sheet)
   const json = JSON.stringify(sheet)
   try {
     localStorage.setItem(MANAK_FIRE_ASSAY_KEY, json)
@@ -63,7 +112,6 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
     /* ignore */
   }
   window.dispatchEvent(new CustomEvent(MANAK_FIRE_ASSAY_EVENT, { detail: sheet }))
-  // Bridge for Chrome extension content script on Shrija origin
   window.postMessage({ type: 'SHRIJA_MANAK_FIRE_ASSAY', sheet }, '*')
   return sheet
 }

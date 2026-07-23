@@ -5300,6 +5300,19 @@ table.data-table tr:hover td {
   background: #f0f2f5;
 }
 
+.view-assay-save-btn {
+  padding: 0.35rem 0.75rem !important;
+  font-size: 0.78rem !important;
+  background: #15803d !important;
+  color: #fff !important;
+  border: none !important;
+  white-space: nowrap;
+}
+
+.view-assay-save-btn:hover {
+  background: #166534 !important;
+}
+
 .view-assay-table th {
   font-size: 0.72rem;
   letter-spacing: 0.02em;
