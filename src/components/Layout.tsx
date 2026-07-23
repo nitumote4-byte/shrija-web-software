@@ -89,7 +89,7 @@ export function Layout() {
       <header className="top-header">
         <Link to="/" className="brand">
           <div className="brand-mark" aria-hidden>
-            <BrandMark size={38} />
+            <BrandMark size={32} />
           </div>
           <div className="brand-copy">
             <span className="brand-text">{centreName || CENTRE_NAME}</span>

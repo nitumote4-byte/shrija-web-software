@@ -114,7 +114,7 @@ export function Login() {
         <div className="login-brand-inner">
           <p className="login-product">{PRODUCT_NAME}</p>
           <div className="login-logo" aria-hidden>
-            <BrandMark size={96} title={PRODUCT_NAME} />
+            <BrandMark size={40} title={PRODUCT_NAME} />
           </div>
           <h1>Multi-centre</h1>
           <p className="login-tagline">{PRODUCT_TAGLINE}</p>

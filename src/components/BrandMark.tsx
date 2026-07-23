@@ -1,4 +1,4 @@
-/** Refined navy + bronze mark — not a gold circular badge. */
+/** Minimal geometric mark — accent blue, SaaS-style. */
 export function BrandMark({
   size = 40,
   className,
@@ -19,14 +19,11 @@ export function BrandMark({
       role="img"
       aria-label={title}
     >
-      <rect width="40" height="40" rx="3" fill="#0F2942" />
-      <rect x="1.25" y="1.25" width="37.5" height="37.5" rx="2.25" stroke="#A8815C" strokeWidth="1" opacity="0.55" />
-      {/* Hallmark bars — quiet vertical rhythm */}
-      <path d="M11 12.5h18" stroke="#A8815C" strokeWidth="1.35" strokeLinecap="square" />
-      <path d="M13 20h14" stroke="#EDE8E0" strokeWidth="1.1" strokeLinecap="square" opacity="0.85" />
-      <path d="M15 27.5h10" stroke="#A8815C" strokeWidth="1.35" strokeLinecap="square" />
-      {/* Small bronze diamond accent */}
-      <path d="M20 15.2l1.35 1.35L20 17.9l-1.35-1.35L20 15.2z" fill="#A8815C" />
+      <rect width="40" height="40" rx="8" fill="#2563EB" />
+      <path
+        d="M12 26V14h7.2c3.1 0 5.1 1.7 5.1 4.2 0 1.7-.9 3.1-2.5 3.8L25.2 26h-3.3l-2.9-3.7H15.2V26H12zm3.2-6.2h3.7c1.45 0 2.35-.75 2.35-1.9s-.9-1.85-2.35-1.85H15.2v3.75z"
+        fill="#fff"
+      />
     </svg>
   )
 }
