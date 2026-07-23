@@ -433,11 +433,10 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       return
     }
 
-    const missingJc = rows.filter((r) => !r.jobCardNo.trim())
-    if (missingJc.length) {
-      toast(
-        `Fill Job Card No for all rows first (e.g. 1_127087789 for Lot 1). ${missingJc.length} empty.`,
-      )
+    // Jobs count is not fixed — fill whatever lots arrived; remaining 22 rows may stay empty
+    const filledRows = rows.filter((r) => r.jobCardNo.trim())
+    if (filledRows.length === 0) {
+      toast('Fill at least one Job Card No (e.g. 1_127087789). Remaining rows can stay empty.')
       return
     }
 
@@ -510,26 +509,28 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         delta2: Number(delta2) || 0,
         avgDelta: avg,
       },
-      rows: sheetRows.map((r, i) => {
-        const parsed = parseLotJobCard(r.jobCardNo)
-        const lot = parsed.lotNo || r.lotNo || Math.floor(i / 2) + 1
-        const manakJobCard = parsed.jobCard || r.jobCardNo.replace(/^\d+[_\-/]/, '').trim()
-        return {
-          lotNo: lot,
-          jobCardNo: r.jobCardNo.trim(),
-          manakJobCard,
-          sampleDrawn: Number(r.sampleDrawn) || 0,
-          sampleWeight: Number(r.sampleWeight) || 0,
-          silver: Number(r.silver) || 0,
-          copper: 0,
-          lead: Number(r.lead) || 4,
-          wotgcaa: Number(r.wotgcaa) || 0,
-          fineness: Number(r.fineness) || 0,
-          meanFineness: Number(r.meanFineness) || 0,
-          partyName: r.partyName,
-          requestNo: r.requestNo,
-        }
-      }),
+      rows: sheetRows
+        .filter((r) => r.jobCardNo.trim())
+        .map((r, i) => {
+          const parsed = parseLotJobCard(r.jobCardNo)
+          const lot = parsed.lotNo || r.lotNo || Math.floor(i / 2) + 1
+          const manakJobCard = parsed.jobCard || r.jobCardNo.replace(/^\d+[_\-/]/, '').trim()
+          return {
+            lotNo: lot,
+            jobCardNo: r.jobCardNo.trim(),
+            manakJobCard,
+            sampleDrawn: Number(r.sampleDrawn) || 0,
+            sampleWeight: Number(r.sampleWeight) || 0,
+            silver: Number(r.silver) || 0,
+            copper: 0,
+            lead: Number(r.lead) || 4,
+            wotgcaa: Number(r.wotgcaa) || 0,
+            fineness: Number(r.fineness) || 0,
+            meanFineness: Number(r.meanFineness) || 0,
+            partyName: r.partyName,
+            requestNo: r.requestNo,
+          }
+        }),
     }
 
     publishManakFireAssaySheet(sheet)
@@ -539,8 +540,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       /* ignore */
     }
 
+    const filledLots = new Set(sheet.rows.map((r) => r.lotNo)).size
     toast(
-      `Sheet ready for extension (${sheetRows.length} rows). Open Manak Fire Assay → select Lot No — auto-fills that lot.`,
+      `Sheet ready (${sheet.rows.length} strip rows / ${filledLots} lot(s) filled). Empty rows skipped. Open Manak → select Lot No.`,
     )
   }
 
@@ -701,7 +703,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       <div className="panel cg-form-panel">
         <p className="cg-flow-hint">
           {noJobPick
-            ? 'Flow: Select Purity → 22 rows auto → fill Job Card (1_127087789) → Create Sheet (extension payload) → open Manak Fire Assay → select Lot No → auto-fill that lot.'
+            ? 'Flow: Select Purity → 22 rows auto → fill Job Cards for jobs that arrived (rest empty OK) → Create Sheet → Manak Lot No → auto-fill.'
             : 'Flow: Select Purity → Fill Jobs → Job Card → Create Sheet → Manak extension.'}
         </p>
         <div className="cg-form-grid">
@@ -979,7 +981,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
                 <tr>
                   <td colSpan={8} className="empty-state">
                     {noJobPick
-                      ? 'Select Purity to auto-create 22 rows. Fill Job Card Nos, then Create Sheet. Open Manak → select Lot No for correct fill.'
+                      ? 'Select Purity for 22 rows. Fill Job Card only for jobs that arrived — empty rows OK. Then Create Sheet.'
                       : 'Select purity → Fill Jobs. Job Card stays empty until you paste Manak lot nos.'}
                   </td>
                 </tr>
