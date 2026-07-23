@@ -2859,11 +2859,95 @@ button {
   gap: 0.45rem;
   margin-bottom: 0.75rem;
   color: #1e3a5f;
+  flex-wrap: wrap;
 }
 
 .gb-card-head h2 {
   margin: 0;
   font-size: 1rem;
+  flex: 1;
+}
+
+.invoice-paper-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.invoice-paper-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-right: 0.15rem;
+}
+
+.invoice-paper-toggle button {
+  border: 1px solid #94a3b8;
+  background: #fff;
+  color: #1e3a5f;
+  border-radius: 6px;
+  padding: 0.28rem 0.7rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.invoice-paper-toggle button.active {
+  background: #1e3a5f;
+  border-color: #1e3a5f;
+  color: #fff;
+}
+
+.invoice-preview-stage {
+  display: flex;
+  justify-content: center;
+  overflow: auto;
+  background: #e8eef5;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.invoice-preview-stage.paper-a4 .invoice-sheet,
+.invoice-sheet.paper-a4 {
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  box-sizing: border-box;
+}
+
+.invoice-preview-stage.paper-a5 .invoice-sheet,
+.invoice-sheet.paper-a5 {
+  width: 148mm;
+  max-width: 100%;
+  min-height: 210mm;
+  box-sizing: border-box;
+  font-size: 0.68rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.invoice-sheet.paper-a5 .invoice-centre-head strong {
+  font-size: 0.88rem;
+}
+
+.invoice-sheet.paper-a5 .invoice-sheet-top h2 {
+  font-size: 0.85rem;
+}
+
+.invoice-sheet.paper-a5 .invoice-items th,
+.invoice-sheet.paper-a5 .invoice-items td {
+  padding: 0.2rem 0.25rem;
+  font-size: 0.62rem;
+}
+
+.invoice-sheet.paper-a5 .invoice-centre-addr,
+.invoice-sheet.paper-a5 .invoice-gstin {
+  font-size: 0.62rem;
+}
+
+.invoice-sheet.paper-a5 .invoice-empty {
+  height: 36px;
 }
 
 .gb-search-row {
@@ -3096,6 +3180,7 @@ button {
   padding: 1.1rem 1.2rem 1.25rem;
   color: #0f172a;
   font-size: 0.82rem;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
 }
 
 .invoice-sheet-top {
@@ -3289,9 +3374,32 @@ button {
     padding: 0 !important;
   }
 
+  .invoice-preview-stage {
+    background: transparent !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
   .invoice-sheet {
-    border: none;
-    box-shadow: none;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: auto !important;
+    margin: 0 !important;
+  }
+
+  .invoice-sheet.paper-a5 {
+    font-size: 0.68rem !important;
+    padding: 0 !important;
+  }
+
+  .invoice-sheet.paper-a5 .invoice-items th,
+  .invoice-sheet.paper-a5 .invoice-items td {
+    padding: 0.15rem 0.2rem !important;
+    font-size: 0.6rem !important;
   }
 }
 

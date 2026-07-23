@@ -2,9 +2,17 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, Home, Search } from 'lucide-react'
 import { formatInvoiceDateTime } from '../components/InvoiceChallan'
+import { InvoicePaperSizeToggle } from '../components/InvoicePaperSizeToggle'
 import { useToast } from '../components/ui'
 import { getFirmProfile } from '../data/firmProfile'
 import { store, type MonthlyInvoice } from '../data/store'
+import {
+  applyInvoicePaperForPrint,
+  loadInvoicePaperSize,
+  printInvoiceSheet,
+  saveInvoicePaperSize,
+  type InvoicePaperSize,
+} from '../utils/invoicePaper'
 
 function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -16,8 +24,15 @@ export function ViewMonthlyBills() {
   const firm = getFirmProfile()
   const [selectedKey, setSelectedKey] = useState('')
   const [preview, setPreview] = useState<MonthlyInvoice | null>(null)
+  const [paperSize, setPaperSize] = useState<InvoicePaperSize>(() => loadInvoicePaperSize())
   const [tick, setTick] = useState(0)
   void tick
+
+  const setPaper = (size: InvoicePaperSize) => {
+    setPaperSize(size)
+    saveInvoicePaperSize(size)
+    applyInvoicePaperForPrint(size)
+  }
 
   const options = useMemo(
     () =>
@@ -97,7 +112,7 @@ export function ViewMonthlyBills() {
               className="gb-btn gb-btn-print"
               onClick={() => {
                 if (!preview) return toast('Get first')
-                window.print()
+                printInvoiceSheet(paperSize)
               }}
             >
               Print
@@ -107,8 +122,8 @@ export function ViewMonthlyBills() {
               className="gb-btn gb-btn-pdf"
               onClick={() => {
                 if (!preview) return toast('Get first')
-                toast('Print → Save as PDF')
-                setTimeout(() => window.print(), 200)
+                toast(`Print → Save as PDF (${paperSize})`)
+                setTimeout(() => printInvoiceSheet(paperSize), 200)
               }}
             >
               Download PDF
@@ -124,8 +139,10 @@ export function ViewMonthlyBills() {
         <header className="gb-card-head no-print">
           <FileText size={18} />
           <h2>Invoice Preview</h2>
+          <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
         </header>
-        <div className="invoice-sheet">
+        <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
+        <div className={`invoice-sheet paper-${paperSize.toLowerCase()}`}>
           <div className="invoice-centre-head">
             <strong>{firm.firmName || 'Hallmarking Centre'}</strong>
             {firm.address ? <div className="invoice-centre-addr">{firm.address}</div> : null}
@@ -225,6 +242,7 @@ export function ViewMonthlyBills() {
               </div>
             </div>
           </div>
+        </div>
         </div>
       </section>
 

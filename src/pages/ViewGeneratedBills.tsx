@@ -2,8 +2,16 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, FileText, Home, Search } from 'lucide-react'
 import { InvoiceChallan, invoiceToChallan, type ChallanView } from '../components/InvoiceChallan'
+import { InvoicePaperSizeToggle } from '../components/InvoicePaperSizeToggle'
 import { useToast } from '../components/ui'
 import { store, type InvoiceLine } from '../data/store'
+import {
+  applyInvoicePaperForPrint,
+  loadInvoicePaperSize,
+  printInvoiceSheet,
+  saveInvoicePaperSize,
+  type InvoicePaperSize,
+} from '../utils/invoicePaper'
 
 function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -38,8 +46,15 @@ export function ViewGeneratedBills() {
     unusedSample: 0,
     fireboxScrap: 0,
   })
+  const [paperSize, setPaperSize] = useState<InvoicePaperSize>(() => loadInvoicePaperSize())
   const [tick, setTick] = useState(0)
   void tick
+
+  const setPaper = (size: InvoicePaperSize) => {
+    setPaperSize(size)
+    saveInvoicePaperSize(size)
+    applyInvoicePaperForPrint(size)
+  }
 
   const invoices = data.invoices
 
@@ -112,7 +127,7 @@ export function ViewGeneratedBills() {
       toast('Get a bill first')
       return
     }
-    window.print()
+    printInvoiceSheet(paperSize)
   }
 
   const downloadPdf = () => {
@@ -120,8 +135,8 @@ export function ViewGeneratedBills() {
       toast('Get a bill first')
       return
     }
-    toast('Print dialog → Destination: Save as PDF')
-    setTimeout(() => window.print(), 200)
+    toast(`Print → Save as PDF (${paperSize})`)
+    setTimeout(() => printInvoiceSheet(paperSize), 200)
   }
 
   const deleteBill = () => {
@@ -376,8 +391,11 @@ export function ViewGeneratedBills() {
         <header className="gb-card-head no-print">
           <FileText size={18} />
           <h2>Invoice Preview</h2>
+          <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
         </header>
-        <InvoiceChallan view={livePreview} />
+        <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
+          <InvoiceChallan view={livePreview} paperSize={paperSize} />
+        </div>
       </section>
 
       <div className="gb-back-wrap no-print">

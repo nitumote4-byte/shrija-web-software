@@ -2,10 +2,18 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, FileText, Home, Printer, Search } from 'lucide-react'
 import { formatInvoiceDateTime } from '../components/InvoiceChallan'
+import { InvoicePaperSizeToggle } from '../components/InvoicePaperSizeToggle'
 import { useToast } from '../components/ui'
 import { getFirmProfile } from '../data/firmProfile'
 import { store, type MonthlyInvoiceLine } from '../data/store'
 import { tenantGet } from '../data/tenant'
+import {
+  applyInvoicePaperForPrint,
+  loadInvoicePaperSize,
+  printInvoiceSheet,
+  saveInvoicePaperSize,
+  type InvoicePaperSize,
+} from '../utils/invoicePaper'
 
 function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -56,8 +64,15 @@ export function MonthlyBilling() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
   })
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [paperSize, setPaperSize] = useState<InvoicePaperSize>(() => loadInvoicePaperSize())
   const [tick, setTick] = useState(0)
   void tick
+
+  const setPaper = (size: InvoicePaperSize) => {
+    setPaperSize(size)
+    saveInvoicePaperSize(size)
+    applyInvoicePaperForPrint(size)
+  }
 
   const partyRequests = useMemo(() => {
     if (!partyId) return []
@@ -258,7 +273,7 @@ export function MonthlyBilling() {
               className="gb-btn gb-btn-print"
               onClick={() => {
                 if (!preview) return toast('Get or Generate first')
-                window.print()
+                printInvoiceSheet(paperSize)
               }}
             >
               <Printer size={14} /> Print
@@ -271,8 +286,10 @@ export function MonthlyBilling() {
         <header className="gb-card-head no-print">
           <FileText size={18} />
           <h2>Invoice Preview</h2>
+          <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
         </header>
-        <div className="invoice-sheet" id="monthly-invoice-print">
+        <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
+        <div className={`invoice-sheet paper-${paperSize.toLowerCase()}`} id="monthly-invoice-print">
           <div className="invoice-centre-head">
             <strong>{firm.firmName || 'Hallmarking Centre'}</strong>
             {firm.address ? <div className="invoice-centre-addr">{firm.address}</div> : null}
@@ -380,6 +397,7 @@ export function MonthlyBilling() {
               <div className="invoice-sign-label">Authorized Signatory</div>
             </div>
           </div>
+        </div>
         </div>
       </section>
 

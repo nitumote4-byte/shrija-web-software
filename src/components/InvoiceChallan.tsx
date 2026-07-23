@@ -130,9 +130,10 @@ export function invoiceToChallan(inv: Invoice): ChallanView {
 type Props = {
   view: ChallanView | null
   printId?: string
+  paperSize?: 'A4' | 'A5'
 }
 
-export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) {
+export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize = 'A4' }: Props) {
   const settings = loadInvoiceSettings()
   const firm = getFirmProfile()
   const cols = settings.columns
@@ -147,7 +148,11 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
   const totMelt = view?.lines.reduce((s, l) => s + l.melt, 0) ?? 0
 
   return (
-    <div className="invoice-sheet" id={printId}>
+    <div
+      className={`invoice-sheet paper-${paperSize.toLowerCase()}`}
+      id={printId}
+      data-paper={paperSize}
+    >
       <div className="invoice-centre-head">
         <strong>{centreName}</strong>
         {centreAddr ? <div className="invoice-centre-addr">{centreAddr}</div> : null}

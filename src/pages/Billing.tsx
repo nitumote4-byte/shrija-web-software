@@ -2,9 +2,17 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, Home, Printer, Search } from 'lucide-react'
 import { InvoiceChallan, type ChallanView } from '../components/InvoiceChallan'
+import { InvoicePaperSizeToggle } from '../components/InvoicePaperSizeToggle'
 import { useToast } from '../components/ui'
 import { store, type HallmarkRequest, type InvoiceLine, type RoughSheetEntry } from '../data/store'
 import { tenantGet } from '../data/tenant'
+import {
+  applyInvoicePaperForPrint,
+  loadInvoicePaperSize,
+  printInvoiceSheet,
+  saveInvoicePaperSize,
+  type InvoicePaperSize,
+} from '../utils/invoicePaper'
 
 type InvoiceSettings = {
   startFrom: string
@@ -98,8 +106,15 @@ export function Billing() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
   })
   const [preview, setPreview] = useState<ChallanView | null>(null)
+  const [paperSize, setPaperSize] = useState<InvoicePaperSize>(() => loadInvoicePaperSize())
   const [tick, setTick] = useState(0)
   void tick
+
+  const setPaper = (size: InvoicePaperSize) => {
+    setPaperSize(size)
+    saveInvoicePaperSize(size)
+    applyInvoicePaperForPrint(size)
+  }
 
   const filteredOptions = useMemo(() => {
     const q = requestQuery.trim().toLowerCase()
@@ -224,7 +239,7 @@ export function Billing() {
       toast('Get or Generate a bill first')
       return
     }
-    window.print()
+    printInvoiceSheet(paperSize)
   }
 
   return (
@@ -300,8 +315,11 @@ export function Billing() {
         <header className="gb-card-head no-print">
           <FileText size={18} />
           <h2>Invoice Preview</h2>
+          <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
         </header>
-        <InvoiceChallan view={preview} />
+        <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
+          <InvoiceChallan view={preview} paperSize={paperSize} />
+        </div>
       </section>
 
       <div className="gb-back-wrap no-print">
