@@ -129,7 +129,7 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
 
   // DOM bridge (shared with extension content script — CustomEvent does NOT cross isolated world)
   try {
-    let el = document.getElementById('shrija-fire-assay-payload')
+    let el = document.getElementById('shrija-fire-assay-payload') as HTMLScriptElement | null
     if (!el) {
       el = document.createElement('script')
       el.id = 'shrija-fire-assay-payload'
