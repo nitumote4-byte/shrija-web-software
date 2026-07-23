@@ -468,13 +468,17 @@ function money2(n: number) {
 }
 
 export function PartyStatement() {
-  const data = store.getAll()
+  const data = store.getLedgerData()
   const { toast, Toast } = useToast()
   const firm = loadFirmProfile()
   const header = getInvoiceHeader()
 
   const [mode, setMode] = useState<'selected' | 'all'>('selected')
-  const [startDate, setStartDate] = useState(() => localYmd())
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 30)
+    return localYmd(d)
+  })
   const [endDate, setEndDate] = useState(() => localYmd())
   const [partyQuery, setPartyQuery] = useState('')
   const [partyOpen, setPartyOpen] = useState(false)
@@ -485,18 +489,53 @@ export function PartyStatement() {
   const [waMessage, setWaMessage] = useState('')
   const pageSize = 20
 
-  const party = data.parties.find((p) => p.id === partyId)
+  const dateKey = (iso: string) => String(iso || '').slice(0, 10)
 
+  /** Include invoice-only party names in search (OSC + Main). */
   const partyOptions = useMemo(() => {
     const q = partyQuery.trim().toLowerCase()
-    return data.parties.filter(
+    const extras: (typeof data.parties)[number][] = []
+    for (const inv of data.invoices) {
+      const name = inv.partyName?.trim()
+      if (!name) continue
+      const exists = data.parties.some((p) => p.name.toLowerCase() === name.toLowerCase())
+      if (exists) continue
+      const key = `name:${name.toLowerCase()}`
+      if (extras.some((e) => e.id === key)) continue
+      extras.push({
+        id: key,
+        name,
+        phone: '',
+        address: inv.partyAddress || '',
+        gstin: inv.partyGstin || '',
+        createdAt: dateKey(inv.date),
+        transactionType: 'Cash',
+        licenseNo: inv.partyCml || '',
+        state: inv.placeOfSupply || '',
+        stateCode: inv.stateCode || '',
+        groupName: '',
+        skipMinBill: false,
+        skipRejectedPics: false,
+        skipCutting: false,
+        igstApplicable: Boolean(inv.useIgst),
+        discount: 0,
+        minBillCalc: false,
+      })
+    }
+    const all = [...data.parties, ...extras]
+    return all.filter(
       (p) =>
         !q ||
         p.name.toLowerCase().includes(q) ||
         p.phone.includes(q) ||
         p.address.toLowerCase().includes(q),
     )
-  }, [data.parties, partyQuery])
+  }, [data.parties, data.invoices, partyQuery])
+
+  const party =
+    data.parties.find((p) => p.id === partyId) ||
+    partyOptions.find((p) => p.id === partyId) ||
+    null
 
   const hmPcsForInvoice = (inv: (typeof data.invoices)[0]) => {
     const rough = data.roughSheets.filter(
@@ -519,19 +558,23 @@ export function PartyStatement() {
 
   const buildRowsForParty = (partyName: string, labelOpening: string): StmtRow[] => {
     const invoices = data.invoices.filter(
-      (i) => matchPartyName(i.partyName, partyName) && i.date >= startDate && i.date <= endDate,
+      (i) =>
+        matchPartyName(i.partyName, partyName) &&
+        dateKey(i.date) >= startDate &&
+        dateKey(i.date) <= endDate,
     )
     const funds = data.funds.filter(
       (f) =>
         matchPartyName(f.partyName || f.source || '', partyName) &&
-        f.date >= startDate &&
-        f.date <= endDate,
+        dateKey(f.date) >= startDate &&
+        dateKey(f.date) <= endDate,
     )
     const priorInvoices = data.invoices.filter(
-      (i) => matchPartyName(i.partyName, partyName) && i.date < startDate,
+      (i) => matchPartyName(i.partyName, partyName) && dateKey(i.date) < startDate,
     )
     const priorFunds = data.funds.filter(
-      (f) => matchPartyName(f.partyName || f.source || '', partyName) && f.date < startDate,
+      (f) =>
+        matchPartyName(f.partyName || f.source || '', partyName) && dateKey(f.date) < startDate,
     )
     const priorDebit = priorInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)
     const priorCredit = priorFunds.reduce((s, f) => s + (Number(f.amount) || 0), 0)
@@ -622,15 +665,19 @@ export function PartyStatement() {
   /** GoldShark All Parties: one combined ledger + single opening */
   const buildRowsAllParties = (): StmtRow[] => {
     const priorDebit = data.invoices
-      .filter((i) => i.date < startDate)
+      .filter((i) => dateKey(i.date) < startDate)
       .reduce((s, i) => s + (Number(i.total) || 0), 0)
     const priorCredit = data.funds
-      .filter((f) => f.date < startDate)
+      .filter((f) => dateKey(f.date) < startDate)
       .reduce((s, f) => s + (Number(f.amount) || 0), 0)
     const opening = Number((priorDebit - priorCredit).toFixed(2))
 
-    const invoices = data.invoices.filter((i) => i.date >= startDate && i.date <= endDate)
-    const funds = data.funds.filter((f) => f.date >= startDate && f.date <= endDate)
+    const invoices = data.invoices.filter(
+      (i) => dateKey(i.date) >= startDate && dateKey(i.date) <= endDate,
+    )
+    const funds = data.funds.filter(
+      (f) => dateKey(f.date) >= startDate && dateKey(f.date) <= endDate,
+    )
 
     const rows: StmtRow[] = [
       {
@@ -733,9 +780,21 @@ export function PartyStatement() {
     }
     setFetched(true)
     setPage(1)
+    const inRange = data.invoices.filter(
+      (i) => dateKey(i.date) >= startDate && dateKey(i.date) <= endDate,
+    ).length
+    const fundsInRange = data.funds.filter(
+      (f) => dateKey(f.date) >= startDate && dateKey(f.date) <= endDate,
+    ).length
+    if (inRange + fundsInRange === 0 && (data.invoices.length || data.funds.length)) {
+      toast(
+        `No txs in ${formatStmtDate(startDate)} — ${formatStmtDate(endDate)} · widen dates (${data.invoices.length} bills / ${data.funds.length} funds total)`,
+      )
+      return
+    }
     toast(
       mode === 'all'
-        ? 'All parties statement loaded'
+        ? `All parties loaded · ${inRange} bill(s), ${fundsInRange} fund(s)`
         : `Statement loaded · ${party?.name || 'Party'}`,
     )
   }
@@ -845,7 +904,7 @@ export function PartyStatement() {
       ? party
         ? party.address || party.name
         : 'Select a party to view address.'
-      : `${data.parties.length} parties · combined ledger`
+      : `All centres · ${data.parties.length} parties · combined ledger`
 
   return (
     <div className="pstmt-page">

@@ -1130,11 +1130,32 @@ export function calcPartyBalance(
 }
 
 export const store = {
-  /** UI lists — OSC sessions are centre-scoped; Main sees full firm data */
+  /** UI lists — OSC sessions are centre-scoped; Main excludes OSC operational data */
   getAll: () => scopeStoreForSession(load()),
 
   /** Unscoped — mutations / Main lab handoff */
   getAllRaw: () => load(),
+
+  /**
+   * Party Statement / firm ledger:
+   * - OSC login → that outlet only
+   * - Main / admin → full firm (Main + OSC) so reports include outlet bills & funds
+   */
+  getLedgerData() {
+    const scoped = scopeStoreForSession(load())
+    const session = getSession()
+    if (session?.centreKind === 'osc') return scoped
+    const raw = load()
+    return {
+      ...scoped,
+      parties: raw.parties,
+      invoices: raw.invoices,
+      funds: raw.funds,
+      requests: raw.requests,
+      roughSheets: raw.roughSheets,
+      monthlyInvoices: raw.monthlyInvoices || [],
+    }
+  },
 
   /** Recompute invoice Paid/Partial/Unpaid from funds (optional party filter). */
   syncInvoicePaymentStatuses(partyName?: string) {
