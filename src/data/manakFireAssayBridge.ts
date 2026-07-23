@@ -97,6 +97,19 @@ export function listFireAssaySheetNos(purity?: string, shift?: string): string[]
   return [...nos].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b))
 }
 
+/** Next free sheet number for purity+shift (if 1 exists → 2). */
+export function nextAvailableSheetNo(purity: string, shift = 'Day'): string {
+  const existing = listFireAssaySheetNos(purity, shift)
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n > 0)
+  if (!existing.length) return '1'
+  return String(Math.max(...existing) + 1)
+}
+
+export function fireAssaySheetExists(purity: string, shift: string, sheetNo: string): boolean {
+  return Boolean(getFireAssaySheet(purity, shift || 'Day', sheetNo))
+}
+
 export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
   saveFireAssaySheetArchive(sheet)
   const json = JSON.stringify(sheet)

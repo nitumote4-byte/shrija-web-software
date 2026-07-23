@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "1.1.0",
-  "description": "Fills Manak Fire Assaying Sheet in steps: Sample Drawn/Button Save → Initial Weight Save → wait timing → M2 Cornet Save.",
+  "version": "1.2.0",
+  "description": "Manak Fire Assay fill + auto next Sheet No sync. Floating Fill button on Manak page.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",

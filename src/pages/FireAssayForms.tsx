@@ -12,6 +12,9 @@ import {
   splitSampleWeights,
 } from '../data/fireAssayBis'
 import {
+  fireAssaySheetExists,
+  listFireAssaySheetNos,
+  nextAvailableSheetNo,
   publishManakFireAssaySheet,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
@@ -63,8 +66,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
   const [purity, setPurity] = useState('')
   const [shift, setShift] = useState('Day')
-  const [sheetNo, setSheetNo] = useState('1')
+  const [sheetNo, setSheetNo] = useState('')
   const [noOfRows, setNoOfRows] = useState('22')
+  const [sheetTick, setSheetTick] = useState(0)
 
   const [silverCg1, setSilverCg1] = useState('')
   const [silverCg2, setSilverCg2] = useState('')
@@ -137,6 +141,47 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
   const toggleJob = (id: string) => {
     setSelectedJobs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const usedSheetNos = useMemo(() => {
+    void sheetTick
+    if (!purity) return [] as string[]
+    return listFireAssaySheetNos(purity, shift || 'Day')
+  }, [purity, shift, sheetTick])
+
+  const suggestedSheetNo = useMemo(() => {
+    void sheetTick
+    if (!purity) return ''
+    return nextAvailableSheetNo(purity, shift || 'Day')
+  }, [purity, shift, sheetTick])
+
+  const syncNextSheetNo = (pur: string, sh: string) => {
+    if (!pur) {
+      setSheetNo('')
+      return
+    }
+    setSheetNo(nextAvailableSheetNo(pur, sh || 'Day'))
+    setSheetTick((t) => t + 1)
+  }
+
+  /** Same Manak job card on a different lot pair = duplicate. Same pair sharing value is OK. */
+  const findDuplicateJob = (value: string, rowKey: string, list: SheetRow[]) => {
+    const parsed = parseLotJobCard(value)
+    const card = (parsed.jobCard || value).trim()
+    if (!card) return null
+    const row = list.find((r) => r.key === rowKey)
+    const lot = row?.lotNo || parsed.lotNo || 0
+    for (const r of list) {
+      if (!r.jobCardNo.trim()) continue
+      if (r.key === rowKey) continue
+      // paired strip (same lotNo) may share job card
+      if (lot && r.lotNo === lot) continue
+      const op = parseLotJobCard(r.jobCardNo)
+      const otherCard = (op.jobCard || r.jobCardNo).trim()
+      if (!otherCard) continue
+      if (otherCard === card || r.jobCardNo.trim() === value.trim()) return r
+    }
+    return null
   }
 
   function autofillRows(
@@ -229,7 +274,12 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   /** Gold Shark: purity select → BIS requirements auto-fill. */
   const applyPurityDefaults = (nextPurity: string, opts?: { quiet?: boolean }) => {
     setPurity(nextPurity)
-    if (!nextPurity) return
+    if (!nextPurity) {
+      setSheetNo('')
+      return
+    }
+    // Auto next sheet no (if sheet 1 exists → 2)
+    syncNextSheetNo(nextPurity, shift || 'Day')
     const bis = getBisDefaults(nextPurity)
     setSilverCg1(String(bis.silverCg1))
     setSilverCg2(String(bis.silverCg2))
@@ -440,6 +490,34 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       return
     }
 
+    // Block duplicate job cards across lots
+    for (const r of filledRows) {
+      const parsed = parseLotJobCard(r.jobCardNo)
+      const cardOnly = (parsed.jobCard || r.jobCardNo).trim()
+      for (const o of filledRows) {
+        if (o.key === r.key) continue
+        if ((o.lotNo || 0) === (r.lotNo || 0)) continue
+        const op = parseLotJobCard(o.jobCardNo)
+        const oc = (op.jobCard || o.jobCardNo).trim()
+        if (oc && oc === cardOnly) {
+          toast(`Duplicate Job No ${cardOnly} on different lots — har job unique hona chahiye`)
+          return
+        }
+      }
+    }
+
+    // Sheet no: if this purity+shift already has this sheet, bump to next free
+    let activeSheet = String(sheetNo || '').trim()
+    if (!activeSheet) {
+      activeSheet = nextAvailableSheetNo(purity, shift || 'Day')
+      setSheetNo(activeSheet)
+    } else if (fireAssaySheetExists(purity, shift || 'Day', activeSheet)) {
+      const next = nextAvailableSheetNo(purity, shift || 'Day')
+      toast(`Sheet ${activeSheet} already exists — using Sheet ${next}`)
+      activeSheet = next
+      setSheetNo(next)
+    }
+
     const sheetRows = rows.map((r, i) => {
       const parsed = parseLotJobCard(r.jobCardNo)
       const lot = parsed.lotNo || r.lotNo || Math.floor(i / 2) + 1
@@ -461,14 +539,14 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         status: 'Completed',
         analyst: 'Lab',
         assayType: meta.assayType,
-        assayNo: `FS-${sheetNo}`,
+        assayNo: `FS-${activeSheet}`,
       })
       store.updateRequestStatus(req.id, 'Assayed')
     }
 
     if (!sheetRows.some((r) => r.requestNo)) {
       store.addFireAssay({
-        requestNo: `SHEET-${sheetNo}`,
+        requestNo: `SHEET-${activeSheet}`,
         partyName: 'Fire Assay Sheet',
         sampleWeight: Number(sheetRows[0]?.sampleWeight) || 0,
         purityFound: Number(sheetRows[1]?.meanFineness) || Number(sheetRows[0]?.fineness) || 0,
@@ -476,13 +554,14 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         status: 'Completed',
         analyst: 'Lab',
         assayType: meta.assayType,
-        assayNo: `FS-${sheetNo}`,
+        assayNo: `FS-${activeSheet}`,
       })
     }
 
     const ids = [Number(cg1Id), Number(cg2Id)].filter((n) => n > 0)
     markCgWeightsUsed(ids)
     setCgTick((t) => t + 1)
+    setSheetTick((t) => t + 1)
 
     const sheet: ManakFireAssaySheet = {
       version: 1,
@@ -490,7 +569,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       createdAt: new Date().toISOString(),
       purity,
       shift: shift || 'Day',
-      sheetNo: String(sheetNo || '1'),
+      sheetNo: String(activeSheet),
       assayType: meta.assayType,
       cg: {
         cg1Id: Number(cg1Id) || undefined,
@@ -565,11 +644,19 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
     const filledLots = new Set(sheet.rows.map((r) => r.lotNo)).size
     toast(
-      `Sheet FS-${sheetNo} saved (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)). Manak: Lot select → Sample Drawn/Button Save → Initial Weight Save → wait timing → M2 auto-fill.`,
+      `Sheet FS-${activeSheet} saved (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)). Extension Reload + Manak Lot select → Fill. Next sheet will be ${nextAvailableSheetNo(purity, shift || 'Day')}.`,
     )
+    syncNextSheetNo(purity, shift || 'Day')
   }
 
   const updateRow = (key: string, patch: Partial<SheetRow>) => {
+    if (patch.jobCardNo != null && patch.jobCardNo.trim()) {
+      const dup = findDuplicateJob(patch.jobCardNo, key, rows)
+      if (dup) {
+        toast(`Duplicate Job No — already used on lot ${dup.lotNo}`)
+        return
+      }
+    }
     setRows((prev) => {
       const next = prev.map((r) => {
         if (r.key !== key) return r
@@ -743,19 +830,27 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           </div>
           <div className="field">
             <label>Select Shift</label>
-            <select value={shift} onChange={(e) => setShift(e.target.value)}>
+            <select
+              value={shift}
+              onChange={(e) => {
+                const sh = e.target.value
+                setShift(sh)
+                if (purity) syncNextSheetNo(purity, sh || 'Day')
+              }}
+            >
               <option value="">Select</option>
               <option>Day</option>
               <option>Night</option>
             </select>
           </div>
           <div className="field">
-            <label>Sheet no</label>
+            <label>Sheet no {suggestedSheetNo ? `(next: ${suggestedSheetNo})` : ''}</label>
             <select value={sheetNo} onChange={(e) => setSheetNo(e.target.value)}>
               <option value="">Select</option>
-              {['1', '2', '3', '4', '5', '6', '7', '8'].map((n) => (
+              {Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => (
                 <option key={n} value={n}>
                   {n}
+                  {usedSheetNos.includes(n) ? ' (used)' : n === suggestedSheetNo ? ' (next)' : ''}
                 </option>
               ))}
             </select>

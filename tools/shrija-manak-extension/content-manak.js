@@ -18,8 +18,13 @@ function delay(ms) {
 
 function setNativeValue(el, value) {
   if (!el || value == null || value === '') return false
-  if (el.disabled || el.readOnly) return false
   const v = String(value)
+  try {
+    el.removeAttribute('readonly')
+    if (el.disabled) el.disabled = false
+  } catch {
+    /* ignore */
+  }
   const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
   const desc = Object.getOwnPropertyDescriptor(proto, 'value')
   el.focus()
@@ -27,9 +32,24 @@ function setNativeValue(el, value) {
   else el.value = v
   el.dispatchEvent(new Event('input', { bubbles: true }))
   el.dispatchEvent(new Event('change', { bubbles: true }))
+  el.dispatchEvent(new Event('blur', { bubbles: true }))
   el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }))
-  el.blur()
+  // ASP.NET often listens to propertychange
+  try {
+    el.dispatchEvent(new Event('propertychange', { bubbles: true }))
+  } catch {
+    /* ignore */
+  }
   return true
+}
+
+function findInputByIdName(re) {
+  return (
+    allControls().find((el) => {
+      if (!/INPUT|TEXTAREA|SELECT/.test(el.tagName)) return false
+      return re.test(`${el.id || ''} ${el.name || ''} ${el.className || ''}`)
+    }) || null
+  )
 }
 
 function visible(el) {
@@ -128,7 +148,9 @@ function parseShrijaJob(jobCardNo) {
 }
 
 function resolveStripRows(sheet, preferredLot, selectText) {
-  const allRows = sheet.rows || []
+  const filled = (sheet.rows || []).filter((r) => r.jobCardNo || r.manakJobCard)
+  const fromView = (sheet.viewRows || []).filter((r) => r.jobCardNo || r.manakJobCard)
+  const allRows = filled.length ? filled : fromView
   const fromOpt = parseLotOptionText(selectText)
   const lotNum = preferredLot != null ? Number(preferredLot) : fromOpt.lot
   const jobCard = fromOpt.jobCard || ''
@@ -152,6 +174,14 @@ function resolveStripRows(sheet, preferredLot, selectText) {
     if (byLot.length >= 2) return { rows: byLot.slice(0, 2), lotNum, jobCard }
     const byPrefix = allRows.filter((r) => parseShrijaJob(r.jobCardNo).lot === Number(lotNum))
     if (byPrefix.length >= 2) return { rows: byPrefix.slice(0, 2), lotNum, jobCard }
+  }
+
+  // Fallback: first filled pair so fill still runs if Lot text parse fails
+  if (allRows.length >= 2) {
+    const lot = allRows[0].lotNo || 1
+    const pair = allRows.filter((r) => Number(r.lotNo) === Number(lot))
+    if (pair.length >= 2) return { rows: pair.slice(0, 2), lotNum: lot, jobCard }
+    return { rows: allRows.slice(0, 2), lotNum: lot, jobCard }
   }
 
   return { rows: [], lotNum, jobCard }
@@ -285,22 +315,26 @@ async function fillInitialPhase(sheet, preferredLot, selectText) {
   // ——— Step 1: Sampling Details ———
   const drawn = first?.sampleDrawn
   const sampleDrawnEl =
-    findInputByLabel(/Sample Drawn Weight/i) || findInputByLabel(/Sample Drawn/i)
-  const buttonWtEl = findInputByLabel(/Button Weight/i)
+    findInputByLabel(/Sample Drawn Weight/i) ||
+    findInputByLabel(/Sample Drawn/i) ||
+    findInputByIdName(/sampledrawn|sample_drawn|txtSampleDrawn|SampleDrawn/i)
+  const buttonWtEl =
+    findInputByLabel(/Button Weight/i) ||
+    findInputByIdName(/buttonweight|button_weight|txtButton|ButtonWeight/i)
 
   setNativeValue(sampleDrawnEl, drawn)
-  await delay(300)
+  await delay(400)
   const saveDrawn = findSaveNear(/Sample Drawn/i)
   if (saveDrawn) saveDrawn.click()
   else clickByText(/^Save$/i)
-  await delay(700)
+  await delay(900)
 
   setNativeValue(buttonWtEl, drawn)
-  await delay(300)
+  await delay(400)
   const saveBtn = findSaveNear(/Button Weight/i)
   if (saveBtn) saveBtn.click()
   else clickByText(/^Save$/i)
-  await delay(900)
+  await delay(1000)
 
   // ——— Step 2: Initial weights (NOT M2 yet) ———
   const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
@@ -426,6 +460,56 @@ if (onAssayPage) {
   setTimeout(bindLotChange, 600)
   setTimeout(bindLotChange, 2000)
   setTimeout(resumePendingM2, 1500)
+  setTimeout(ensureFillButton, 1000)
+}
+
+function ensureFillButton() {
+  if (document.getElementById('shrija-manak-fill-btn')) return
+  const wrap = document.createElement('div')
+  wrap.id = 'shrija-manak-fill-btn'
+  Object.assign(wrap.style, {
+    position: 'fixed',
+    bottom: '24px',
+    right: '24px',
+    zIndex: 999999,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    alignItems: 'flex-end',
+  })
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.textContent = 'Shrija: Fill Fire Assay'
+  Object.assign(btn.style, {
+    background: '#0f2744',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '10px',
+    padding: '12px 16px',
+    font: '700 13px/1.2 system-ui,sans-serif',
+    cursor: 'pointer',
+    boxShadow: '0 8px 24px rgba(0,0,0,.28)',
+  })
+  btn.addEventListener('click', () => runFill())
+  const hint = document.createElement('div')
+  hint.textContent = 'Create Sheet ke baad Lot select karke yahan click'
+  Object.assign(hint.style, {
+    background: 'rgba(15,39,68,.92)',
+    color: '#fff',
+    font: '600 11px/1.3 system-ui,sans-serif',
+    padding: '6px 10px',
+    borderRadius: '8px',
+    maxWidth: '220px',
+  })
+  wrap.appendChild(hint)
+  wrap.appendChild(btn)
+  document.body.appendChild(wrap)
+
+  chrome.storage.local.get([KEY], (data) => {
+    const n = data[KEY]?.rows?.length || data[KEY]?.viewRows?.length || 0
+    if (n) hint.textContent = `Sheet loaded · ${n} rows · Lot select + Fill`
+    else hint.textContent = 'No Shrija sheet — pehle Create Sheet karo'
+  })
 }
 
 document.addEventListener('change', (e) => {
