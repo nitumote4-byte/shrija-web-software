@@ -52,8 +52,6 @@ const MOCK_HTML = `
       <td>Sample Drawn Weight (Mg)</td>
       <td><input id="txtSampleDrawn" type="text" value="0" /></td>
       <td><input type="button" value="Save" id="btnSaveDrawn" /></td>
-    </tr>
-    <tr>
       <td>Button Weight (Mg)</td>
       <td><input id="txtButtonWeight" type="text" value="0" /></td>
       <td><input type="button" value="Save" id="btnSaveButton" /></td>
@@ -203,7 +201,15 @@ async function main() {
   const samp = ManakFill.findSamplingInputs(window.document)
   assert(samp.sampleDrawn?.id === 'txtSampleDrawn', 'Sample Drawn = txtSampleDrawn')
   assert(samp.buttonWt?.id === 'txtButtonWeight', 'Button Weight = txtButtonWeight')
+  assert(samp.sampleDrawn !== samp.buttonWt, 'Sample ≠ Button (same-row layout)')
   assert(samp.sampleDrawn?.id !== 'declaredPurity', 'not Declared Purity')
+
+  // Deliberately fill Button first (bug simulation) — finder must still map correctly
+  window.document.getElementById('txtButtonWeight').value = '999'
+  window.document.getElementById('txtSampleDrawn').value = '0'
+  const samp2 = ManakFill.findSamplingInputs(window.document)
+  assert(samp2.sampleDrawn?.id === 'txtSampleDrawn', 'still maps Sample Drawn after wrong values')
+  assert(samp2.buttonWt?.id === 'txtButtonWeight', 'still maps Button Weight')
 
   // --- Fill Lot 1 ---
   const lotSel = window.document.getElementById('ddlLot')

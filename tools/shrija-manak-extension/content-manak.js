@@ -269,108 +269,116 @@ async function stepSampleDrawn(sheet, flow) {
   const drawn = Number(resolved.rows[0]?.sampleDrawn || 0)
   if (!(drawn > 0)) return showToast('Shrija AUTO: Sample Drawn 0 sheet mein')
 
-  let { sampleDrawn } = MF.findSamplingInputs(document)
+  let { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
   if (!sampleDrawn) return showToast('Shrija AUTO: Sample Drawn field nahi mila')
+  if (buttonWt && sampleDrawn === buttonWt) {
+    return showToast('Shrija AUTO: Sample/Button same field detect — layout fix fail')
+  }
+
+  // Clear Button Weight first so Manak never validates Button > Sample
+  if (buttonWt && Number(buttonWt.value) > 0) {
+    MF.setNativeValue(buttonWt, '0')
+    await MF.delay(100)
+  }
 
   const ok = await MF.forceSetWeight(sampleDrawn, drawn)
-  // Re-query after set (ASP.NET may replace node)
   sampleDrawn = MF.findSamplingInputs(document).sampleDrawn || sampleDrawn
   const sd = Number(sampleDrawn?.value || 0)
   if (!ok || !(sd > 0)) {
-    return showToast(`Shrija AUTO: Sample Drawn set nahi hua (abhi ${sd}) — field lock / galat input`)
+    return showToast(`Shrija AUTO: Sample Drawn set nahi hua (abhi ${sd})`)
+  }
+
+  // Double-check we did NOT write into Button Weight by mistake
+  buttonWt = MF.findSamplingInputs(document).buttonWt
+  if (buttonWt && Math.abs(Number(buttonWt.value) - drawn) < 0.02 && Math.abs(sd - drawn) > 0.02) {
+    showToast('Shrija AUTO: galat field (Button) pe likha — swap fix…')
+    MF.setNativeValue(buttonWt, '0')
+    await MF.forceSetWeight(sampleDrawn, drawn)
   }
 
   await storageSet({
     [FLOW_KEY]: { ...flow, step: 'button', drawn, at: Date.now() },
   })
-  showToast(`Shrija AUTO: Sample Drawn ${sd} → Save…`)
-  await MF.delay(250)
+  showToast(`Shrija AUTO: 1/2 Sample Drawn ${Number(sampleDrawn.value)} → Save…`)
+  await MF.delay(300)
   const btn = MF.findSaveBeside(sampleDrawn)
   if (btn) btn.click()
-  else showToast('Shrija AUTO: Sample Drawn Save button nahi mila')
+  else showToast('Shrija AUTO: Sample Drawn Save nahi mila')
 
-  // Wait for postback OR same-page save; do NOT touch Button Weight until Sample Drawn > 0
-  await MF.delay(2000)
+  await MF.delay(2200)
   if (!extAlive()) return
 
+  // Only continue to Button if Sample Drawn still > 0 (or re-set after postback)
   const after = MF.findSamplingInputs(document)
-  const sdAfter = Number(after.sampleDrawn?.value || 0)
+  let sdAfter = Number(after.sampleDrawn?.value || 0)
   if (!(sdAfter > 0)) {
-    // Postback cleared UI but server may have saved — still don't set Button yet; retry sample once
-    showToast('Shrija AUTO: Sample Drawn Save ke baad field 0 — dubara Sample…')
+    await MF.forceSetWeight(after.sampleDrawn, drawn)
+    sdAfter = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
+  }
+  if (!(sdAfter > 0)) {
+    showToast('Shrija AUTO: Sample Drawn Save ke baad bhi 0 — Button Weight nahi bharenge')
     await storageSet({ [FLOW_KEY]: { ...flow, step: 'sample', drawn, at: Date.now() } })
-    await MF.delay(800)
-    const still0 = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
-    if (!(still0 > 0)) {
-      const el = MF.findSamplingInputs(document).sampleDrawn
-      await MF.forceSetWeight(el, drawn)
-      const b2 = MF.findSaveBeside(el)
-      if (b2) b2.click()
-      await MF.delay(2000)
-    }
+    return
   }
 
-  const still = (await storageGet([FLOW_KEY]))[FLOW_KEY]
-  if (still?.step === 'button' || still?.step === 'sample') {
-    await stepButtonWeight(sheet, { ...still, step: 'button', drawn })
-  }
+  await stepButtonWeight(sheet, { ...flow, step: 'button', drawn })
 }
 
 async function stepButtonWeight(sheet, flow) {
   const drawn = Number(flow.drawn || 0)
   let { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
 
-  // Manak rule: Button Weight cannot be more than Sample Drawn — Sample MUST be > 0 first
+  if (buttonWt && sampleDrawn && sampleDrawn === buttonWt) {
+    return showToast('Shrija AUTO: Sample/Button fields confused — stop')
+  }
+
   let sd = Number(sampleDrawn?.value || 0)
   if (!(sd > 0)) {
-    showToast('Shrija AUTO: Sample Drawn pehle chahiye (Button pehle nahi)…')
+    showToast('Shrija AUTO: Sample Drawn pehle — Button wait…')
     if (sampleDrawn) await MF.forceSetWeight(sampleDrawn, drawn)
-    sampleDrawn = MF.findSamplingInputs(document).sampleDrawn
-    sd = Number(sampleDrawn?.value || 0)
+    sd = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
     if (!(sd > 0)) {
       await storageSet({ [FLOW_KEY]: { ...flow, step: 'sample', drawn, at: Date.now() } })
       return stepSampleDrawn(sheet, { ...flow, step: 'sample', drawn })
     }
-    const saveSd = MF.findSaveBeside(sampleDrawn)
-    if (saveSd) {
-      saveSd.click()
-      await MF.delay(2000)
-    }
-    sampleDrawn = MF.findSamplingInputs(document).sampleDrawn
-    sd = Number(sampleDrawn?.value || 0)
-    if (!(sd > 0)) {
-      // Keep value in DOM even if save postback pending
-      await MF.forceSetWeight(sampleDrawn, drawn)
-      sd = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
-    }
   }
 
+  // HARD RULE: never write Button while Sample Drawn is 0
   if (!(sd > 0)) {
-    return showToast('Shrija AUTO: Sample Drawn 0 — Button Weight skip (Manak alert avoid)')
+    return showToast('Shrija AUTO: Sample Drawn 0 — Button Weight SKIP')
   }
 
   buttonWt = MF.findSamplingInputs(document).buttonWt
   if (!buttonWt) return showToast('Shrija AUTO: Button Weight field nahi mila')
+  if (sampleDrawn && buttonWt === sampleDrawn) {
+    return showToast('Shrija AUTO: Button field = Sample field — skip')
+  }
 
-  // Must be <= Sample Drawn
   const btnVal = Math.min(drawn > 0 ? drawn : sd, sd)
+  showToast(`Shrija AUTO: 2/2 Button Weight (after Sample ${sd})…`)
   const okBtn = await MF.forceSetWeight(buttonWt, btnVal)
   buttonWt = MF.findSamplingInputs(document).buttonWt || buttonWt
   const bw = Number(buttonWt?.value || 0)
-  if (!okBtn || !(bw > 0) || bw > sd + 0.001) {
-    return showToast(`Shrija AUTO: Button Weight fail (bw=${bw}, sd=${sd})`)
+  // Re-read sample — must still be > button
+  sd = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
+  if (!okBtn || !(bw > 0)) {
+    return showToast(`Shrija AUTO: Button Weight set fail (bw=${bw})`)
+  }
+  if (!(sd > 0) || bw > sd + 0.001) {
+    MF.setNativeValue(buttonWt, '0')
+    return showToast(`Shrija AUTO: Blocked Button ${bw} > Sample ${sd}`)
   }
 
   await storageSet({
     [FLOW_KEY]: { ...flow, step: 'assay', drawn, at: Date.now() },
   })
   showToast(`Shrija AUTO: Button Weight ${bw} → Save…`)
-  await MF.delay(250)
+  await MF.delay(300)
   const btn = MF.findSaveBeside(buttonWt)
   if (btn) btn.click()
   else showToast('Shrija AUTO: Button Weight Save nahi mila')
 
-  await MF.delay(2000)
+  await MF.delay(2200)
   if (!extAlive()) return
   const still = (await storageGet([FLOW_KEY]))[FLOW_KEY]
   if (still?.step === 'assay') await stepAssay(sheet, still)

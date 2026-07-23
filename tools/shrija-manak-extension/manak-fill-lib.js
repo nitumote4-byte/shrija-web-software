@@ -252,35 +252,70 @@
     return { rows: [], lotNum, jobCard }
   }
 
-  /** Exact label cell → input in same row (Manak Sampling table layout). */
-  ManakFill.findInputBesideExactLabel = function findInputBesideExactLabel(labelRe, root) {
-    const scope = root || root.document || document
-    const nodes = Array.from(scope.querySelectorAll('td, th, label, span, b, strong, font, div'))
-    for (const n of nodes) {
-      const t = ManakFill.shortText(n)
-      if (!t || !labelRe.test(t)) continue
-      const tr = n.closest('tr')
-      if (tr) {
-        const inputs = Array.from(tr.querySelectorAll('input')).filter(
-          (el) => ManakFill.visible(el) && !ManakFill.isUnsafeTarget(el),
-        )
-        if (inputs[0]) return inputs[0]
+  /**
+   * Input that comes AFTER this label in document order (same row OK).
+   * Never use "first input in row" — Sample Drawn + Button Weight share one row on Manak.
+   */
+  ManakFill.inputAfterLabel = function inputAfterLabel(labelEl) {
+    if (!labelEl) return null
+    const anchor = labelEl.closest('td, th, label, span, div') || labelEl
+
+    // 1) Following sibling cells
+    let sib = anchor.nextElementSibling
+    for (let i = 0; i < 8 && sib; i++) {
+      const tip = (sib.textContent || '').replace(/\s+/g, ' ')
+      // Stop if we hit the other sampling label cell
+      if (
+        /Sample Drawn Weight|Button Weight/i.test(tip) &&
+        tip.length < 80 &&
+        !sib.querySelector('input:not([type="hidden"])')
+      ) {
+        break
       }
-      let sib = n.nextElementSibling
-      for (let i = 0; i < 5 && sib; i++) {
-        const input = sib.matches?.('input')
+      const inp =
+        sib.tagName === 'INPUT'
           ? sib
-          : sib.querySelector?.('input:not([type="hidden"])')
-        if (input && ManakFill.visible(input) && !ManakFill.isUnsafeTarget(input)) return input
-        sib = sib.nextElementSibling
+          : sib.querySelector?.('input:not([type="hidden"]):not([type="button"]):not([type="submit"])')
+      if (inp && ManakFill.visible(inp) && !ManakFill.isUnsafeTarget(inp)) return inp
+      sib = sib.nextElementSibling
+    }
+
+    // 2) First weight input that follows the label in the row/container
+    const row = anchor.closest('tr, .row, .form-group, table, fieldset') || anchor.parentElement
+    if (row) {
+      const inputs = Array.from(
+        row.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
+      ).filter((el) => ManakFill.visible(el) && !ManakFill.isUnsafeTarget(el))
+      for (const inp of inputs) {
+        const pos = anchor.compareDocumentPosition(inp)
+        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return inp
       }
     }
     return null
   }
 
+  ManakFill.findLabelNode = function findLabelNode(labelRe, root) {
+    const scope = root || document
+    const nodes = Array.from(scope.querySelectorAll('td, th, label, span, b, strong, font, div, p'))
+    let best = null
+    for (const n of nodes) {
+      const t = ManakFill.shortText(n)
+      if (!t || !labelRe.test(t)) continue
+      // Prefer shorter exact labels over big wrappers
+      if (!best || t.length < ManakFill.shortText(best).length) best = n
+    }
+    return best
+  }
+
+  /** Exact label → nearest following input (Manak Sampling side-by-side layout safe). */
+  ManakFill.findInputBesideExactLabel = function findInputBesideExactLabel(labelRe, root) {
+    const label = ManakFill.findLabelNode(labelRe, root)
+    if (!label) return null
+    return ManakFill.inputAfterLabel(label)
+  }
+
   ManakFill.findSamplingInputs = function findSamplingInputs(doc) {
     const document = doc || root.document
-    // Prefer the smallest table/section that contains both labels
     let section = null
     const tables = Array.from(document.querySelectorAll('table, fieldset, div'))
     for (const t of tables) {
@@ -290,10 +325,50 @@
         break
       }
     }
-    const sampleDrawn =
-      ManakFill.findInputBesideExactLabel(/Sample Drawn Weight/i, section || document) ||
-      ManakFill.findInputBesideExactLabel(/^Sample Drawn/i, section || document)
-    const buttonWt = ManakFill.findInputBesideExactLabel(/Button Weight/i, section || document)
+    const rootEl = section || document
+
+    let sampleDrawn =
+      ManakFill.findInputBesideExactLabel(/Sample Drawn Weight/i, rootEl) ||
+      ManakFill.findInputBesideExactLabel(/^Sample Drawn/i, rootEl)
+    let buttonWt = ManakFill.findInputBesideExactLabel(/Button Weight/i, rootEl)
+
+    // Same-row fallback: left input = Sample Drawn, right = Button Weight
+    if (sampleDrawn && buttonWt && sampleDrawn === buttonWt) {
+      const row = sampleDrawn.closest('tr, .row, div') || sampleDrawn.parentElement
+      const inputs = Array.from(
+        row.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
+      ).filter((el) => ManakFill.visible(el) && !ManakFill.isUnsafeTarget(el))
+      if (inputs.length >= 2) {
+        sampleDrawn = inputs[0]
+        buttonWt = inputs[1]
+      } else {
+        buttonWt = null
+      }
+    }
+
+    // If only one found, try pair from shared row
+    if (sampleDrawn && !buttonWt) {
+      const row = sampleDrawn.closest('tr, .row, div')
+      const inputs = row
+        ? Array.from(
+            row.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
+          ).filter((el) => ManakFill.visible(el) && !ManakFill.isUnsafeTarget(el))
+        : []
+      if (inputs.length >= 2 && inputs[0] === sampleDrawn) buttonWt = inputs[1]
+    }
+    if (buttonWt && !sampleDrawn) {
+      const row = buttonWt.closest('tr, .row, div')
+      const inputs = row
+        ? Array.from(
+            row.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
+          ).filter((el) => ManakFill.visible(el) && !ManakFill.isUnsafeTarget(el))
+        : []
+      if (inputs.length >= 2 && inputs[1] === buttonWt) sampleDrawn = inputs[0]
+    }
+
+    // Final: never treat Button field as Sample
+    if (sampleDrawn && buttonWt && sampleDrawn === buttonWt) buttonWt = null
+
     return {
       sampleDrawn: sampleDrawn && !ManakFill.isUnsafeTarget(sampleDrawn) ? sampleDrawn : null,
       buttonWt: buttonWt && !ManakFill.isUnsafeTarget(buttonWt) ? buttonWt : null,

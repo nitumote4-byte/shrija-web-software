@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "2.0.4",
-  "description": "AUTO: Fire Assaying weights via scan/keyboard-wedge simulation (not plain typing).",
+  "version": "2.0.5",
+  "description": "AUTO: Sample Drawn BEFORE Button Weight (same-row field map fix).",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",
