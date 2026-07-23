@@ -20,6 +20,9 @@ export type Party = {
   igstApplicable: boolean
   discount: number
   minBillCalc: boolean
+  /** Off-Site outlet scope — OSC users only see their centre */
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 export type Category = {
@@ -87,6 +90,8 @@ export type RoughSheetEntry = {
   sampleTagId?: string
   cornet?: number
   rejectPic?: number
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 /** Line on Invoice Cum Delivery Challan (persisted for reprint / update). */
@@ -134,6 +139,8 @@ export type Invoice = {
   careOf?: string
   invoiceDateTime?: string
   updatedAt?: string
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 export type MonthlyInvoiceLine = {
@@ -168,6 +175,8 @@ export type MonthlyInvoice = {
   useIgst: boolean
   status: 'Unpaid' | 'Paid' | 'Partial'
   updatedAt?: string
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 export type FundEntry = {
@@ -182,6 +191,8 @@ export type FundEntry = {
   partyName?: string
   chequeNo?: string
   bankName?: string
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 export type ExpenseEntry = {
@@ -191,6 +202,8 @@ export type ExpenseEntry = {
   amount: number
   paidTo: string
   remarks: string
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 export type FireAssay = {
@@ -230,6 +243,8 @@ export type TouchRecord = {
   weight: number
   date: string
   amount: number
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 export type XrayEntry = {
@@ -240,6 +255,8 @@ export type XrayEntry = {
   reading: number
   purity: string
   date: string
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 export type PendingRoughRequest = {
@@ -258,6 +275,8 @@ export type PendingRoughRequest = {
   date: string
   status: 'Pending' | 'Saved'
   ahcFileName?: string
+  centreId?: string
+  centreKind?: 'main' | 'osc'
 }
 
 type StoreShape = {
@@ -333,6 +352,107 @@ export function oscTransferLabel(status?: OscTransferStatus | null) {
       return 'Returned to OSC'
     default:
       return ''
+  }
+}
+
+/** Active OSC outlet id — null means Main/admin (no list filter). */
+export function oscDataScopeId(): string | null {
+  const s = getSession()
+  if (s?.centreKind !== 'osc') return null
+  return s.centreId || null
+}
+
+function matchesCentreScope(
+  scopeId: string,
+  meta?: { centreId?: string; centreKind?: 'main' | 'osc' } | null,
+) {
+  if (!meta) return false
+  if (meta.centreId) return meta.centreId === scopeId
+  return false
+}
+
+/** OSC login: only that outlet's rows. Main sees full firm store. */
+function scopeStoreForSession(data: StoreShape): StoreShape {
+  const scopeId = oscDataScopeId()
+  if (!scopeId) return data
+
+  const requests = data.requests.filter((r) => matchesCentreScope(scopeId, r))
+  const requestNos = new Set(requests.map((r) => r.requestNo))
+
+  const roughSheets = data.roughSheets.filter((r) => {
+    if (matchesCentreScope(scopeId, r)) return true
+    if (r.requestNo && requestNos.has(r.requestNo)) return true
+    if (r.requestNo) {
+      const req = findRequestByNo(data, r.requestNo)
+      return matchesCentreScope(scopeId, req)
+    }
+    return false
+  })
+
+  const parties = data.parties.filter((p) => matchesCentreScope(scopeId, p))
+  const pendingRough = data.pendingRough.filter((r) => {
+    if (matchesCentreScope(scopeId, r)) return true
+    const party = data.parties.find((p) => p.id === r.partyId)
+    return matchesCentreScope(scopeId, party)
+  })
+
+  const invoices = data.invoices.filter((inv) => {
+    if (matchesCentreScope(scopeId, inv)) return true
+    if (inv.requestNo && requestNos.has(inv.requestNo)) return true
+    if (inv.requestNo) {
+      const req = findRequestByNo(data, inv.requestNo)
+      return matchesCentreScope(scopeId, req)
+    }
+    if (inv.partyId) {
+      const party = data.parties.find((p) => p.id === inv.partyId)
+      return matchesCentreScope(scopeId, party)
+    }
+    return false
+  })
+
+  const monthlyInvoices = (data.monthlyInvoices || []).filter((inv) => {
+    if (matchesCentreScope(scopeId, inv)) return true
+    if (inv.partyId) {
+      const party = data.parties.find((p) => p.id === inv.partyId)
+      return matchesCentreScope(scopeId, party)
+    }
+    return (inv.requestNos || []).some((no) => requestNos.has(no))
+  })
+
+  const funds = data.funds.filter((f) => {
+    if (matchesCentreScope(scopeId, f)) return true
+    if (f.partyId) {
+      const party = data.parties.find((p) => p.id === f.partyId)
+      return matchesCentreScope(scopeId, party)
+    }
+    return false
+  })
+
+  const expenses = data.expenses.filter((e) => matchesCentreScope(scopeId, e))
+  const touches = data.touches.filter((t) => matchesCentreScope(scopeId, t))
+  const xray = data.xray.filter((x) => {
+    if (matchesCentreScope(scopeId, x)) return true
+    if (x.requestNo && requestNos.has(x.requestNo)) return true
+    return false
+  })
+  const fireAssays = data.fireAssays.filter(
+    (fa) => fa.requestNo && requestNos.has(fa.requestNo),
+  )
+
+  return {
+    ...data,
+    parties,
+    requests,
+    roughSheets,
+    pendingRough,
+    invoices,
+    monthlyInvoices,
+    funds,
+    expenses,
+    touches,
+    xray,
+    fireAssays,
+    // categories + stock stay firm-wide (OSC has no lab stock UI)
   }
 }
 
@@ -797,11 +917,16 @@ function save(data: StoreShape) {
 }
 
 export const store = {
-  getAll: () => load(),
+  /** UI lists — OSC sessions are centre-scoped; Main sees full firm data */
+  getAll: () => scopeStoreForSession(load()),
+
+  /** Unscoped — mutations / Main lab handoff */
+  getAllRaw: () => load(),
 
   addParty(input: Omit<Party, 'id' | 'createdAt'>) {
     const data = load()
     const party: Party = {
+      ...sessionCentreStamp(),
       ...input,
       id: uid('p'),
       createdAt: today(),
@@ -1020,12 +1145,17 @@ export const store = {
   },
 
   getRequestByNo(requestNo: string) {
-    return findRequestByNo(load(), requestNo)
+    const req = findRequestByNo(load(), requestNo)
+    if (!req) return undefined
+    const scopeId = oscDataScopeId()
+    if (scopeId && !matchesCentreScope(scopeId, req)) return undefined
+    return req
   },
 
   addRoughSheet(input: Omit<RoughSheetEntry, 'id' | 'date' | 'status'> & { status?: RoughSheetEntry['status'] }) {
     const data = load()
     const entry: RoughSheetEntry = {
+      ...sessionCentreStamp(),
       ...input,
       id: uid('rs'),
       date: today(),
@@ -1185,6 +1315,7 @@ export const store = {
     const data = load()
     const n = data.invoices.length + 1
     const inv: Invoice = {
+      ...sessionCentreStamp(),
       ...input,
       id: uid('inv'),
       invoiceNo: input.invoiceNo || `INV-2026-${String(n).padStart(3, '0')}`,
@@ -1220,11 +1351,11 @@ export const store = {
   },
 
   getInvoiceById(id: string) {
-    return load().invoices.find((i) => i.id === id)
+    return store.getAll().invoices.find((i) => i.id === id)
   },
 
   findInvoices(query: { requestNo?: string; invoiceNo?: string }) {
-    const data = load().invoices
+    const data = store.getAll().invoices
     if (query.invoiceNo) {
       const q = query.invoiceNo.trim().toLowerCase()
       return data.filter((i) => i.invoiceNo.toLowerCase() === q)
@@ -1245,6 +1376,7 @@ export const store = {
     const data = load()
     const n = (data.monthlyInvoices?.length || 0) + 1
     const inv: MonthlyInvoice = {
+      ...sessionCentreStamp(),
       ...input,
       id: uid('minv'),
       invoiceNo: input.invoiceNo || `M-${String(n).padStart(3, '0')}`,
@@ -1280,13 +1412,14 @@ export const store = {
   },
 
   getMonthlyInvoiceById(id: string) {
-    return (load().monthlyInvoices || []).find((i) => i.id === id)
+    return (store.getAll().monthlyInvoices || []).find((i) => i.id === id)
   },
 
   addFund(input: Omit<FundEntry, 'id' | 'voucherNo'> & { voucherNo?: string }) {
     const data = load()
     const n = data.funds.length + 1
     const entry: FundEntry = {
+      ...sessionCentreStamp(),
       ...input,
       id: uid('f'),
       voucherNo: input.voucherNo || String(n),
@@ -1298,7 +1431,7 @@ export const store = {
 
   addExpense(input: Omit<ExpenseEntry, 'id'>) {
     const data = load()
-    const entry: ExpenseEntry = { ...input, id: uid('e') }
+    const entry: ExpenseEntry = { ...sessionCentreStamp(), ...input, id: uid('e') }
     data.expenses.unshift(entry)
     save(data)
     return entry
@@ -1385,6 +1518,7 @@ export const store = {
     const data = load()
     const n = data.touches.length + 1
     const entry: TouchRecord = {
+      ...sessionCentreStamp(),
       ...input,
       id: uid('t'),
       touchNo: `TH-2026-${String(n).padStart(3, '0')}`,
@@ -1399,6 +1533,7 @@ export const store = {
     const data = load()
     const n = data.xray.length + 1
     const entry: XrayEntry = {
+      ...sessionCentreStamp(),
       ...input,
       id: uid('x'),
       sheetNo: `XRF-2026-${String(n).padStart(3, '0')}`,
@@ -1415,7 +1550,7 @@ export const store = {
   },
 
   getPendingRough(partyId?: string) {
-    const rows = load().pendingRough.filter((r) => r.status === 'Pending')
+    const rows = store.getAll().pendingRough.filter((r) => r.status === 'Pending')
     if (!partyId) return rows
     return rows.filter((r) => r.partyId === partyId)
   },
@@ -1499,6 +1634,7 @@ export const store = {
         jobCardSaved: false,
         cornet: 0,
         rejectPic: 0,
+        ...sessionCentreStamp(),
       })
 
       return req
@@ -1590,6 +1726,7 @@ export const store = {
         jobCardSaved: false,
         cornet: 0,
         rejectPic: 0,
+        ...sessionCentreStamp(),
       })
 
       return req
@@ -1623,6 +1760,7 @@ export const store = {
       night,
       date: today(),
       status: 'Pending',
+      ...sessionCentreStamp(),
     }
     data.pendingRough.unshift(entry)
     save(data)
@@ -1689,6 +1827,7 @@ export const store = {
           igstApplicable: false,
           discount: 0,
           minBillCalc: false,
+          ...sessionCentreStamp(),
         }
         data.parties.unshift(party)
       }
@@ -1708,6 +1847,7 @@ export const store = {
         night,
         date: row.date || today(),
         status: 'Pending',
+        ...sessionCentreStamp(),
       }
       data.pendingRough.unshift(entry)
       created.push(entry)
@@ -1719,7 +1859,12 @@ export const store = {
 
   addPendingRough(input: Omit<PendingRoughRequest, 'id' | 'status'>) {
     const data = load()
-    const entry: PendingRoughRequest = { ...input, id: uid('pr'), status: 'Pending' }
+    const entry: PendingRoughRequest = {
+      ...sessionCentreStamp(),
+      ...input,
+      id: uid('pr'),
+      status: 'Pending',
+    }
     data.pendingRough.unshift(entry)
     save(data)
     return entry

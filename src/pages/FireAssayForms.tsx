@@ -58,7 +58,7 @@ function parseLotJobCard(raw: string): { lotNo: number; jobCard: string } {
 }
 
 function FireAssaySheet({ mode }: { mode: Mode }) {
-  const data = store.getAll()
+  const data = store.getAllRaw()
   const navigate = useNavigate()
   const { toast, Toast } = useToast()
   const meta = MODE_META[mode]

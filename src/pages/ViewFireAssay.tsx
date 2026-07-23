@@ -89,7 +89,7 @@ function sheetToViewRows(sheet: ManakFireAssaySheet, mode: 'CG' | 'Cornet'): Vie
 }
 
 export function ViewFireAssay() {
-  const data = store.getAll()
+  const data = store.getAllRaw()
   const { toast, Toast } = useToast()
   const [tick, setTick] = useState(0)
 

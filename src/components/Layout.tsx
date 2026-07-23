@@ -111,6 +111,7 @@ export function Layout() {
           <div className="tenant-chip" title={`Tenant ID: ${session.tenantId}`}>
             <Building2 size={14} />
             <span>{tenantLabel}</span>
+            {session.centreKind === 'osc' ? <span> · own data</span> : null}
           </div>
         )}
         {licenseWarn && (
