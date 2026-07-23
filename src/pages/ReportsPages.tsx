@@ -29,7 +29,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { statusBadge, useToast } from '../components/ui'
-import { getFirmProfile } from '../data/firmProfile'
+import { getFirmProfile, getInvoiceHeader } from '../data/firmProfile'
 import { CENTRE_NAME } from '../data/modules'
 import { computeInvoicePaymentStatuses, store } from '../data/store'
 import { tenantGet, tenantSet } from '../data/tenant'
@@ -463,16 +463,17 @@ export function PartyStatement() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
   const firm = loadFirmProfile()
+  const header = getInvoiceHeader()
 
   const [mode, setMode] = useState<'selected' | 'all'>('selected')
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [startDate, setStartDate] = useState(() => localYmd())
+  const [endDate, setEndDate] = useState(() => localYmd())
   const [partyQuery, setPartyQuery] = useState('')
   const [partyOpen, setPartyOpen] = useState(false)
   const [partyId, setPartyId] = useState('')
   const [fetched, setFetched] = useState(false)
   const [page, setPage] = useState(1)
-  const pageSize = 15
+  const pageSize = 20
 
   const party = data.parties.find((p) => p.id === partyId)
 
@@ -487,42 +488,50 @@ export function PartyStatement() {
     )
   }, [data.parties, partyQuery])
 
-  const buildRowsForParty = (p: (typeof data.parties)[0]): StmtRow[] => {
+  const hmPcsForInvoice = (inv: (typeof data.invoices)[0]) => {
+    const rough = data.roughSheets.filter(
+      (r) =>
+        r.requestNo === inv.requestNo ||
+        (r.partyName.trim().toLowerCase() === inv.partyName.trim().toLowerCase() &&
+          r.date === inv.date),
+    )
+    const fromRough = rough.reduce(
+      (s, r) => s + Math.max(0, (r.pic || 0) - (r.rejectPic || 0)),
+      0,
+    )
+    if (fromRough) return fromRough
+    const req = data.requests.find((r) => r.requestNo === inv.requestNo)
+    return req?.pieces || 0
+  }
+
+  const matchPartyName = (a: string, b: string) =>
+    a.trim().toLowerCase() === b.trim().toLowerCase()
+
+  const buildRowsForParty = (partyName: string, labelOpening: string): StmtRow[] => {
     const invoices = data.invoices.filter(
-      (i) => i.partyName === p.name && i.date >= startDate && i.date <= endDate,
+      (i) => matchPartyName(i.partyName, partyName) && i.date >= startDate && i.date <= endDate,
     )
     const funds = data.funds.filter(
       (f) =>
-        (f.partyName === p.name || f.source === p.name) &&
+        matchPartyName(f.partyName || f.source || '', partyName) &&
         f.date >= startDate &&
         f.date <= endDate,
     )
     const priorInvoices = data.invoices.filter(
-      (i) => i.partyName === p.name && i.date < startDate,
+      (i) => matchPartyName(i.partyName, partyName) && i.date < startDate,
     )
     const priorFunds = data.funds.filter(
-      (f) => (f.partyName === p.name || f.source === p.name) && f.date < startDate,
+      (f) => matchPartyName(f.partyName || f.source || '', partyName) && f.date < startDate,
     )
-    const priorDebit = priorInvoices.reduce((s, i) => s + i.total, 0)
-    const priorCredit = priorFunds.reduce((s, f) => s + f.amount, 0)
-    const opening = priorDebit - priorCredit
+    const priorDebit = priorInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)
+    const priorCredit = priorFunds.reduce((s, f) => s + (Number(f.amount) || 0), 0)
+    const opening = Number((priorDebit - priorCredit).toFixed(2))
 
     const rows: StmtRow[] = [
       {
-        key: `${p.id}-opy`,
+        key: `${partyName}-op`,
         jeweller: '',
-        type: 'Opening Balance From Previous Year',
-        date: '',
-        pcs: 0,
-        credit: 0,
-        debit: 0,
-        balance: 0,
-        remarks: '',
-      },
-      {
-        key: `${p.id}-op`,
-        jeweller: '',
-        type: 'Opening Balance',
+        type: labelOpening,
         date: '',
         pcs: 0,
         credit: Math.max(0, -opening),
@@ -537,58 +546,130 @@ export function PartyStatement() {
     const events: Ev[] = [
       ...invoices.map((i) => ({ date: i.date, kind: 'inv' as const, id: i.id })),
       ...funds.map((f) => ({ date: f.date, kind: 'fund' as const, id: f.id })),
-    ].sort((a, b) => a.date.localeCompare(b.date))
+    ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 
     for (const ev of events) {
       if (ev.kind === 'inv') {
         const inv = invoices.find((i) => i.id === ev.id)!
-        const req = data.requests.find((r) => r.requestNo === inv.requestNo)
-        bal += inv.total
+        bal = Number((bal + inv.total).toFixed(2))
         rows.push({
           key: inv.id,
-          jeweller: p.name,
-          type: 'Invoice',
+          jeweller: partyName,
+          type: `Invoice no: ${inv.invoiceNo}`,
           date: inv.date,
-          pcs: req?.pieces || 0,
+          pcs: hmPcsForInvoice(inv),
           credit: 0,
           debit: inv.total,
           balance: bal,
-          remarks: inv.invoiceNo,
+          remarks: inv.requestNo || '',
         })
       } else {
         const fund = funds.find((f) => f.id === ev.id)!
-        bal -= fund.amount
+        bal = Number((bal - fund.amount).toFixed(2))
         rows.push({
           key: fund.id,
-          jeweller: p.name,
-          type: fund.mode || 'Receipt',
+          jeweller: partyName,
+          type: `Voucher No ${fund.voucherNo || '—'}`,
           date: fund.date,
           pcs: 0,
           credit: fund.amount,
           debit: 0,
           balance: bal,
-          remarks: fund.remarks || fund.voucherNo || '',
+          remarks: fund.remarks || fund.mode || '',
         })
       }
     }
 
-    const periodCredit = rows
-      .filter((r) => !r.key.endsWith('-opy') && !r.key.endsWith('-op') && !r.key.endsWith('-total'))
-      .reduce((s, r) => s + r.credit, 0)
-    const periodDebit = rows
-      .filter((r) => !r.key.endsWith('-opy') && !r.key.endsWith('-op') && !r.key.endsWith('-total'))
-      .reduce((s, r) => s + r.debit, 0)
-    const periodPcs = rows
-      .filter((r) => !r.key.endsWith('-opy') && !r.key.endsWith('-op') && !r.key.endsWith('-total'))
-      .reduce((s, r) => s + r.pcs, 0)
+    const body = rows.filter((r) => r.key !== `${partyName}-op`)
     rows.push({
-      key: `${p.id}-total`,
+      key: `${partyName}-total`,
       jeweller: '',
       type: 'Total',
       date: '',
-      pcs: periodPcs,
-      credit: periodCredit,
-      debit: periodDebit,
+      pcs: body.reduce((s, r) => s + r.pcs, 0),
+      credit: body.reduce((s, r) => s + r.credit, 0) + Math.max(0, -opening),
+      debit: body.reduce((s, r) => s + r.debit, 0) + Math.max(0, opening),
+      balance: bal,
+      remarks: '',
+    })
+    return rows
+  }
+
+  /** GoldShark All Parties: one combined ledger + single opening */
+  const buildRowsAllParties = (): StmtRow[] => {
+    const priorDebit = data.invoices
+      .filter((i) => i.date < startDate)
+      .reduce((s, i) => s + (Number(i.total) || 0), 0)
+    const priorCredit = data.funds
+      .filter((f) => f.date < startDate)
+      .reduce((s, f) => s + (Number(f.amount) || 0), 0)
+    const opening = Number((priorDebit - priorCredit).toFixed(2))
+
+    const invoices = data.invoices.filter((i) => i.date >= startDate && i.date <= endDate)
+    const funds = data.funds.filter((f) => f.date >= startDate && f.date <= endDate)
+
+    const rows: StmtRow[] = [
+      {
+        key: 'all-op',
+        jeweller: '',
+        type: 'Opening Balance (All Parties)',
+        date: '',
+        pcs: 0,
+        credit: Math.max(0, -opening),
+        debit: Math.max(0, opening),
+        balance: opening,
+        remarks: '',
+      },
+    ]
+
+    let bal = opening
+    type Ev = { date: string; kind: 'inv' | 'fund'; id: string }
+    const events: Ev[] = [
+      ...invoices.map((i) => ({ date: i.date, kind: 'inv' as const, id: i.id })),
+      ...funds.map((f) => ({ date: f.date, kind: 'fund' as const, id: f.id })),
+    ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+
+    for (const ev of events) {
+      if (ev.kind === 'inv') {
+        const inv = invoices.find((i) => i.id === ev.id)!
+        bal = Number((bal + inv.total).toFixed(2))
+        rows.push({
+          key: inv.id,
+          jeweller: inv.partyName,
+          type: `Invoice no: ${inv.invoiceNo}`,
+          date: inv.date,
+          pcs: hmPcsForInvoice(inv),
+          credit: 0,
+          debit: inv.total,
+          balance: bal,
+          remarks: inv.requestNo || '',
+        })
+      } else {
+        const fund = funds.find((f) => f.id === ev.id)!
+        bal = Number((bal - fund.amount).toFixed(2))
+        rows.push({
+          key: fund.id,
+          jeweller: fund.partyName || fund.source,
+          type: `Voucher No ${fund.voucherNo || '—'}`,
+          date: fund.date,
+          pcs: 0,
+          credit: fund.amount,
+          debit: 0,
+          balance: bal,
+          remarks: fund.remarks || fund.mode || '',
+        })
+      }
+    }
+
+    const body = rows.filter((r) => r.key !== 'all-op')
+    rows.push({
+      key: 'all-total',
+      jeweller: '',
+      type: 'Total',
+      date: '',
+      pcs: body.reduce((s, r) => s + r.pcs, 0),
+      credit: body.reduce((s, r) => s + r.credit, 0) + Math.max(0, -opening),
+      debit: body.reduce((s, r) => s + r.debit, 0) + Math.max(0, opening),
       balance: bal,
       remarks: '',
     })
@@ -599,14 +680,27 @@ export function PartyStatement() {
     if (!fetched) return []
     if (mode === 'selected') {
       if (!party) return []
-      return buildRowsForParty(party)
+      return buildRowsForParty(party.name, 'Opening Balance')
     }
-    return data.parties.flatMap((p) => buildRowsForParty(p))
+    return buildRowsAllParties()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetched, mode, partyId, startDate, endDate, data])
 
-  const totalPages = Math.max(1, Math.ceil(statementRows.length / pageSize))
-  const pageRows = statementRows.slice((page - 1) * pageSize, page * pageSize)
+  const emptyTotalRow: StmtRow = {
+    key: 'empty-total',
+    jeweller: '',
+    type: 'Total',
+    date: '',
+    pcs: 0,
+    credit: 0,
+    debit: 0,
+    balance: 0,
+    remarks: '',
+  }
+
+  const displayRows = fetched ? statementRows : [emptyTotalRow]
+  const totalPages = Math.max(1, Math.ceil(Math.max(displayRows.length, 1) / pageSize))
+  const pageRows = displayRows.slice((page - 1) * pageSize, page * pageSize)
 
   const fetchData = () => {
     if (mode === 'selected' && !partyId) {
@@ -615,7 +709,11 @@ export function PartyStatement() {
     }
     setFetched(true)
     setPage(1)
-    toast('Statement loaded')
+    toast(
+      mode === 'all'
+        ? 'All parties statement loaded'
+        : `Statement loaded · ${party?.name || 'Party'}`,
+    )
   }
 
   const download = () => {
@@ -623,7 +721,8 @@ export function PartyStatement() {
       toast('Fetch data first')
       return
     }
-    downloadCsv('party-statement.csv', [
+    const scope = mode === 'all' ? 'all-parties' : (party?.name || 'party').replace(/\s+/g, '-')
+    downloadCsv(`party-statement-${scope}.csv`, [
       ['Name of Jeweller', 'Type', 'Date', 'Pcs', 'Credit', 'Debit', 'Balance', 'Remarks'],
       ...statementRows.map((r) => [
         r.jeweller,
@@ -645,8 +744,9 @@ export function PartyStatement() {
       return
     }
     const name = mode === 'selected' ? party?.name || 'Party' : 'All Parties'
+    const closing = statementRows.find((r) => r.type === 'Total')
     const text = encodeURIComponent(
-      `${firm.firmName}\nParty Statement: ${name}\nPeriod: ${formatStmtDate(startDate)} — ${formatStmtDate(endDate)}\nRows: ${statementRows.length}`,
+      `${header.centreName}\nParty Statement: ${name}\nPeriod: ${formatStmtDate(startDate)} — ${formatStmtDate(endDate)}\nClosing Balance: ₹ ${money2(closing?.balance || 0)}\nGSTIN: ${header.centreGstin}`,
     )
     const phone = (party?.phone || '').replace(/\D/g, '')
     const url = phone
@@ -660,7 +760,12 @@ export function PartyStatement() {
       ? party
         ? party.address || party.name
         : 'Select a party to view address.'
-      : `${data.parties.length} parties selected`
+      : `${data.parties.length} parties · combined ledger`
+
+  const sheetName =
+    header.centreKind === 'osc'
+      ? `${header.centreName}${header.firmName ? ` (Outlet of ${header.firmName})` : ''}`
+      : header.centreName || firm.firmName
 
   return (
     <div className="pstmt-page">
@@ -678,6 +783,7 @@ export function PartyStatement() {
               onClick={() => {
                 setMode('selected')
                 setFetched(false)
+                setPage(1)
               }}
             >
               Selected Party
@@ -688,6 +794,7 @@ export function PartyStatement() {
               onClick={() => {
                 setMode('all')
                 setFetched(false)
+                setPage(1)
               }}
             >
               All Parties
@@ -754,7 +861,7 @@ export function PartyStatement() {
           <button type="button" className="btn btn-green" onClick={download}>
             <Download size={16} /> Download Report
           </button>
-          <button type="button" className="btn btn-teal" onClick={sendWhatsapp}>
+          <button type="button" className="btn btn-green" onClick={sendWhatsapp}>
             <MessageCircle size={16} /> Send To Whatsapp
           </button>
         </div>
@@ -767,10 +874,10 @@ export function PartyStatement() {
 
       <section className="pstmt-sheet">
         <header className="pstmt-sheet-head">
-          <h1>{firm.firmName}</h1>
-          <p>{firm.address}</p>
+          <h1>{sheetName}</h1>
+          <p>{header.centreAddress || firm.address}</p>
           <p>
-            {firm.email} | GST NO: {firm.gstNo}
+            {firm.email || '—'} | GST NO: {header.centreGstin || firm.gstNo || '—'}
           </p>
           <h2>Party Statement</h2>
           {fetched ? (
@@ -778,79 +885,80 @@ export function PartyStatement() {
               {formatStmtDate(startDate)} — {formatStmtDate(endDate)}
             </p>
           ) : (
-            <p className="pstmt-period muted">Select filters and fetch data</p>
+            <p className="pstmt-period muted">📅 —</p>
           )}
         </header>
 
-        {fetched && (
-          <>
-            <div className="table-wrap">
-              <table className="data-table navy-head-table pstmt-table">
-                <thead>
-                  <tr>
-                    <th>NAME OF JEWELLER</th>
-                    <th>TYPE</th>
-                    <th>DATE</th>
-                    <th>PCS</th>
-                    <th>CREDIT</th>
-                    <th>DEBIT</th>
-                    <th>BALANCE</th>
-                    <th>REMARKS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="empty-state">
-                        No statement rows
-                      </td>
-                    </tr>
-                  ) : (
-                    pageRows.map((r) => (
-                      <tr key={r.key} className={r.type === 'Total' ? 'pstmt-total-row' : ''}>
-                        <td>{r.jeweller}</td>
-                        <td>{r.type}</td>
-                        <td>{r.date ? formatStmtDate(r.date) : ''}</td>
-                        <td>{r.type === 'Total' || r.pcs ? r.pcs : ''}</td>
-                        <td>{money2(r.credit)}</td>
-                        <td>{money2(r.debit)}</td>
-                        <td>{money2(r.balance)}</td>
-                        <td>{r.remarks}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+        <div className="table-wrap">
+          <table className="data-table navy-head-table pstmt-table">
+            <thead>
+              <tr>
+                <th>NAME OF JEWELLER</th>
+                <th>TYPE</th>
+                <th>DATE</th>
+                <th>PCS</th>
+                <th>CREDIT</th>
+                <th>DEBIT</th>
+                <th>BALANCE</th>
+                <th>REMARKS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((r) => (
+                <tr
+                  key={r.key}
+                  className={
+                    r.type === 'Total'
+                      ? 'pstmt-total-row'
+                      : r.type.startsWith('Opening')
+                        ? 'pstmt-open-row'
+                        : undefined
+                  }
+                >
+                  <td>{r.jeweller}</td>
+                  <td>{r.type}</td>
+                  <td>{r.date ? formatStmtDate(r.date) : ''}</td>
+                  <td>{r.type === 'Total' || r.pcs ? r.pcs : ''}</td>
+                  <td>{money2(r.credit)}</td>
+                  <td>{money2(r.debit)}</td>
+                  <td>{money2(r.balance)}</td>
+                  <td>{r.remarks}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-            <div className="pstmt-pager">
-              <button type="button" disabled={page <= 1} onClick={() => setPage(1)}>
-                First
-              </button>
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Previous
-              </button>
-              <input readOnly value={page} aria-label="Page" />
-              <button
-                type="button"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              >
-                Next
-              </button>
-              <button
-                type="button"
-                disabled={page >= totalPages}
-                onClick={() => setPage(totalPages)}
-              >
-                Last
-              </button>
-            </div>
-          </>
+        {fetched && displayRows.length > pageSize && (
+          <div className="pstmt-pager">
+            <button type="button" disabled={page <= 1} onClick={() => setPage(1)}>
+              First
+            </button>
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </button>
+            <span className="pstmt-page-num">
+              {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage(totalPages)}
+            >
+              Last
+            </button>
+          </div>
         )}
       </section>
 

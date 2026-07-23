@@ -1401,6 +1401,18 @@ button {
   font-weight: 700;
 }
 
+.pstmt-open-row td {
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+.pstmt-page-num {
+  min-width: 3.5rem;
+  text-align: center;
+  font-weight: 700;
+  color: var(--navy);
+}
+
 .pstmt-pager {
   display: flex;
   justify-content: center;
