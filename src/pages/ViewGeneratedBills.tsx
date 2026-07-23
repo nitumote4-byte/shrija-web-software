@@ -218,11 +218,11 @@ export function ViewGeneratedBills() {
           <Home size={14} /> Home
         </Link>
         <Link to="/billing">Billing</Link>
-        <Link to="/reports/gst-credit">Monthly Billing</Link>
+        <Link to="/monthly-billing">Monthly Billing</Link>
         <Link to="/generated-bills" className="active">
           View Bills
         </Link>
-        <Link to="/reports/invoice-list">View Monthly Bills</Link>
+        <Link to="/monthly-bills">View Monthly Bills</Link>
       </nav>
 
       <h1 className="gb-page-title no-print">View Generated Bill</h1>

@@ -86,6 +86,20 @@ export const modules: ModuleDef[] = [
     icon: Receipt,
   },
   {
+    id: 'monthly-billing',
+    title: 'Monthly Billing',
+    description: 'Monthly consolidated invoice by party & requests.',
+    path: '/monthly-billing',
+    icon: FileSpreadsheet,
+  },
+  {
+    id: 'monthly-bills',
+    title: 'View Monthly Bills',
+    description: 'Open, print or delete monthly consolidated invoices.',
+    path: '/monthly-bills',
+    icon: Eye,
+  },
+  {
     id: 'print-job-card',
     title: 'Print Job Card',
     description: 'Print job cards for lab and hallmarking tracking.',

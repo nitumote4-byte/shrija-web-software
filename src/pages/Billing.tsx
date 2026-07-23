@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Home } from 'lucide-react'
+import { FileText, Home, Printer, Search } from 'lucide-react'
 import { InvoiceChallan, type ChallanView } from '../components/InvoiceChallan'
 import { useToast } from '../components/ui'
 import { store, type HallmarkRequest, type InvoiceLine, type RoughSheetEntry } from '../data/store'
@@ -29,8 +29,7 @@ function loadInvoiceSettings(): InvoiceSettings {
 
 function nextInvoiceNo(prefix: string, startFrom: string, existingCount: number) {
   const start = Number(startFrom) || 1
-  const num = start + existingCount
-  return `${prefix || ''}${num}`
+  return `${prefix || ''}${start + existingCount}`
 }
 
 function buildLines(
@@ -48,8 +47,9 @@ function buildLines(
     return related.map((r) => {
       const pcs = r.pic || 0
       const rej = r.rejectPic || 0
-      const melt = 0
-      const hm = Math.max(0, pcs - rej - melt)
+      // GoldShark: Melt often = sample pcs; HM charged separately (can equal Pcs Rec)
+      const melt = Number(r.sampleQty) > 0 ? Number(r.sampleQty) : 0
+      const hm = Math.max(0, pcs - rej)
       const amt = Number((hm * rate).toFixed(2))
       return {
         description: r.item || request.categoryName,
@@ -146,10 +146,12 @@ export function Billing() {
     )
     const invoiceNo = nextInvoiceNo(settings.prefix, settings.startFrom, data.invoices.length)
     const dateOnly = billDate.slice(0, 10)
+    const careOf = related.map((r) => r.co).find((c) => c && c.trim()) || ''
 
     const bill: ChallanView = {
       invoiceNo,
       date: dateOnly,
+      invoiceDateTime: billDate,
       requestNo: request.requestNo,
       requestDate: request.date,
       partyName: party?.name || request.partyName,
@@ -158,6 +160,7 @@ export function Billing() {
       partyCml: party?.licenseNo || '',
       placeOfSupply: party?.state || '',
       stateCode: party?.stateCode || '',
+      careOf,
       sac: '998346',
       lines,
       weightReceived,
@@ -185,6 +188,7 @@ export function Billing() {
         status: 'Unpaid',
         invoiceNo,
         date: dateOnly,
+        invoiceDateTime: billDate,
         requestDate: request.date,
         partyId: party?.id,
         partyAddress: bill.partyAddress,
@@ -192,6 +196,7 @@ export function Billing() {
         partyCml: bill.partyCml,
         placeOfSupply: bill.placeOfSupply,
         stateCode: bill.stateCode,
+        careOf,
         sac: '998346',
         lines,
         weightReceived,
@@ -210,7 +215,7 @@ export function Billing() {
       setTick((t) => t + 1)
       toast(`Invoice ${invoiceNo} generated · data pushed`)
     } else {
-      toast('Bill loaded')
+      toast('Bill data loaded')
     }
   }
 
@@ -223,7 +228,7 @@ export function Billing() {
   }
 
   return (
-    <div className="billing-page">
+    <div className="billing-page generated-bills-page">
       <nav className="gb-subnav no-print" aria-label="Billing navigation">
         <Link to="/">
           <Home size={14} /> Home
@@ -231,64 +236,76 @@ export function Billing() {
         <Link to="/billing" className="active">
           Billing
         </Link>
-        <Link to="/reports/gst-credit">Monthly Billing</Link>
+        <Link to="/monthly-billing">Monthly Billing</Link>
         <Link to="/generated-bills">View Bills</Link>
-        <Link to="/reports/invoice-list">View Monthly Bills</Link>
+        <Link to="/monthly-bills">View Monthly Bills</Link>
       </nav>
 
-      <h1 className="billing-title no-print">Invoice Generation</h1>
+      <h1 className="gb-page-title no-print">Invoice Generation</h1>
 
-      <div className="billing-controls no-print">
-        <label className="billing-field">
-          <span># Request Number</span>
-          <input
-            placeholder="Enter request number"
-            value={requestQuery}
-            onChange={(e) => setRequestQuery(e.target.value)}
-          />
-        </label>
-        <label className="billing-field">
-          <span>Select from List</span>
-          <select
-            value={selectedNo}
-            onChange={(e) => {
-              setSelectedNo(e.target.value)
-              setRequestQuery(e.target.value)
-            }}
-            aria-label="Select Request Number"
-          >
-            <option value="">Select Request Number</option>
-            {filteredOptions.map((r) => (
-              <option key={r.id} value={r.requestNo}>
-                {r.requestNo} — {r.partyName}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="billing-field">
-          <span>Invoice Date & Time</span>
-          <input
-            type="datetime-local"
-            value={billDate}
-            onChange={(e) => setBillDate(e.target.value)}
-          />
-        </label>
-        <button type="button" className="btn btn-navy" onClick={() => getBill(false)}>
-          Get Data
-        </button>
-        <button type="button" className="btn btn-green" onClick={() => getBill(true)}>
-          Generate Invoice
-        </button>
-        <button type="button" className="btn btn-secondary" onClick={printBill}>
-          Print
-        </button>
-      </div>
+      <section className="gb-card no-print">
+        <header className="gb-card-head">
+          <Search size={18} />
+          <h2>Search &amp; Generate Invoice</h2>
+        </header>
+        <div className="gb-search-row">
+          <label className="billing-field">
+            <span># Request Number</span>
+            <input
+              placeholder="Enter request number"
+              value={requestQuery}
+              onChange={(e) => setRequestQuery(e.target.value)}
+            />
+          </label>
+          <label className="billing-field">
+            <span>Select from List</span>
+            <select
+              value={selectedNo}
+              onChange={(e) => {
+                setSelectedNo(e.target.value)
+                setRequestQuery(e.target.value)
+              }}
+            >
+              <option value="">Select Request Number</option>
+              {filteredOptions.map((r) => (
+                <option key={r.id} value={r.requestNo}>
+                  {r.requestNo} — {r.partyName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="billing-field">
+            <span>Invoice Date &amp; Time</span>
+            <input
+              type="datetime-local"
+              value={billDate}
+              onChange={(e) => setBillDate(e.target.value)}
+            />
+          </label>
+          <div className="gb-actions">
+            <button type="button" className="gb-btn gb-btn-get" onClick={() => getBill(false)}>
+              <Search size={14} /> Get Data
+            </button>
+            <button type="button" className="gb-btn gb-btn-upd" onClick={() => getBill(true)}>
+              <FileText size={14} /> Generate Invoice
+            </button>
+            <button type="button" className="gb-btn gb-btn-print" onClick={printBill}>
+              <Printer size={14} /> Print
+            </button>
+          </div>
+        </div>
+      </section>
 
-      <h2 className="billing-preview-label no-print">Invoice Preview</h2>
-      <InvoiceChallan view={preview} />
+      <section className="gb-card gb-preview-card">
+        <header className="gb-card-head no-print">
+          <FileText size={18} />
+          <h2>Invoice Preview</h2>
+        </header>
+        <InvoiceChallan view={preview} />
+      </section>
 
-      <div className="manual-actions no-print">
-        <Link to="/" className="btn btn-reset">
+      <div className="gb-back-wrap no-print">
+        <Link to="/" className="gb-btn gb-btn-back">
           Back
         </Link>
       </div>

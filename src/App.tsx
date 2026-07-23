@@ -11,6 +11,8 @@ import { RequestList } from './pages/RequestList'
 import { QMRequestList } from './pages/QMRequestList'
 import { Billing } from './pages/Billing'
 import { ViewGeneratedBills } from './pages/ViewGeneratedBills'
+import { MonthlyBilling } from './pages/MonthlyBilling'
+import { ViewMonthlyBills } from './pages/ViewMonthlyBills'
 import { PrintJobCard } from './pages/PrintJobCard'
 import { XrayHallmark } from './pages/XrayHallmark'
 import { FundEntry } from './pages/FundEntry'
@@ -80,6 +82,8 @@ export default function App() {
             <Route path="qm-request-list" element={<QMRequestList />} />
             <Route path="billing" element={<Billing />} />
             <Route path="generated-bills" element={<ViewGeneratedBills />} />
+            <Route path="monthly-billing" element={<MonthlyBilling />} />
+            <Route path="monthly-bills" element={<ViewMonthlyBills />} />
             <Route path="print-job-card" element={<PrintJobCard />} />
             <Route path="xray-hallmark" element={<XrayHallmark />} />
             <Route path="fund-entry" element={<FundEntry />} />

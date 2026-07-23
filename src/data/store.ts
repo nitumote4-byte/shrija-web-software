@@ -110,13 +110,49 @@ export type Invoice = {
   weightReceived?: number
   sampleWeight?: number
   unusedSample?: number
-  /** Wt. of Firebox Sample Scrapped */
+  /** Wt. of Residue / Firebox Sample Returned */
   fireboxScrap?: number
   weightReturned?: number
   cgst?: number
   sgst?: number
   igst?: number
   useIgst?: boolean
+  careOf?: string
+  invoiceDateTime?: string
+  updatedAt?: string
+}
+
+export type MonthlyInvoiceLine = {
+  requestNo: string
+  partyName: string
+  date: string
+  articlesHm: number
+  amount: number
+}
+
+export type MonthlyInvoice = {
+  id: string
+  invoiceNo: string
+  partyId: string
+  partyName: string
+  partyGstin: string
+  partyCml: string
+  placeOfSupply: string
+  stateCode: string
+  date: string
+  invoiceDateTime: string
+  period: string
+  sac: string
+  requestNos: string[]
+  lines: MonthlyInvoiceLine[]
+  amount: number
+  cgst: number
+  sgst: number
+  igst: number
+  tax: number
+  total: number
+  useIgst: boolean
+  status: 'Unpaid' | 'Paid' | 'Partial'
   updatedAt?: string
 }
 
@@ -217,6 +253,7 @@ type StoreShape = {
   roughSheets: RoughSheetEntry[]
   pendingRough: PendingRoughRequest[]
   invoices: Invoice[]
+  monthlyInvoices: MonthlyInvoice[]
   funds: FundEntry[]
   expenses: ExpenseEntry[]
   fireAssays: FireAssay[]
@@ -233,6 +270,7 @@ function emptyStore(): StoreShape {
     roughSheets: [],
     pendingRough: [],
     invoices: [],
+    monthlyInvoices: [],
     funds: [],
     expenses: [],
     fireAssays: [],
@@ -549,6 +587,7 @@ function seed(): StoreShape {
         date: today(),
       },
     ],
+    monthlyInvoices: [],
     funds: [
       {
         id: 'f1',
@@ -673,6 +712,7 @@ function normalizeParty(p: Partial<Party> & { id: string; name: string }): Party
 
 function normalizeLoaded(parsed: StoreShape): StoreShape {
   if (!parsed.pendingRough) parsed.pendingRough = []
+  if (!parsed.monthlyInvoices) parsed.monthlyInvoices = []
   parsed.parties = (parsed.parties ?? []).map((p) => normalizeParty(p))
   parsed.fireAssays = (parsed.fireAssays ?? []).map((a) => ({
     ...a,
@@ -1004,6 +1044,53 @@ export const store = {
       return data.filter((i) => i.requestNo.toLowerCase() === q)
     }
     return data
+  },
+
+  addMonthlyInvoice(
+    input: Omit<MonthlyInvoice, 'id' | 'invoiceNo' | 'date'> & {
+      invoiceNo?: string
+      date?: string
+    },
+  ) {
+    const data = load()
+    const n = (data.monthlyInvoices?.length || 0) + 1
+    const inv: MonthlyInvoice = {
+      ...input,
+      id: uid('minv'),
+      invoiceNo: input.invoiceNo || `M-${String(n).padStart(3, '0')}`,
+      date: input.date || today(),
+      sac: input.sac || '998346',
+      period: input.period || 'Monthly Summary',
+      updatedAt: new Date().toISOString(),
+    }
+    if (!data.monthlyInvoices) data.monthlyInvoices = []
+    data.monthlyInvoices.unshift(inv)
+    save(data)
+    return inv
+  },
+
+  updateMonthlyInvoice(id: string, patch: Partial<Omit<MonthlyInvoice, 'id'>>) {
+    const data = load()
+    const row = (data.monthlyInvoices || []).find((i) => i.id === id)
+    if (!row) return null
+    Object.assign(row, patch, { updatedAt: new Date().toISOString() })
+    row.tax = Number(((row.cgst || 0) + (row.sgst || 0) + (row.igst || 0)).toFixed(2))
+    row.total = Number((row.amount + row.tax).toFixed(2))
+    save(data)
+    return row
+  },
+
+  deleteMonthlyInvoice(id: string) {
+    const data = load()
+    const before = (data.monthlyInvoices || []).length
+    data.monthlyInvoices = (data.monthlyInvoices || []).filter((i) => i.id !== id)
+    if (data.monthlyInvoices.length === before) return false
+    save(data)
+    return true
+  },
+
+  getMonthlyInvoiceById(id: string) {
+    return (load().monthlyInvoices || []).find((i) => i.id === id)
   },
 
   addFund(input: Omit<FundEntry, 'id' | 'voucherNo'> & { voucherNo?: string }) {

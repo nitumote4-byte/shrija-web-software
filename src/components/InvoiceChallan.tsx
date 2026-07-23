@@ -5,6 +5,7 @@ import { tenantGet } from '../data/tenant'
 export type ChallanView = {
   invoiceNo: string
   date: string
+  invoiceDateTime?: string
   requestNo: string
   requestDate: string
   partyName: string
@@ -13,11 +14,13 @@ export type ChallanView = {
   partyCml: string
   placeOfSupply: string
   stateCode: string
+  careOf: string
   sac: string
   lines: InvoiceLine[]
   weightReceived: number
   sampleWeight: number
   unusedSample: number
+  /** Residue / firebox sample returned */
   fireboxScrap: number
   weightReturned: number
   taxable: number
@@ -68,6 +71,22 @@ function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Display like GoldShark: 23-07-2026 16:27 */
+export function formatInvoiceDateTime(raw?: string) {
+  if (!raw) return ''
+  const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'))
+  if (Number.isNaN(d.getTime())) {
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+      const [y, m, day] = raw.slice(0, 10).split('-')
+      const time = raw.length > 10 ? raw.slice(11, 16) : ''
+      return `${day}-${m}-${y}${time ? ` ${time}` : ''}`
+    }
+    return raw
+  }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export function invoiceToChallan(inv: Invoice): ChallanView {
   const taxable = inv.amount
   const useIgst = Boolean(inv.useIgst)
@@ -81,6 +100,7 @@ export function invoiceToChallan(inv: Invoice): ChallanView {
   return {
     invoiceNo: inv.invoiceNo,
     date: inv.date,
+    invoiceDateTime: inv.invoiceDateTime || inv.date,
     requestNo: inv.requestNo,
     requestDate: inv.requestDate || inv.date,
     partyName: inv.partyName,
@@ -89,6 +109,7 @@ export function invoiceToChallan(inv: Invoice): ChallanView {
     partyCml: inv.partyCml || '',
     placeOfSupply: inv.placeOfSupply || '',
     stateCode: inv.stateCode || '',
+    careOf: inv.careOf || '',
     sac: inv.sac || '998346',
     lines: inv.lines || [],
     weightReceived: wr,
@@ -96,8 +117,7 @@ export function invoiceToChallan(inv: Invoice): ChallanView {
     unusedSample: unused,
     fireboxScrap: firebox,
     weightReturned:
-      inv.weightReturned ??
-      Number((wr - sw + unused - firebox).toFixed(3)),
+      inv.weightReturned ?? Number((wr - sw + unused - firebox).toFixed(3)),
     taxable,
     cgst,
     sgst,
@@ -119,6 +139,12 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
   const centreGst = firm.gstNo || '—'
   const centreName = firm.firmName || 'Hallmarking Centre'
   const centreAddr = firm.address || ''
+  const dateShown = formatInvoiceDateTime(view?.invoiceDateTime || view?.date)
+
+  const totPcs = view?.lines.reduce((s, l) => s + l.pcsRec, 0) ?? 0
+  const totHm = view?.lines.reduce((s, l) => s + l.hm, 0) ?? 0
+  const totRej = view?.lines.reduce((s, l) => s + l.rej, 0) ?? 0
+  const totMelt = view?.lines.reduce((s, l) => s + l.melt, 0) ?? 0
 
   return (
     <div className="invoice-sheet" id={printId}>
@@ -130,7 +156,6 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
 
       <div className="invoice-sheet-top">
         <h2>INVOICE CUM DELIVERY CHALLAN</h2>
-        <div className="invoice-format">FORMAT NO: F-30</div>
       </div>
 
       <div className="invoice-meta-grid">
@@ -157,7 +182,7 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
             <span>Invoice No:</span> {view?.invoiceNo || ''}
           </div>
           <div>
-            <span>Invoice Date:</span> {view?.date || ''}
+            <span>Invoice Date:</span> {dateShown}
           </div>
           <div>
             <span>SAC:</span> {view?.sac || '998346'}
@@ -166,7 +191,11 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
             <span>Request No:</span> {view?.requestNo || ''}
           </div>
           <div>
-            <span>Request Date:</span> {view?.requestDate || ''}
+            <span>Request Date:</span>{' '}
+            {view?.requestDate ? formatInvoiceDateTime(view.requestDate).slice(0, 10) : ''}
+          </div>
+          <div>
+            <span>C/O:</span> {view?.careOf || (view ? 'N/A' : '')}
           </div>
         </div>
       </div>
@@ -214,25 +243,32 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
                   cols.sno !== false,
                   cols.description !== false,
                   cols.purity !== false,
-                  cols.pcsRec !== false,
-                  cols.hm !== false,
-                  cols.rej !== false,
-                  cols.melt !== false,
-                  cols.ratePcs !== false,
                 ].filter(Boolean).length
               }
             >
               <strong>Total</strong>
-              {view ? (
-                <span className="invoice-pcs-tot">
-                  {' '}
-                  · Pcs {view.lines.reduce((s, l) => s + l.pcsRec, 0)} · HM{' '}
-                  {view.lines.reduce((s, l) => s + l.hm, 0)} · Rej{' '}
-                  {view.lines.reduce((s, l) => s + l.rej, 0)} · Melt{' '}
-                  {view.lines.reduce((s, l) => s + l.melt, 0)}
-                </span>
-              ) : null}
             </td>
+            {cols.pcsRec !== false && (
+              <td>
+                <strong>{view ? totPcs : ''}</strong>
+              </td>
+            )}
+            {cols.hm !== false && (
+              <td>
+                <strong>{view ? totHm : ''}</strong>
+              </td>
+            )}
+            {cols.rej !== false && (
+              <td>
+                <strong>{view ? totRej : ''}</strong>
+              </td>
+            )}
+            {cols.melt !== false && (
+              <td>
+                <strong>{view ? totMelt : ''}</strong>
+              </td>
+            )}
+            {cols.ratePcs !== false && <td />}
             {cols.amount !== false && (
               <td>
                 <strong>{view ? money(view.taxable) : ''}</strong>
@@ -244,17 +280,19 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
 
       <div className="invoice-bottom-grid">
         <div className="invoice-weights">
-          <div>
-            <span>Weight Received:</span> {view ? view.weightReceived.toFixed(3) : ''}
-          </div>
-          <div>
-            <span>Sample Weight:</span> {view ? view.sampleWeight.toFixed(3) : ''}
+          <div className="invoice-weight-pair">
+            <span>
+              Weight Received: {view ? view.weightReceived.toFixed(3) : ''}
+            </span>
+            <span>
+              Sample Weight: {view ? view.sampleWeight.toFixed(3) : ''}
+            </span>
           </div>
           <div>
             <span>Unused Sample Return:</span> {view ? view.unusedSample.toFixed(3) : ''}
           </div>
           <div>
-            <span>Wt. of Firebox Sample Scrapped:</span>{' '}
+            <span>Wt. of Residue Sample Returned:</span>{' '}
             {view ? view.fireboxScrap.toFixed(3) : ''}
           </div>
           <div>
@@ -263,15 +301,15 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
         </div>
         <div className="invoice-tax">
           <div>
-            <span>CGST @ 9.00%</span>
+            <span>CGST @ 9.00 %</span>
             <strong>{view && !view.useIgst ? money(view.cgst) : '0.00'}</strong>
           </div>
           <div>
-            <span>SGST @ 9.00%</span>
+            <span>SGST @ 9.00 %</span>
             <strong>{view && !view.useIgst ? money(view.sgst) : '0.00'}</strong>
           </div>
           <div>
-            <span>IGST @ 18.00%</span>
+            <span>IGST @ 18.00 %</span>
             <strong>{view?.useIgst ? money(view.igst) : '0.00'}</strong>
           </div>
           <div className="invoice-grand">
@@ -288,9 +326,15 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area' }: Props) 
       <div className="invoice-sign-grid">
         <div>
           <div className="invoice-sign-label">CUSTOMER&apos;S SIGNATURE</div>
+          <label className="invoice-check">
+            <input type="checkbox" /> By Courier
+          </label>
+          <label className="invoice-check">
+            <input type="checkbox" /> By Hand
+          </label>
         </div>
         <div className="invoice-auth">
-          <div>FOR. {centreName}</div>
+          <div>FOR, {centreName}</div>
           {settings.sealDataUrl ? (
             <img src={settings.sealDataUrl} alt="Seal" className="invoice-seal" />
           ) : (
