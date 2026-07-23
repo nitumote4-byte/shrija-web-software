@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ui'
+import { getSession } from '../data/auth'
 import { store } from '../data/store'
 import {
   copperForCg,
@@ -126,15 +127,29 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
   const jobOptions = useMemo(() => {
     const q = jobQuery.trim().toLowerCase()
+    const session = getSession()
+    const atMain = session?.centreKind !== 'osc'
     return data.requests.filter((r) => {
       if (selectedJobs.includes(r.id)) return false
-      if (r.status === 'Billed' || r.status === 'Delivered') return false
+      if (r.status === 'Billed' || r.status === 'Delivered' || r.status === 'Hallmarked') return false
+      // OSC samples only appear at Main after Send to Main
+      const isOscJob = r.centreKind === 'osc' || Boolean(r.oscTransferStatus)
+      if (isOscJob) {
+        if (!atMain) return false
+        if (
+          r.oscTransferStatus !== 'sent_to_main' &&
+          r.oscTransferStatus !== 'assay_in_lab'
+        ) {
+          return false
+        }
+      }
       if (!q) return true
       return (
         r.requestNo.toLowerCase().includes(q) ||
         r.partyName.toLowerCase().includes(q) ||
         r.categoryName.toLowerCase().includes(q) ||
-        (r.jobCardNo || '').toLowerCase().includes(q)
+        (r.jobCardNo || '').toLowerCase().includes(q) ||
+        (r.oscTransferStatus || '').includes(q)
       )
     })
   }, [data.requests, jobQuery, selectedJobs])
@@ -461,6 +476,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     const target = Math.max(2, Number(noOfRows) || 22)
     const maxPairs = Math.ceil(target / 2)
     const picked = selectedJobs.slice(0, maxPairs)
+    store.markOscAssayInLab(picked)
     const next: SheetRow[] = []
     picked.forEach((id, i) => {
       next.push(...buildPairRows(id, i + 1, avg, bis.silverStrip, bis.lead, purity))
@@ -529,9 +545,19 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     setSheetNo(String(activeSheet))
 
     if (!overwriting) {
+      const returnedIds: string[] = []
       for (const row of sheetRows) {
-        if (!row.requestNo) continue
-        const req = data.requests.find((r) => r.requestNo === row.requestNo)
+        let req = row.requestNo
+          ? data.requests.find((r) => r.requestNo === row.requestNo)
+          : undefined
+        if (!req && row.jobCardNo.trim()) {
+          const card = row.jobCardNo.includes('_')
+            ? row.jobCardNo.split('_').slice(1).join('_').trim()
+            : row.jobCardNo.trim()
+          req =
+            data.requests.find((r) => (r.jobCardNo || '').trim() === card) ||
+            data.requests.find((r) => (r.jobCardNo || '').includes(card))
+        }
         if (!req) continue
         store.addFireAssay({
           requestNo: req.requestNo,
@@ -544,10 +570,12 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           assayType: meta.assayType,
           assayNo: `FS-${activeSheet}`,
         })
-        store.updateRequestStatus(req.id, 'Assayed')
+        returnedIds.push(req.id)
       }
 
-      if (!sheetRows.some((r) => r.requestNo)) {
+      if (returnedIds.length > 0) {
+        store.markOscAssayReturned([...new Set(returnedIds)])
+      } else if (!sheetRows.some((r) => r.requestNo)) {
         store.addFireAssay({
           requestNo: `SHEET-${activeSheet}`,
           partyName: 'Fire Assay Sheet',
@@ -1020,6 +1048,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
                     >
                       <strong>
                         {r.requestNo} — {r.partyName}
+                        {r.centreKind === 'osc' || r.oscTransferStatus
+                          ? ` · OSC (${r.oscTransferStatus || 'sample'})`
+                          : ''}
                       </strong>
                       <span>
                         {r.categoryName} · {r.weight}g · {r.purity}

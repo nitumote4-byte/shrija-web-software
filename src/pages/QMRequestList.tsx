@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CloudUpload } from 'lucide-react'
 import { useToast } from '../components/ui'
-import { store, type RoughSheetEntry } from '../data/store'
+import { isOscSession } from '../data/roles'
+import { store, oscTransferLabel, type RoughSheetEntry } from '../data/store'
 
 const SAMPLING_METHODS = ['Cutting', 'Drill', 'Cut', 'Scrap', 'Touch'] as const
 
@@ -70,6 +71,7 @@ function persistRow(row: SheetRow, markSaved: boolean) {
  */
 export function QMRequestList() {
   const { toast, Toast } = useToast()
+  const oscDesk = isOscSession()
 
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [shift, setShift] = useState('Day')
@@ -223,9 +225,39 @@ export function QMRequestList() {
       toast('Save first, then Complete')
       return
     }
+    for (const id of selectedIds) {
+      const gate = store.canCompleteOscLaser(id)
+      if (!gate.ok) {
+        toast(gate.reason || 'Cannot complete yet')
+        return
+      }
+    }
     store.updateRoughSheetStatus(selectedIds, 'Completed')
     reload()
     toast(`${selectedIds.length} row(s) completed`)
+  }
+
+  const sendToMain = () => {
+    if (!oscDesk) {
+      toast('Send to Main is only for Off-Site Centre')
+      return
+    }
+    if (selectedIds.length === 0) {
+      toast('Select sampled rows to send')
+      return
+    }
+    const unsaved = selected.filter((r) => r.dirty || !r.jobCardSaved || !(r.jobCardNo || '').trim())
+    if (unsaved.length) {
+      toast('Save Job Card on selected rows first')
+      return
+    }
+    const result = store.sendRoughSamplesToMain(selectedIds)
+    reload()
+    if (result.sent > 0) {
+      toast(`${result.sent} sample(s) sent to Main Centre for fire assay`)
+    } else {
+      toast(result.error || 'Nothing sent')
+    }
   }
 
   const rejectSelected = () => {
@@ -303,6 +335,11 @@ export function QMRequestList() {
         <button type="button" className="btn btn-navy" onClick={rejectSelected}>
           Reject
         </button>
+        {oscDesk && (
+          <button type="button" className="btn btn-primary" onClick={sendToMain}>
+            Send Sample to Main
+          </button>
+        )}
         <button type="button" className="btn btn-navy" onClick={completeSelected}>
           Complete
         </button>
@@ -342,7 +379,19 @@ export function QMRequestList() {
 
       <p className="reqlist-hint">
         Edit Job Card, Sample Weight (0.350 / .374 / 1.23), Sample Id, Sampling Method →{' '}
-        <strong>Save</strong> → then <strong>Complete</strong>.
+        <strong>Save</strong>
+        {oscDesk ? (
+          <>
+            {' '}
+            → <strong>Send Sample to Main</strong> → after assay return → <strong>Complete</strong>{' '}
+            (laser).
+          </>
+        ) : (
+          <>
+            {' '}
+            → then <strong>Complete</strong>.
+          </>
+        )}
       </p>
 
       <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
@@ -365,6 +414,7 @@ export function QMRequestList() {
                 <th>Weight</th>
                 <th>Purity</th>
                 <th>Request No</th>
+                <th>OSC / Lab</th>
                 <th>Job Card No</th>
                 <th>Sample Weight</th>
                 <th>sample Qty</th>
@@ -379,12 +429,15 @@ export function QMRequestList() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={17} className="empty-state">
+                  <td colSpan={18} className="empty-state">
                     No records — save Manual/Auto Request first.
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => (
+                filtered.map((r) => {
+                  const req = r.requestNo ? store.getRequestByNo(r.requestNo) : undefined
+                  const transfer = oscTransferLabel(req?.oscTransferStatus)
+                  return (
                   <tr key={r.id} className={r.dirty ? 'reqlist-dirty' : ''}>
                     <td>
                       <input
@@ -407,6 +460,15 @@ export function QMRequestList() {
                     <td>{r.weight.toFixed(3)}</td>
                     <td>{r.purity}</td>
                     <td>{r.requestNo || '—'}</td>
+                    <td>
+                      {transfer ? (
+                        <span className="role-badge">{transfer}</span>
+                      ) : req?.centreKind === 'osc' ? (
+                        <span className="role-badge">OSC</span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td>
                       <input
                         className={`table-input reqlist-jobcard ${!(r.jobCardNo || '').trim() ? 'reqlist-jobcard-missing' : ''}`}
@@ -495,7 +557,8 @@ export function QMRequestList() {
                       )}
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
             {filtered.length > 0 && (

@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CloudUpload } from 'lucide-react'
 import { useToast } from '../components/ui'
-import { store, type RoughSheetEntry } from '../data/store'
+import { getSession } from '../data/auth'
+import { isOscSession } from '../data/roles'
+import { store, oscTransferLabel, type RoughSheetEntry } from '../data/store'
 
 type SheetRow = RoughSheetEntry & {
   checked: boolean
@@ -47,6 +49,8 @@ function persistRow(row: SheetRow, markJobSaved: boolean) {
  */
 export function RequestList() {
   const { toast, Toast } = useToast()
+  const oscDesk = isOscSession()
+  const session = getSession()
 
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [shift, setShift] = useState('Day')
@@ -166,9 +170,39 @@ export function RequestList() {
       toast('Save Job Card first, then Complete')
       return
     }
+    for (const id of selectedIds) {
+      const gate = store.canCompleteOscLaser(id)
+      if (!gate.ok) {
+        toast(gate.reason || 'Cannot complete yet')
+        return
+      }
+    }
     store.updateRoughSheetStatus(selectedIds, 'Completed')
     reload()
     toast(`${selectedIds.length} row(s) completed`)
+  }
+
+  const sendToMain = () => {
+    if (!oscDesk) {
+      toast('Send to Main is only for Off-Site Centre')
+      return
+    }
+    if (selectedIds.length === 0) {
+      toast('Select sampled rows to send')
+      return
+    }
+    const unsaved = selected.filter((r) => r.dirty || !r.jobCardSaved || !(r.jobCardNo || '').trim())
+    if (unsaved.length) {
+      toast('Save Job Card on selected rows first')
+      return
+    }
+    const result = store.sendRoughSamplesToMain(selectedIds)
+    reload()
+    if (result.sent > 0) {
+      toast(`${result.sent} sample(s) sent to Main Centre for fire assay`)
+    } else {
+      toast(result.error || 'Nothing sent')
+    }
   }
 
   const rejectSelected = () => {
@@ -234,6 +268,11 @@ export function RequestList() {
         <button type="button" className="btn btn-navy" onClick={rejectSelected}>
           Reject
         </button>
+        {oscDesk && (
+          <button type="button" className="btn btn-primary" onClick={sendToMain}>
+            Send Sample to Main
+          </button>
+        )}
         <button type="button" className="btn btn-navy" onClick={completeSelected}>
           Complete
         </button>
@@ -243,8 +282,20 @@ export function RequestList() {
       </div>
 
       <p className="reqlist-hint">
-        Job Card No is mandatory. Enter Job Card → <strong>Save</strong> / Save All → then{' '}
-        <strong>Complete</strong>.
+        Job Card No is mandatory. Enter Job Card → <strong>Save</strong> / Save All
+        {oscDesk ? (
+          <>
+            {' '}
+            → sample weight → <strong>Send Sample to Main</strong> → after assay return →{' '}
+            <strong>Complete</strong> (laser).
+          </>
+        ) : (
+          <>
+            {' '}
+            → then <strong>Complete</strong>.
+          </>
+        )}
+        {session?.centreKind === 'main' ? ' Main lab assays OSC samples from Create Fire Assay.' : ''}
       </p>
 
       <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
@@ -267,6 +318,7 @@ export function RequestList() {
                 <th>Weight</th>
                 <th>Purity</th>
                 <th>Request No</th>
+                <th>OSC / Lab</th>
                 <th>Job Card No *</th>
                 <th>Sample Weight</th>
                 <th>Sample Qty</th>
@@ -281,12 +333,15 @@ export function RequestList() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={17} className="empty-state">
+                  <td colSpan={18} className="empty-state">
                     No records found — save Manual/Auto Request to populate this day sheet.
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => (
+                filtered.map((r) => {
+                  const req = r.requestNo ? store.getRequestByNo(r.requestNo) : undefined
+                  const transfer = oscTransferLabel(req?.oscTransferStatus)
+                  return (
                   <tr key={r.id} className={r.dirty ? 'reqlist-dirty' : ''}>
                     <td>
                       <input
@@ -308,6 +363,17 @@ export function RequestList() {
                     <td>{r.weight.toFixed(3)}</td>
                     <td>{r.purity}</td>
                     <td>{r.requestNo || '—'}</td>
+                    <td>
+                      {transfer ? (
+                        <span className="role-badge" title={req?.oscTransferStatus}>
+                          {transfer}
+                        </span>
+                      ) : req?.centreKind === 'osc' ? (
+                        <span className="role-badge">OSC</span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td>
                       <input
                         className={`table-input reqlist-jobcard ${!(r.jobCardNo || '').trim() ? 'reqlist-jobcard-missing' : ''}`}
@@ -397,7 +463,8 @@ export function RequestList() {
                       )}
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
             {filtered.length > 0 && (
@@ -412,7 +479,7 @@ export function RequestList() {
                   <td>
                     <strong>{totals.weight.toFixed(3)}</strong>
                   </td>
-                  <td colSpan={4} />
+                  <td colSpan={5} />
                   <td>
                     <strong>{totals.sampleQty}</strong>
                   </td>

@@ -1,5 +1,6 @@
 import { getActiveTenantId } from './tenant'
 import { getStoreCache, setStoreCache } from './tenantCache'
+import { getSession } from './auth'
 
 export type Party = {
   id: string
@@ -29,6 +30,12 @@ export type Category = {
   rate: number
 }
 
+export type OscTransferStatus =
+  | 'pending_local'
+  | 'sent_to_main'
+  | 'assay_in_lab'
+  | 'returned_to_osc'
+
 export type HallmarkRequest = {
   id: string
   requestNo: string
@@ -47,6 +54,13 @@ export type HallmarkRequest = {
   receiptNo?: string
   jobCardNo?: string
   night?: string
+  /** Centre / outlet where job was received */
+  centreId?: string
+  centreKind?: 'main' | 'osc'
+  /** OSC sample handoff to Main lab */
+  oscTransferStatus?: OscTransferStatus
+  sentToMainAt?: string
+  returnedToOscAt?: string
 }
 
 export type RoughSheetEntry = {
@@ -286,6 +300,40 @@ function uid(prefix: string) {
 
 function today() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function nowIso() {
+  return new Date().toISOString()
+}
+
+function sessionCentreStamp(): {
+  centreId: string
+  centreKind: 'main' | 'osc'
+  oscTransferStatus?: OscTransferStatus
+} {
+  const s = getSession()
+  const centreId = s?.centreId || 'main'
+  const centreKind = s?.centreKind === 'osc' ? 'osc' : 'main'
+  return {
+    centreId,
+    centreKind,
+    oscTransferStatus: centreKind === 'osc' ? 'pending_local' : undefined,
+  }
+}
+
+export function oscTransferLabel(status?: OscTransferStatus | null) {
+  switch (status) {
+    case 'pending_local':
+      return 'OSC local'
+    case 'sent_to_main':
+      return 'Sent to Main'
+    case 'assay_in_lab':
+      return 'In Main Lab'
+    case 'returned_to_osc':
+      return 'Returned to OSC'
+    default:
+      return ''
+  }
 }
 
 /** Normalize 22K916 / 916 / 22k → category purity code */
@@ -804,6 +852,7 @@ export const store = {
     const data = load()
     const n = data.requests.length + 1
     const req: HallmarkRequest = {
+      ...sessionCentreStamp(),
       ...input,
       id: uid('r'),
       requestNo: `HM-2026-${String(n).padStart(3, '0')}`,
@@ -831,6 +880,147 @@ export const store = {
       }
     }
     save(data)
+  },
+
+  /**
+   * OSC desk: after sampling, send sample to Main Centre for fire assay.
+   * `roughIds` = Request List / QM list row ids.
+   */
+  sendRoughSamplesToMain(roughIds: string[]): { sent: number; error?: string } {
+    const data = load()
+    const session = getSession()
+    if (session?.centreKind !== 'osc') {
+      return { sent: 0, error: 'Only Off-Site Centre can send samples to Main' }
+    }
+    let sent = 0
+    const errors: string[] = []
+    for (const rid of roughIds) {
+      const rough = data.roughSheets.find((r) => r.id === rid)
+      if (!rough?.requestNo) {
+        errors.push('Row missing request no')
+        continue
+      }
+      if (!(rough.jobCardNo || '').trim() || !rough.jobCardSaved) {
+        errors.push(`${rough.requestNo}: Save Job Card first`)
+        continue
+      }
+      if (!(Number(rough.sampleWeight) > 0)) {
+        errors.push(`${rough.requestNo}: Enter sample weight before send`)
+        continue
+      }
+      const req = findRequestByNo(data, rough.requestNo)
+      if (!req) {
+        errors.push(`${rough.requestNo}: Request not found`)
+        continue
+      }
+      if (req.centreKind !== 'osc' && req.oscTransferStatus == null) {
+        // Stamp as OSC if created before centre feature
+        req.centreKind = 'osc'
+        req.centreId = session.centreId || req.centreId || 'osc'
+      }
+      if (req.centreKind !== 'osc') {
+        errors.push(`${req.requestNo}: Not an OSC job`)
+        continue
+      }
+      if (req.oscTransferStatus === 'sent_to_main' || req.oscTransferStatus === 'assay_in_lab') {
+        errors.push(`${req.requestNo}: Already at Main`)
+        continue
+      }
+      if (req.oscTransferStatus === 'returned_to_osc' || req.status === 'Assayed') {
+        errors.push(`${req.requestNo}: Assay already returned`)
+        continue
+      }
+      if (req.status === 'Billed' || req.status === 'Delivered' || req.status === 'Hallmarked') {
+        errors.push(`${req.requestNo}: Already closed`)
+        continue
+      }
+      req.oscTransferStatus = 'sent_to_main'
+      req.sentToMainAt = nowIso()
+      if (req.status === 'Pending') req.status = 'In Progress'
+      sent += 1
+    }
+    if (sent > 0) save(data)
+    return { sent, error: sent === 0 ? errors[0] || 'Nothing sent' : undefined }
+  },
+
+  /** Main lab: mark OSC samples as in-lab when loaded on fire assay sheet */
+  markOscAssayInLab(requestIds: string[]) {
+    const data = load()
+    let n = 0
+    for (const id of requestIds) {
+      const req = data.requests.find((r) => r.id === id)
+      if (!req) continue
+      if (req.centreKind !== 'osc' && !req.oscTransferStatus) continue
+      if (req.oscTransferStatus === 'sent_to_main' || req.oscTransferStatus === 'pending_local') {
+        req.oscTransferStatus = 'assay_in_lab'
+        n += 1
+      }
+    }
+    if (n > 0) save(data)
+    return n
+  },
+
+  /**
+   * Main lab: after fire assay sheet created — Assayed + return sample result to OSC.
+   */
+  markOscAssayReturned(requestIdsOrNos: string[]) {
+    const data = load()
+    let n = 0
+    for (const key of requestIdsOrNos) {
+      const req =
+        data.requests.find((r) => r.id === key) ||
+        data.requests.find((r) => r.requestNo === key)
+      if (!req) continue
+      req.status = 'Assayed'
+      if (req.centreKind === 'osc' || req.oscTransferStatus) {
+        req.centreKind = req.centreKind || 'osc'
+        req.oscTransferStatus = 'returned_to_osc'
+        req.returnedToOscAt = nowIso()
+      }
+      if (req.requestNo) {
+        for (const rough of data.roughSheets) {
+          if (rough.requestNo === req.requestNo && rough.status !== 'Rejected') {
+            rough.status = 'Accepted'
+          }
+        }
+      }
+      n += 1
+    }
+    if (n > 0) save(data)
+    return n
+  },
+
+  /** Whether laser Complete is allowed for this rough row */
+  canCompleteOscLaser(roughId: string): { ok: boolean; reason?: string } {
+    const data = load()
+    const rough = data.roughSheets.find((r) => r.id === roughId)
+    if (!rough?.requestNo) return { ok: true }
+    const req = findRequestByNo(data, rough.requestNo)
+    if (!req) return { ok: true }
+    const isOsc = req.centreKind === 'osc' || Boolean(req.oscTransferStatus)
+    if (!isOsc) return { ok: true }
+    const session = getSession()
+    if (session?.centreKind !== 'osc') {
+      return { ok: false, reason: `${req.requestNo}: Laser marking is at Off-Site Centre` }
+    }
+    if (
+      req.oscTransferStatus === 'sent_to_main' ||
+      req.oscTransferStatus === 'assay_in_lab' ||
+      req.oscTransferStatus === 'pending_local'
+    ) {
+      return {
+        ok: false,
+        reason: `${req.requestNo}: Wait for Main fire assay (status: ${oscTransferLabel(req.oscTransferStatus)})`,
+      }
+    }
+    if (req.oscTransferStatus === 'returned_to_osc' || req.status === 'Assayed') {
+      return { ok: true }
+    }
+    return { ok: false, reason: `${req.requestNo}: Assay not returned yet` }
+  },
+
+  getRequestByNo(requestNo: string) {
+    return findRequestByNo(load(), requestNo)
   },
 
   addRoughSheet(input: Omit<RoughSheetEntry, 'id' | 'date' | 'status'> & { status?: RoughSheetEntry['status'] }) {
@@ -1282,6 +1472,7 @@ export const store = {
           receiptNo: row.receiptNo,
           jobCardNo: row.jobCardNo,
           night: input.night,
+          ...sessionCentreStamp(),
         }
         data.requests.unshift(req)
       }
@@ -1359,6 +1550,7 @@ export const store = {
           receiptNo: row.receiptNo,
           jobCardNo: row.jobCardNo,
           night: input.night,
+          ...sessionCentreStamp(),
         }
         data.requests.unshift(req)
       } else {
