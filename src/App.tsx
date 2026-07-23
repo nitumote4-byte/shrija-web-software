@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { PwaInstallBanner } from './components/PwaInstallBanner'
 import { Login } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { AnalyticsDashboard } from './pages/AnalyticsDashboard'
@@ -67,6 +68,7 @@ import { LicensePage } from './pages/License'
 export default function App() {
   return (
     <BrowserRouter>
+      <PwaInstallBanner />
       <Routes>
         <Route path="/login" element={<Login />} />
 
