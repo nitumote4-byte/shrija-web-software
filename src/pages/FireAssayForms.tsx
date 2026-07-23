@@ -506,17 +506,13 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       }
     }
 
-    // Sheet no: if this purity+shift already has this sheet, bump to next free
+    // Same Sheet No pe Create Sheet = UPDATE (overwrite). Naya sheet chahiye to Sheet dropdown badlo.
     let activeSheet = String(sheetNo || '').trim()
     if (!activeSheet) {
       activeSheet = nextAvailableSheetNo(purity, shift || 'Day')
       setSheetNo(activeSheet)
-    } else if (fireAssaySheetExists(purity, shift || 'Day', activeSheet)) {
-      const next = nextAvailableSheetNo(purity, shift || 'Day')
-      toast(`Sheet ${activeSheet} already exists — using Sheet ${next}`)
-      activeSheet = next
-      setSheetNo(next)
     }
+    const overwriting = fireAssaySheetExists(purity, shift || 'Day', activeSheet)
 
     const sheetRows = rows.map((r, i) => {
       const parsed = parseLotJobCard(r.jobCardNo)
@@ -526,42 +522,45 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     setRows(sheetRows)
 
     const avg = Number(avgDelta) || 0
-    for (const row of sheetRows) {
-      if (!row.requestNo) continue
-      const req = data.requests.find((r) => r.requestNo === row.requestNo)
-      if (!req) continue
-      store.addFireAssay({
-        requestNo: req.requestNo,
-        partyName: req.partyName,
-        sampleWeight: Number(row.sampleWeight),
-        purityFound: Number(row.fineness),
-        declaredPurity: purity,
-        status: 'Completed',
-        analyst: 'Lab',
-        assayType: meta.assayType,
-        assayNo: `FS-${activeSheet}`,
-      })
-      store.updateRequestStatus(req.id, 'Assayed')
-    }
-
-    if (!sheetRows.some((r) => r.requestNo)) {
-      store.addFireAssay({
-        requestNo: `SHEET-${activeSheet}`,
-        partyName: 'Fire Assay Sheet',
-        sampleWeight: Number(sheetRows[0]?.sampleWeight) || 0,
-        purityFound: Number(sheetRows[1]?.meanFineness) || Number(sheetRows[0]?.fineness) || 0,
-        declaredPurity: purity,
-        status: 'Completed',
-        analyst: 'Lab',
-        assayType: meta.assayType,
-        assayNo: `FS-${activeSheet}`,
-      })
-    }
-
     const ids = [Number(cg1Id), Number(cg2Id)].filter((n) => n > 0)
     markCgWeightsUsed(ids)
     setCgTick((t) => t + 1)
     setSheetTick((t) => t + 1)
+    setSheetNo(String(activeSheet))
+
+    if (!overwriting) {
+      for (const row of sheetRows) {
+        if (!row.requestNo) continue
+        const req = data.requests.find((r) => r.requestNo === row.requestNo)
+        if (!req) continue
+        store.addFireAssay({
+          requestNo: req.requestNo,
+          partyName: req.partyName,
+          sampleWeight: Number(row.sampleWeight),
+          purityFound: Number(row.fineness),
+          declaredPurity: purity,
+          status: 'Completed',
+          analyst: 'Lab',
+          assayType: meta.assayType,
+          assayNo: `FS-${activeSheet}`,
+        })
+        store.updateRequestStatus(req.id, 'Assayed')
+      }
+
+      if (!sheetRows.some((r) => r.requestNo)) {
+        store.addFireAssay({
+          requestNo: `SHEET-${activeSheet}`,
+          partyName: 'Fire Assay Sheet',
+          sampleWeight: Number(sheetRows[0]?.sampleWeight) || 0,
+          purityFound: Number(sheetRows[1]?.meanFineness) || Number(sheetRows[0]?.fineness) || 0,
+          declaredPurity: purity,
+          status: 'Completed',
+          analyst: 'Lab',
+          assayType: meta.assayType,
+          assayNo: `FS-${activeSheet}`,
+        })
+      }
+    }
 
     const sheet: ManakFireAssaySheet = {
       version: 1,
@@ -637,16 +636,17 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
     publishManakFireAssaySheet(sheet)
     try {
-      void navigator.clipboard.writeText(JSON.stringify(sheet, null, 2))
+      void navigator.clipboard.writeText(JSON.stringify(sheet))
     } catch {
       /* ignore */
     }
 
     const filledLots = new Set(sheet.rows.map((r) => r.lotNo)).size
     toast(
-      `Sheet FS-${activeSheet} saved (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)). Bottom-left pe green "Extension OK" dikhna chahiye — phir Manak pe Lot select + Fill. JSON clipboard pe copy ho gaya (Load Sheet paste). Next sheet: ${nextAvailableSheetNo(purity, shift || 'Day')}.`,
+      overwriting
+        ? `Sheet FS-${activeSheet} UPDATED (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)) — same sheet overwrite. Manak: Lot select → Fill.`
+        : `Sheet FS-${activeSheet} created (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)). Manak: Lot select → Fill. Naya sheet chahiye to Sheet No badlo.`,
     )
-    syncNextSheetNo(purity, shift || 'Day')
   }
 
   const updateRow = (key: string, patch: Partial<SheetRow>) => {
@@ -844,16 +844,32 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
             </select>
           </div>
           <div className="field">
-            <label>Sheet no {suggestedSheetNo ? `(next: ${suggestedSheetNo})` : ''}</label>
+            <label>Sheet no (same no = overwrite)</label>
             <select value={sheetNo} onChange={(e) => setSheetNo(e.target.value)}>
               <option value="">Select</option>
               {Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => (
                 <option key={n} value={n}>
                   {n}
-                  {usedSheetNos.includes(n) ? ' (used)' : n === suggestedSheetNo ? ' (next)' : ''}
+                  {usedSheetNos.includes(n) ? ' (saved)' : n === suggestedSheetNo ? ' (new)' : ''}
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className="btn ghost"
+              style={{ marginTop: 6 }}
+              onClick={() => {
+                if (!purity) {
+                  toast('Pehle Purity select karo')
+                  return
+                }
+                const n = nextAvailableSheetNo(purity, shift || 'Day')
+                setSheetNo(n)
+                toast(`New Sheet No ${n} — Create Sheet dabao`)
+              }}
+            >
+              New Sheet No
+            </button>
           </div>
           <div className="field">
             <label>No. of Rows</label>

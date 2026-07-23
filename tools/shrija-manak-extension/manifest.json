@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "1.3.2",
-  "description": "Fills Manak Fire Assay — Sampling fields only (never Declared Purity).",
+  "version": "1.3.3",
+  "description": "Manak Fire Assay fill; Create Sheet overwrites same sheet number.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",

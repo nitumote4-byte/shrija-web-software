@@ -680,32 +680,59 @@ function getStoredSheet() {
   })
 }
 
-function askPasteSheet() {
-  const raw = window.prompt(
-    'Shrija sheet chrome.storage mein nahi mila.\n\nShrija Create Sheet ke baad clipboard pe JSON copy hota hai — yahan PASTE karke OK dabao:',
-  )
-  if (!raw || !raw.trim()) return null
+function parseSheetJson(raw) {
+  if (!raw || typeof raw !== 'string') return null
+  let t = raw.trim()
+  // Strip accidental markdown / toast wrappers
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(t)
+  if (fence) t = fence[1].trim()
+  const start = t.indexOf('{')
+  const end = t.lastIndexOf('}')
+  if (start >= 0 && end > start) t = t.slice(start, end + 1)
   try {
-    const sheet = JSON.parse(raw.trim())
+    const sheet = JSON.parse(t)
     if (!sheet || typeof sheet !== 'object') return null
-    chrome.storage.local.set({ [KEY]: sheet, [`${KEY}-at`]: Date.now(), [`${KEY}-src`]: 'paste' })
+    if (!sheet.rows && !sheet.viewRows && !sheet.cg) return null
     return sheet
   } catch {
-    showToast('Shrija: JSON paste galat hai')
     return null
   }
 }
 
+async function askPasteSheet() {
+  let raw = ''
+  try {
+    raw = (await navigator.clipboard.readText()) || ''
+  } catch {
+    raw = ''
+  }
+  if (!raw.trim()) {
+    raw =
+      window.prompt(
+        'Clipboard empty. Shrija Create Sheet ke baad JSON paste karo (Ctrl+V):',
+      ) || ''
+  }
+  const sheet = parseSheetJson(raw)
+  if (!sheet) {
+    showToast('Shrija: JSON paste galat hai — Create Sheet phir se dabao (clipboard sync)')
+    return null
+  }
+  chrome.storage.local.set({ [KEY]: sheet, [`${KEY}-at`]: Date.now(), [`${KEY}-src`]: 'paste' })
+  showToast(`Sheet FS-${sheet.sheetNo || '?'} loaded from clipboard`)
+  return sheet
+}
+
 async function resolveSheet(allowPaste) {
   let sheet = await getStoredSheet()
-  if (!sheet && allowPaste) sheet = askPasteSheet()
+  if (!sheet && allowPaste) sheet = await askPasteSheet()
   return sheet
 }
 
 async function runFill(preferredLot, selectText) {
-  const sheet = await resolveSheet(true)
+  // Prefer chrome.storage — do not force paste prompt every time
+  const sheet = await resolveSheet(false)
   if (!sheet) {
-    showToast('No Shrija sheet — Create Sheet → green badge "Extension OK" dikhe, phir Fill. Ya Load Sheet paste.')
+    showToast('No Shrija sheet — Create Sheet (green badge) ya Load Sheet (clipboard)')
     return
   }
   if (!/Fire Assaying|Sampling|Sample Drawn|cornet|M1|Assaying Sheet/i.test(document.body?.innerText || '')) {
@@ -844,7 +871,7 @@ function ensureFillButton() {
     cursor: 'pointer',
   })
   loadBtn.addEventListener('click', async () => {
-    const sheet = askPasteSheet()
+    const sheet = await askPasteSheet()
     if (sheet) {
       showToast(`Sheet loaded · FS-${sheet.sheetNo || '?'} — ab Lot select + Fill`)
       refreshHint(hint)
