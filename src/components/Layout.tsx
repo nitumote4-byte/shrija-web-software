@@ -1,6 +1,7 @@
 import { Link, Outlet, useNavigate } from 'react-router-dom'
 import { Bell, Building2, ChevronDown, LogOut, Menu, Search, Settings, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { BrandMark } from './BrandMark'
 import { CENTRE_NAME, PRODUCT_NAME, USER_NAME, USER_ROLE, allModules, modules } from '../data/modules'
 import { clearSession, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getActiveCentre, getFirmName } from '../data/firmProfile'
@@ -88,15 +89,7 @@ export function Layout() {
       <header className="top-header">
         <Link to="/" className="brand">
           <div className="brand-mark" aria-hidden>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="10" r="5" stroke="currentColor" strokeWidth="2" />
-              <path
-                d="M6 20c1.5-4 4.5-6 6-6s4.5 2 6 6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
+            <BrandMark size={38} />
           </div>
           <div className="brand-copy">
             <span className="brand-text">{centreName || CENTRE_NAME}</span>

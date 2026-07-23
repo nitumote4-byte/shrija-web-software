@@ -67,7 +67,7 @@ function PerformanceChart({ values }: { values: number[] }) {
         ))}
         <polyline
           fill="none"
-          stroke="#1a365d"
+          stroke="#0F2942"
           strokeWidth="2.5"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -76,7 +76,7 @@ function PerformanceChart({ values }: { values: number[] }) {
         {values.map((v, i) => {
           const x = pad.l + (i / Math.max(1, values.length - 1)) * innerW
           const y = pad.t + innerH - (v / max) * innerH
-          return <circle key={i} cx={x} cy={y} r="3.5" fill="#b8923a" />
+          return <circle key={i} cx={x} cy={y} r="3.5" fill="#A8815C" />
         })}
         {FY_MONTHS.map((m, i) => {
           const x = pad.l + (i / Math.max(1, FY_MONTHS.length - 1)) * innerW
