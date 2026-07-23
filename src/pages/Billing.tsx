@@ -100,7 +100,7 @@ function invoiceToPreview(inv: Invoice): ChallanView {
     date: inv.date,
     invoiceDateTime: inv.invoiceDateTime || inv.date,
     requestNo: inv.requestNo,
-    requestDate: inv.requestDate,
+    requestDate: inv.requestDate || '',
     partyName: inv.partyName,
     partyAddress: inv.partyAddress || '',
     partyGstin: inv.partyGstin || '',
