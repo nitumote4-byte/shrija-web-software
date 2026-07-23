@@ -134,9 +134,37 @@ function findSaveNear(labelRe) {
 
 function parseLotOptionText(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim()
-  const m = /Lot\s*(\d+)\s*[:：]?\s*(\d+)?/i.exec(t)
-  if (!m) return { lot: null, jobCard: '' }
+  // Manak: "Lot 1:104736831" or "Lot 1: 104736831"
+  const m = /Lot\s*(\d+)\s*[:：]\s*(\d+)/i.exec(t) || /Lot\s*(\d+)\s*[:：]?\s*(\d+)?/i.exec(t)
+  if (!m) {
+    // bare job card in option value
+    const bare = /^(\d{6,})$/.exec(t)
+    if (bare) return { lot: null, jobCard: bare[1] }
+    return { lot: null, jobCard: '' }
+  }
   return { lot: Number(m[1]), jobCard: m[2] || '' }
+}
+
+/** Manak Lot dropdown — do NOT use findInputByLabel (it grabs wrong INPUT in the Job Card table). */
+function findLotSelect() {
+  const selects = Array.from(document.querySelectorAll('select')).filter(visible)
+  const byOptions = selects.find((s) =>
+    Array.from(s.options || []).some((o) => /Lot\s*\d+/i.test(String(o.text || o.value || ''))),
+  )
+  if (byOptions) return byOptions
+  return (
+    selects.find((s) => /lot/i.test(`${s.id || ''} ${s.name || ''}`)) ||
+    findInputByIdName(/ddlLot|LotNo|lotno|Lot_No|cmbLot/i) ||
+    null
+  )
+}
+
+function readPageJobCard() {
+  const body = (document.body?.innerText || '').replace(/\s+/g, ' ')
+  const m =
+    /Job\s*Card\s*(?:Number|No\.?)\s*[:：]?\s*(\d{6,})/i.exec(body) ||
+    /Job\s*No\.?\s*[:：]?\s*(\d{6,})/i.exec(body)
+  return m ? m[1] : ''
 }
 
 function parseShrijaJob(jobCardNo) {
@@ -385,17 +413,34 @@ async function fillInitialPhase(sheet, preferredLot, selectText) {
 }
 
 function currentLotContext() {
-  const lotSel =
-    findInputByLabel(/Lot No/i) ||
-    Array.from(document.querySelectorAll('select')).find((s) =>
-      /Lot/i.test(s.options?.[1]?.text || s.id || s.name || ''),
-    )
+  const lotSel = findLotSelect()
+  const pageJob = readPageJobCard()
+
   if (lotSel && lotSel.tagName === 'SELECT') {
-    const text = lotSel.options[lotSel.selectedIndex]?.text || ''
-    const parsed = parseLotOptionText(text)
-    return { text, ...parsed }
+    const idx = lotSel.selectedIndex
+    const opt = idx >= 0 ? lotSel.options[idx] : null
+    const text = (opt?.text || opt?.label || lotSel.value || '').trim()
+    let parsed = parseLotOptionText(text)
+    if (parsed.lot == null && !parsed.jobCard) {
+      parsed = parseLotOptionText(String(lotSel.value || ''))
+    }
+    // Selected placeholder ("--Select--") but page already shows Job Card Number
+    if (parsed.lot == null && !parsed.jobCard && pageJob) {
+      const matchOpt = Array.from(lotSel.options).find((o) =>
+        String(o.text || o.value || '').includes(pageJob),
+      )
+      if (matchOpt) {
+        parsed = parseLotOptionText(matchOpt.text || matchOpt.value || '')
+        return { text: matchOpt.text || `Lot 1:${pageJob}`, ...parsed, pageJob }
+      }
+      return { text: `Lot 1:${pageJob}`, lot: 1, jobCard: pageJob, pageJob }
+    }
+    if (!parsed.jobCard && pageJob) parsed.jobCard = pageJob
+    return { text, ...parsed, pageJob }
   }
-  return { text: '', lot: null, jobCard: '' }
+
+  if (pageJob) return { text: `Lot 1:${pageJob}`, lot: 1, jobCard: pageJob, pageJob }
+  return { text: '', lot: null, jobCard: '', pageJob: '' }
 }
 
 function getStoredSheet() {
@@ -429,20 +474,36 @@ async function resolveSheet(allowPaste) {
 async function runFill(preferredLot, selectText) {
   const sheet = await resolveSheet(true)
   if (!sheet) {
-    showToast('No Shrija sheet — Create Sheet → green badge "Extension OK" dikhe, phir Fill. Ya Fill pe paste JSON.')
+    showToast('No Shrija sheet — Create Sheet → green badge "Extension OK" dikhe, phir Fill. Ya Load Sheet paste.')
     return
   }
   if (!/Fire Assaying|Sampling|Sample Drawn|cornet|M1|Assaying Sheet/i.test(document.body?.innerText || '')) {
+    showToast('Shrija: Fire Assaying Sheet page pe nahi ho')
     return
   }
   const ctx = currentLotContext()
-  const text = selectText || ctx.text
+  let text = selectText || ctx.text
   const parsed = parseLotOptionText(text)
-  const lot = preferredLot ?? parsed.lot ?? ctx.lot
-  if (lot == null && !parsed.jobCard && !ctx.jobCard) {
-    showToast('Shrija: pehle Lot No select karo')
-    return
+  let lot = preferredLot != null ? Number(preferredLot) : parsed.lot ?? ctx.lot
+  let jobCard = parsed.jobCard || ctx.jobCard || ctx.pageJob || ''
+
+  if ((lot == null || Number.isNaN(lot)) && !jobCard) {
+    // Last resort: first filled lot from Create Sheet (page already opened for a job)
+    const filled = (sheet.rows || []).filter((r) => r.jobCardNo || r.manakJobCard)
+    const row = filled[0] || (sheet.viewRows || []).find((r) => r.jobCardNo || r.manakJobCard)
+    if (row) {
+      const p = parseShrijaJob(row.jobCardNo)
+      lot = Number(row.lotNo) || p.lot || 1
+      jobCard = row.manakJobCard || p.card || ''
+      text = `Lot ${lot}:${jobCard}`
+      showToast(`Shrija: Lot dropdown miss — using sheet ${text}`)
+    } else {
+      showToast('Shrija: pehle Lot No select karo (dropdown: Lot 1:1047…)')
+      return
+    }
   }
+
+  if (!text) text = lot != null ? `Lot ${lot}:${jobCard}` : jobCard
   await fillInitialPhase(sheet, lot, text)
 }
 
@@ -451,16 +512,13 @@ chrome.runtime.onMessage.addListener((msg) => {
 })
 
 function bindLotChange() {
-  document.querySelectorAll('select').forEach((sel) => {
-    if (sel.dataset.shrijaBound) return
-    const probe = `${sel.id || ''} ${sel.name || ''} ${(sel.closest('td,div,tr')?.textContent || '').slice(0, 60)}`
-    if (!/Lot/i.test(probe) && !/Lot\s*\d+/i.test(sel.options?.[1]?.text || '')) return
-    sel.dataset.shrijaBound = '1'
-    sel.addEventListener('change', () => {
-      const opt = sel.options[sel.selectedIndex]
-      const parsed = parseLotOptionText(opt?.text || '')
-      runFill(parsed.lot, opt?.text || '')
-    })
+  const sel = findLotSelect()
+  if (!sel || sel.dataset.shrijaBound) return
+  sel.dataset.shrijaBound = '1'
+  sel.addEventListener('change', () => {
+    const opt = sel.options[sel.selectedIndex]
+    const parsed = parseLotOptionText(opt?.text || opt?.value || '')
+    runFill(parsed.lot, opt?.text || '')
   })
 }
 
@@ -572,7 +630,9 @@ function ensureFillButton() {
 document.addEventListener('change', (e) => {
   const t = e.target
   if (!t || t.tagName !== 'SELECT') return
+  const lotSel = findLotSelect()
+  if (!lotSel || t !== lotSel) return
   const opt = t.options[t.selectedIndex]
-  const parsed = parseLotOptionText(opt?.text || '')
+  const parsed = parseLotOptionText(opt?.text || opt?.value || '')
   if (parsed.lot != null || parsed.jobCard) runFill(parsed.lot, opt?.text || '')
 })
