@@ -1,61 +1,61 @@
 import { useMemo, useState } from 'react'
-import { History, PackageOpen, Plus, Printer, RefreshCw } from 'lucide-react'
+import { History, PackageOpen, Plus, Printer, RefreshCw, X } from 'lucide-react'
 import { useToast } from '../components/ui'
-import { store, type Party } from '../data/store'
+import { getInvoiceHeader } from '../data/firmProfile'
+import { store, type FundEntry, type Party } from '../data/store'
 
 function money(n: number) {
   return `₹ ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-function partyBalance(partyName: string) {
+function formatReceiptDate(iso: string) {
+  try {
+    const d = new Date(iso.includes('T') ? iso : `${iso}T12:00:00`)
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  } catch {
+    return iso
+  }
+}
+
+function partyBalance(partyName: string, excludeVoucherNo?: string) {
   const data = store.getAll()
   const billed = data.invoices
     .filter((i) => i.partyName === partyName)
     .reduce((s, i) => s + i.total, 0)
   const paid = data.funds
     .filter((f) => (f.partyName || f.source) === partyName)
+    .filter((f) => !excludeVoucherNo || String(f.voucherNo) !== String(excludeVoucherNo))
     .reduce((s, f) => s + f.amount, 0)
   return billed - paid
 }
 
-function printFundReceipt(f: {
+type ReceiptView = {
   voucherNo?: string
   date: string
-  partyName?: string
-  source: string
+  partyName: string
   mode: string
   amount: number
   bankName?: string
   chequeNo?: string
   remarks: string
-}) {
-  const w = window.open('', '_blank', 'width=720,height=900')
-  if (!w) return
-  w.document.write(`<!doctype html><html><head><title>Fund Voucher #${f.voucherNo || ''}</title>
-    <style>
-      body{font-family:Segoe UI,Arial,sans-serif;padding:24px;color:#0f172a}
-      h1{font-size:18px;margin:0 0 4px}
-      .muted{color:#64748b;font-size:13px;margin:0 0 18px}
-      table{width:100%;border-collapse:collapse}
-      td{padding:8px 4px;border-bottom:1px solid #e2e8f0;font-size:14px}
-      td:first-child{color:#64748b;width:38%}
-      .amt{font-size:22px;font-weight:800;margin-top:18px}
-    </style></head><body>
-    <h1>SHRIJA ASSAYING & HALLMARKING CENTRE</h1>
-    <p class="muted">Fund Receipt Voucher</p>
-    <table>
-      <tr><td>Voucher No</td><td><strong>#${f.voucherNo || '—'}</strong></td></tr>
-      <tr><td>Date</td><td>${f.date}</td></tr>
-      <tr><td>Party</td><td>${f.partyName || f.source}</td></tr>
-      <tr><td>Type</td><td>${f.mode}</td></tr>
-      <tr><td>Bank</td><td>${f.bankName || '—'}</td></tr>
-      <tr><td>Cheque No</td><td>${f.chequeNo || '—'}</td></tr>
-      <tr><td>Remarks</td><td>${f.remarks || '—'}</td></tr>
-    </table>
-    <div class="amt">${money(f.amount)}</div>
-    <script>window.print()</script>
-    </body></html>`)
-  w.document.close()
+  /** Balance before this payment */
+  currentBalance: number
+}
+
+function buildReceiptView(f: FundEntry): ReceiptView {
+  const partyName = f.partyName || f.source
+  const currentBalance = partyBalance(partyName, f.voucherNo)
+  return {
+    voucherNo: f.voucherNo,
+    date: f.date,
+    partyName,
+    mode: f.mode,
+    amount: f.amount,
+    bankName: f.bankName,
+    chequeNo: f.chequeNo,
+    remarks: f.remarks,
+    currentBalance,
+  }
 }
 
 export function FundEntry() {
@@ -75,7 +75,9 @@ export function FundEntry() {
   const [remarks, setRemarks] = useState('')
   const [printVoucher, setPrintVoucher] = useState('')
   const [balanceKey, setBalanceKey] = useState(0)
+  const [receipt, setReceipt] = useState<ReceiptView | null>(null)
 
+  const header = getInvoiceHeader()
   const funds = data.funds
   const balance = useMemo(() => {
     void balanceKey
@@ -93,6 +95,14 @@ export function FundEntry() {
         p.licenseNo.toLowerCase().includes(q),
     )
   }, [data.parties, partyQuery])
+
+  const openReceipt = (f: FundEntry) => {
+    setReceipt(buildReceiptView(f))
+  }
+
+  const printReceiptSheet = () => {
+    window.print()
+  }
 
   const reset = () => {
     setParty(null)
@@ -116,6 +126,7 @@ export function FundEntry() {
       toast('Enter a valid amount')
       return
     }
+    const balanceBefore = partyBalance(party.name)
     const entry = store.addFund({
       date,
       source: party.name,
@@ -134,6 +145,18 @@ export function FundEntry() {
     setChequeNo('')
     setBankName('')
     setRemarks('')
+    // GoldShark: auto receipt popup after save
+    setReceipt({
+      voucherNo: entry.voucherNo,
+      date: entry.date,
+      partyName: party.name,
+      mode: entry.mode,
+      amount: entry.amount,
+      bankName: entry.bankName,
+      chequeNo: entry.chequeNo,
+      remarks: entry.remarks,
+      currentBalance: balanceBefore,
+    })
   }
 
   const printByNumber = () => {
@@ -147,8 +170,13 @@ export function FundEntry() {
       toast(`Voucher #${no} not found`)
       return
     }
-    printFundReceipt(found)
+    openReceipt(found)
   }
+
+  const balanceDue = receipt ? Math.max(0, receipt.currentBalance - receipt.amount) : 0
+  const modeCash = receipt?.mode === 'Cash'
+  const modeCheque = receipt?.mode === 'Cheque'
+  const modeBank = receipt?.mode === 'Bank' || receipt?.mode === 'UPI'
 
   return (
     <div className="fund-page">
@@ -203,6 +231,9 @@ export function FundEntry() {
                   </div>
                 )}
               </div>
+              {party?.address ? (
+                <div className="fund-party-addr">Address: {party.address}</div>
+              ) : null}
             </div>
 
             <div className="fund-two-col">
@@ -361,7 +392,7 @@ export function FundEntry() {
                           type="button"
                           className="fund-print-icon"
                           title="Print"
-                          onClick={() => printFundReceipt(f)}
+                          onClick={() => openReceipt(f)}
                         >
                           <Printer size={16} />
                         </button>
@@ -399,6 +430,102 @@ export function FundEntry() {
           </div>
         </section>
       </div>
+
+      {receipt && (
+        <div className="fund-receipt-backdrop no-print" onClick={() => setReceipt(null)}>
+          <div
+            className="fund-receipt-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="fund-receipt-title"
+          >
+            <div className="fund-receipt-toolbar no-print">
+              <button type="button" className="btn btn-teal" onClick={printReceiptSheet}>
+                <Printer size={16} /> Print (A5)
+              </button>
+              <button
+                type="button"
+                className="btn btn-reset fund-receipt-close"
+                onClick={() => setReceipt(null)}
+                aria-label="Close"
+              >
+                <X size={16} /> Close
+              </button>
+            </div>
+
+            <div className="fund-receipt-sheet" id="fund-receipt-print">
+              <div className="fund-rv-head">
+                <div className="fund-rv-firm">
+                  <strong>{header.centreName}</strong>
+                  <div>{header.centreAddress || '—'}</div>
+                  {header.centreGstin && header.centreGstin !== '—' ? (
+                    <div>GSTIN: {header.centreGstin}</div>
+                  ) : null}
+                </div>
+                <div className="fund-rv-meta">
+                  <h2 id="fund-receipt-title">RECEIPT VOUCHER</h2>
+                  <div>
+                    Receipt No: <strong>{receipt.voucherNo || '—'}</strong>
+                  </div>
+                  <div>Date: {formatReceiptDate(receipt.date)}</div>
+                </div>
+              </div>
+
+              <div className="fund-rv-body">
+                <div className="fund-rv-row">
+                  <span>RECEIVED FROM:</span>
+                  <strong>{receipt.partyName}</strong>
+                </div>
+                <div className="fund-rv-row">
+                  <span>THE AMOUNT OF:</span>
+                  <strong>{money(receipt.amount)}</strong>
+                </div>
+                <div className="fund-rv-row">
+                  <span>FOR (INVOICE / REMARKS):</span>
+                  <span>{receipt.remarks || '—'}</span>
+                </div>
+                <div className="fund-rv-row">
+                  <span>CHEQUE NO:</span>
+                  <span>{receipt.chequeNo || '—'}</span>
+                </div>
+                <div className="fund-rv-row">
+                  <span>BANK NAME:</span>
+                  <span>{receipt.bankName || '—'}</span>
+                </div>
+              </div>
+
+              <div className="fund-rv-foot">
+                <div className="fund-rv-balances">
+                  <div>
+                    Current Balance: <strong>{money(receipt.currentBalance)}</strong>
+                  </div>
+                  <div>
+                    Payment Amount: <strong>{money(receipt.amount)}</strong>
+                  </div>
+                  <div>
+                    Balance Due: <strong>{money(balanceDue)}</strong>
+                  </div>
+                </div>
+                <div className="fund-rv-modes">
+                  <label>
+                    <input type="checkbox" checked={modeCash} readOnly /> Cash
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={modeCheque} readOnly /> Cheque
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={modeBank} readOnly /> Bank Transfer
+                  </label>
+                </div>
+              </div>
+
+              <div className="fund-rv-sign">Received by: ____________________</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {Toast}
     </div>
   )
