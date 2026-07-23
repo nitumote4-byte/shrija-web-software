@@ -1,28 +1,38 @@
-# Shrija CG & Cornet — Manak Fill Extension v1.1
+# Shrija CG & Cornet — Manak Fill Extension v1.3
 
 Fills **BIS Manak Online → Fire Assaying Sheet** from Shrija **Create Sheet**.
 
-## Manak official steps (this extension follows)
+## Why "No Shrija sheet" happened
 
-1. **Sampling Details**
-   - Sample Drawn Weight → **Save**
-   - Button Weight → **Save**
-2. **Fire Assaying Details**
-   - Fill **M1**, Silver, Copper, Lead (Strip1 / Strip2 / C1 / C2)
-   - Click **Save (Initial Weight)**
-3. Wait until Manak **timing** completes (M2 unlocks)
-4. Extension auto-fills **M2** (cornet) → **Save (Cornet Weight)**
+Shrija (Vercel) and Manak are **different websites**. Browser `localStorage` does **not** share between them. The extension must copy the sheet into `chrome.storage.local` on the Shrija tab, then Manak reads it.
 
-## Install / update
+If Create Sheet succeeded but Manak still says **No Shrija sheet**, the bridge script was not running on Shrija (old extension / wrong site access).
 
-1. `chrome://extensions` → Developer mode
-2. **Load unpacked** → `tools/shrija-manak-extension`  
-   (or **Reload** if already loaded — version **1.1.0**)
-3. Allow `huid.manakonline.in` + Shrija Vercel
+## Install / update (required after every code change)
+
+1. Open `chrome://extensions`
+2. Find **Shrija CG & Cornet** → **Reload** (version must show **1.3.0**)
+3. Click **Details** → **Site access** → allow:
+   - `https://*.vercel.app`
+   - `https://huid.manakonline.in`
+4. Open Shrija Create Fire Assay tab → refresh page
+5. Click **Create Sheet** again
+6. Bottom-left green badge must say: **Extension OK · Sheet … ready for Manak**
+7. Open Manak Fire Assaying → hint should turn green: **Sheet FS-… · rows**
+
+### Emergency fallback
+
+On Manak, use **Load Sheet (paste JSON)** — Create Sheet already copies JSON to clipboard.
+
+## Manak steps
+
+1. Sampling: Sample Drawn → Save, Button Wt → Save  
+2. M1 + Silver + Copper + Lead → Save (Initial Weight)  
+3. Wait Manak timing (M2 unlock)  
+4. M2 → Save (Cornet Weight)
 
 ## App flow
 
-1. Shrija: CG WEIGHT → Create Fire Assay → Purity → fill Job Cards → **Create Sheet**
-2. Open Manak Fire Assaying Sheet yourself
-3. Select **Lot No** (e.g. `Lot 1:104736831`)
-4. Extension runs steps 1–2, then watches for M2 unlock
+1. Shrija: CG WEIGHT → Create Fire Assay → Purity → Job Cards → **Create Sheet**
+2. Confirm green **Extension OK** badge
+3. Manak: select **Lot No** → **Shrija: Fill Fire Assay**

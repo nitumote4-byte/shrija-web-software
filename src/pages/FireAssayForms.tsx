@@ -644,7 +644,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
     const filledLots = new Set(sheet.rows.map((r) => r.lotNo)).size
     toast(
-      `Sheet FS-${activeSheet} saved (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)). Extension Reload + Manak Lot select → Fill. Next sheet will be ${nextAvailableSheetNo(purity, shift || 'Day')}.`,
+      `Sheet FS-${activeSheet} saved (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)). Bottom-left pe green "Extension OK" dikhna chahiye — phir Manak pe Lot select + Fill. JSON clipboard pe copy ho gaya (Load Sheet paste). Next sheet: ${nextAvailableSheetNo(purity, shift || 'Day')}.`,
     )
     syncNextSheetNo(purity, shift || 'Day')
   }

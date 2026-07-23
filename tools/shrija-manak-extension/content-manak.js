@@ -398,26 +398,52 @@ function currentLotContext() {
   return { text: '', lot: null, jobCard: '' }
 }
 
-function runFill(preferredLot, selectText) {
-  chrome.storage.local.get([KEY], async (data) => {
-    const sheet = data[KEY]
-    if (!sheet) {
-      showToast('Shrija: Create Sheet pehle Shrija app mein karo')
-      return
-    }
-    if (!/Fire Assaying|Sampling|Sample Drawn|cornet|M1|Assaying Sheet/i.test(document.body?.innerText || '')) {
-      return
-    }
-    const ctx = currentLotContext()
-    const text = selectText || ctx.text
-    const parsed = parseLotOptionText(text)
-    const lot = preferredLot ?? parsed.lot ?? ctx.lot
-    if (lot == null && !parsed.jobCard && !ctx.jobCard) {
-      showToast('Shrija: pehle Lot No select karo')
-      return
-    }
-    await fillInitialPhase(sheet, lot, text)
+function getStoredSheet() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([KEY], (data) => resolve(data[KEY] || null))
   })
+}
+
+function askPasteSheet() {
+  const raw = window.prompt(
+    'Shrija sheet chrome.storage mein nahi mila.\n\nShrija Create Sheet ke baad clipboard pe JSON copy hota hai — yahan PASTE karke OK dabao:',
+  )
+  if (!raw || !raw.trim()) return null
+  try {
+    const sheet = JSON.parse(raw.trim())
+    if (!sheet || typeof sheet !== 'object') return null
+    chrome.storage.local.set({ [KEY]: sheet, [`${KEY}-at`]: Date.now(), [`${KEY}-src`]: 'paste' })
+    return sheet
+  } catch {
+    showToast('Shrija: JSON paste galat hai')
+    return null
+  }
+}
+
+async function resolveSheet(allowPaste) {
+  let sheet = await getStoredSheet()
+  if (!sheet && allowPaste) sheet = askPasteSheet()
+  return sheet
+}
+
+async function runFill(preferredLot, selectText) {
+  const sheet = await resolveSheet(true)
+  if (!sheet) {
+    showToast('No Shrija sheet — Create Sheet → green badge "Extension OK" dikhe, phir Fill. Ya Fill pe paste JSON.')
+    return
+  }
+  if (!/Fire Assaying|Sampling|Sample Drawn|cornet|M1|Assaying Sheet/i.test(document.body?.innerText || '')) {
+    return
+  }
+  const ctx = currentLotContext()
+  const text = selectText || ctx.text
+  const parsed = parseLotOptionText(text)
+  const lot = preferredLot ?? parsed.lot ?? ctx.lot
+  if (lot == null && !parsed.jobCard && !ctx.jobCard) {
+    showToast('Shrija: pehle Lot No select karo')
+    return
+  }
+  await fillInitialPhase(sheet, lot, text)
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -463,6 +489,20 @@ if (onAssayPage) {
   setTimeout(ensureFillButton, 1000)
 }
 
+function refreshHint(hint) {
+  chrome.storage.local.get([KEY], (data) => {
+    const sheet = data[KEY]
+    const n = sheet?.rows?.length || sheet?.viewRows?.length || 0
+    if (n) {
+      hint.textContent = `Sheet FS-${sheet.sheetNo || '?'} · ${n} rows · Lot select + Fill`
+      hint.style.background = 'rgba(21,128,61,.95)'
+    } else {
+      hint.textContent = 'No sheet — Create Sheet (green badge) ya Load Sheet paste'
+      hint.style.background = 'rgba(15,39,68,.92)'
+    }
+  })
+}
+
 function ensureFillButton() {
   if (document.getElementById('shrija-manak-fill-btn')) return
   const wrap = document.createElement('div')
@@ -476,6 +516,16 @@ function ensureFillButton() {
     flexDirection: 'column',
     gap: '8px',
     alignItems: 'flex-end',
+  })
+  const hint = document.createElement('div')
+  hint.textContent = 'Create Sheet ke baad Lot select karke yahan click'
+  Object.assign(hint.style, {
+    background: 'rgba(15,39,68,.92)',
+    color: '#fff',
+    font: '600 11px/1.3 system-ui,sans-serif',
+    padding: '6px 10px',
+    borderRadius: '8px',
+    maxWidth: '240px',
   })
   const btn = document.createElement('button')
   btn.type = 'button'
@@ -491,25 +541,32 @@ function ensureFillButton() {
     boxShadow: '0 8px 24px rgba(0,0,0,.28)',
   })
   btn.addEventListener('click', () => runFill())
-  const hint = document.createElement('div')
-  hint.textContent = 'Create Sheet ke baad Lot select karke yahan click'
-  Object.assign(hint.style, {
-    background: 'rgba(15,39,68,.92)',
+  const loadBtn = document.createElement('button')
+  loadBtn.type = 'button'
+  loadBtn.textContent = 'Load Sheet (paste JSON)'
+  Object.assign(loadBtn.style, {
+    background: '#1d4ed8',
     color: '#fff',
-    font: '600 11px/1.3 system-ui,sans-serif',
-    padding: '6px 10px',
-    borderRadius: '8px',
-    maxWidth: '220px',
+    border: 'none',
+    borderRadius: '10px',
+    padding: '8px 12px',
+    font: '700 11px/1.2 system-ui,sans-serif',
+    cursor: 'pointer',
+  })
+  loadBtn.addEventListener('click', async () => {
+    const sheet = askPasteSheet()
+    if (sheet) {
+      showToast(`Sheet loaded · FS-${sheet.sheetNo || '?'} — ab Lot select + Fill`)
+      refreshHint(hint)
+    }
   })
   wrap.appendChild(hint)
   wrap.appendChild(btn)
+  wrap.appendChild(loadBtn)
   document.body.appendChild(wrap)
 
-  chrome.storage.local.get([KEY], (data) => {
-    const n = data[KEY]?.rows?.length || data[KEY]?.viewRows?.length || 0
-    if (n) hint.textContent = `Sheet loaded · ${n} rows · Lot select + Fill`
-    else hint.textContent = 'No Shrija sheet — pehle Create Sheet karo'
-  })
+  refreshHint(hint)
+  setInterval(() => refreshHint(hint), 2000)
 }
 
 document.addEventListener('change', (e) => {

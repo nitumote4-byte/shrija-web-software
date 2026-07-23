@@ -116,6 +116,8 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
   try {
     localStorage.setItem(MANAK_FIRE_ASSAY_KEY, json)
     sessionStorage.setItem(MANAK_FIRE_ASSAY_KEY, json)
+    // Also mirror under plain key for older extension builds
+    localStorage.setItem('shrija-manak-fire-assay-sheet-v1', json)
   } catch {
     /* ignore quota */
   }
@@ -124,8 +126,42 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
   } catch {
     /* ignore */
   }
-  window.dispatchEvent(new CustomEvent(MANAK_FIRE_ASSAY_EVENT, { detail: sheet }))
-  window.postMessage({ type: 'SHRIJA_MANAK_FIRE_ASSAY', sheet }, '*')
+
+  // DOM bridge (shared with extension content script — CustomEvent does NOT cross isolated world)
+  try {
+    let el = document.getElementById('shrija-fire-assay-payload')
+    if (!el) {
+      el = document.createElement('script')
+      el.id = 'shrija-fire-assay-payload'
+      el.type = 'application/json'
+      el.setAttribute('data-shrija-bridge', '1')
+      document.documentElement.appendChild(el)
+    }
+    el.textContent = json
+    el.setAttribute('data-updated', String(Date.now()))
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    window.dispatchEvent(new CustomEvent(MANAK_FIRE_ASSAY_EVENT, { detail: sheet }))
+  } catch {
+    /* ignore */
+  }
+
+  // postMessage — content script listens; repeat so late-injected scripts catch it
+  const ping = () => {
+    try {
+      window.postMessage({ type: 'SHRIJA_MANAK_FIRE_ASSAY', sheet }, '*')
+    } catch {
+      /* ignore */
+    }
+  }
+  ping()
+  setTimeout(ping, 300)
+  setTimeout(ping, 1000)
+  setTimeout(ping, 2500)
+
   return sheet
 }
 

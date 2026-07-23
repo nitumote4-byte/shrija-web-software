@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "1.2.0",
-  "description": "Manak Fire Assay fill + auto next Sheet No sync. Floating Fill button on Manak page.",
+  "version": "1.3.0",
+  "description": "Syncs Create Sheet from Shrija (any *.vercel.app) into chrome.storage and fills Manak Fire Assay.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",
     "https://newmanak.uat.dcservices.in/*",
-    "https://shrija-web-software.vercel.app/*",
+    "https://*.vercel.app/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
@@ -17,12 +17,13 @@
   "content_scripts": [
     {
       "matches": [
-        "https://shrija-web-software.vercel.app/*",
+        "https://*.vercel.app/*",
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
       "js": ["content-shrija.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start",
+      "all_frames": false
     },
     {
       "matches": [
