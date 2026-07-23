@@ -35,7 +35,7 @@ const ROLE_OPTIONS = [
   { value: 'quality_manager', label: 'Quality Manager (full)' },
   { value: 'assay_lab', label: 'In Lab (Fire Assay + Stock only)' },
   { value: 'in_lab', label: 'In Lab (alias)' },
-  { value: 'reception', label: 'Reception' },
+  { value: 'reception', label: 'Reception (all except Lab)' },
   { value: 'accountant', label: 'Accountant' },
   { value: 'admin', label: 'Admin' },
 ]

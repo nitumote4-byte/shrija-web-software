@@ -8,6 +8,31 @@ export const LAB_ONLY_MODULES = [
   'lab-stock',
 ] as const
 
+/** Reception — everything except lab (fire assay + QM/Lab stock) */
+export const RECEPTION_MODULES = [
+  'dashboard',
+  'manual-request',
+  'auto-request',
+  'rough-sheet',
+  'request-list',
+  'qm-request-list',
+  'billing',
+  'generated-bills',
+  'monthly-billing',
+  'monthly-bills',
+  'print-job-card',
+  'extra-hallmark',
+  'xray-hallmark',
+  'fund-entry',
+  'expense-entry',
+  'add-party',
+  'new-category',
+  'touch-form',
+  'touch-billing',
+  'reports',
+  'others',
+] as const
+
 /** Gold Shark–style desk roles → module access */
 const ROLE_MODULES: Record<string, string[] | '*'> = {
   admin: '*',
@@ -16,18 +41,8 @@ const ROLE_MODULES: Record<string, string[] | '*'> = {
   assay_lab: [...LAB_ONLY_MODULES],
   in_lab: [...LAB_ONLY_MODULES],
   inlab: [...LAB_ONLY_MODULES],
-  reception: [
-    'manual-request',
-    'auto-request',
-    'add-party',
-    'fund-entry',
-    'billing',
-    'generated-bills',
-    'monthly-billing',
-    'monthly-bills',
-    'print-job-card',
-    'dashboard',
-  ],
+  /** Reception — all desk modules except lab */
+  reception: [...RECEPTION_MODULES],
   accountant: [
     'billing',
     'generated-bills',
@@ -72,7 +87,7 @@ export function canAccessPath(pathname: string): boolean {
   if (path === '/license' || path.startsWith('/others/license')) return true
   if (path.startsWith('/reports')) return allowed.includes('reports')
   if (path.startsWith('/others')) {
-    return role === 'quality_manager' || role === 'admin'
+    return allowed.includes('others')
   }
   if (path.startsWith('/create-fire-assay')) {
     return allowed.includes('create-fire-assay')
@@ -105,5 +120,6 @@ export function canAccessPath(pathname: string): boolean {
 export function roleLabel(role: string) {
   const r = normalizeRole(role)
   if (r === 'assay_lab' || r === 'in_lab' || r === 'inlab') return 'In Lab'
+  if (r === 'reception') return 'Reception'
   return role.replace(/_/g, ' ')
 }
