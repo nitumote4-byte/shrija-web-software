@@ -34,6 +34,12 @@ import { CENTRE_NAME } from '../data/modules'
 import { computeInvoicePaymentStatuses, store } from '../data/store'
 import { tenantGet, tenantSet } from '../data/tenant'
 
+/** Local calendar YYYY-MM-DD (avoids UTC day shift in IST late night / early morning). */
+function localYmd(d = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 function ReportShell({
   title,
   subtitle,
@@ -1926,9 +1932,9 @@ export function InvoiceListReport() {
   const [startDate, setStartDate] = useState(() => {
     const d = new Date()
     d.setMonth(d.getMonth() - 1)
-    return d.toISOString().slice(0, 10)
+    return localYmd(d)
   })
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [endDate, setEndDate] = useState(() => localYmd())
   const [fetched, setFetched] = useState(false)
 
   const partyOptions = useMemo(
@@ -2002,7 +2008,14 @@ export function InvoiceListReport() {
   const getInvoices = () => {
     store.syncInvoicePaymentStatuses()
     setFetched(true)
-    toast('Invoices loaded')
+    const inRange = data.invoices.filter((inv) => inv.date >= startDate && inv.date <= endDate)
+    toast(
+      inRange.length
+        ? `${inRange.length} invoice(s) in date range`
+        : data.invoices.length
+          ? `No invoices between ${startDate} and ${endDate} (${data.invoices.length} total — widen dates)`
+          : 'No invoices found',
+    )
   }
 
   const download = () => {

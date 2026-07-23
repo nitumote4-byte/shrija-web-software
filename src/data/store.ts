@@ -1543,10 +1543,16 @@ export const store = {
     input: Omit<Invoice, 'id' | 'invoiceNo' | 'date'> & { invoiceNo?: string; date?: string },
   ) {
     const data = load()
-    const n = data.invoices.length + 1
+    const stamp = sessionCentreStamp()
+    const centreInvoices = data.invoices.filter((i) =>
+      stamp.centreKind === 'osc' ? i.centreId === stamp.centreId : !isOscRecord(i),
+    )
+    const n = centreInvoices.length + 1
     const inv: Invoice = {
-      ...sessionCentreStamp(),
       ...input,
+      ...stamp,
+      centreId: stamp.centreId,
+      centreKind: stamp.centreKind,
       id: uid('inv'),
       invoiceNo: input.invoiceNo || `INV-2026-${String(n).padStart(3, '0')}`,
       date: input.date || today(),
@@ -1556,6 +1562,15 @@ export const store = {
     data.invoices.unshift(inv)
     save(data)
     return inv
+  },
+
+  /** Latest invoice for a request within current centre scope (if any). */
+  findInvoiceByRequestNo(requestNo: string) {
+    const q = requestNo.trim().toLowerCase()
+    if (!q) return null
+    return (
+      store.getAll().invoices.find((i) => i.requestNo.toLowerCase() === q) || null
+    )
   },
 
   updateInvoice(id: string, patch: Partial<Omit<Invoice, 'id'>>) {
