@@ -2913,6 +2913,7 @@ button {
 .invoice-sheet.paper-a4 {
   width: 210mm;
   max-width: 100%;
+  height: 297mm;
   min-height: 297mm;
   box-sizing: border-box;
 }
@@ -2921,10 +2922,49 @@ button {
 .invoice-sheet.paper-a5 {
   width: 148mm;
   max-width: 100%;
+  height: 210mm;
   min-height: 210mm;
   box-sizing: border-box;
   font-size: 0.68rem;
-  padding: 0.65rem 0.75rem;
+  padding: 0.55rem 0.65rem;
+}
+
+.invoice-sheet.invoice-fill-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.invoice-sheet-topblock {
+  flex: 0 0 auto;
+}
+
+.invoice-table-grow {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.invoice-table-grow .invoice-items {
+  flex: 1 1 auto;
+  height: 100%;
+  margin-bottom: 0;
+}
+
+.invoice-filler-row td {
+  height: 1.35rem;
+  border: 1px solid #0f172a;
+  padding: 0;
+}
+
+.invoice-sheet.paper-a5 .invoice-filler-row td {
+  height: 0.95rem;
+}
+
+.invoice-sheet-foot {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding-top: 0.45rem;
 }
 
 .invoice-sheet.paper-a5 .invoice-centre-head strong {
@@ -3451,11 +3491,17 @@ button {
     border-radius: 0 !important;
     width: 100% !important;
     max-width: none !important;
-    min-height: auto !important;
     margin: 0 !important;
   }
 
+  .invoice-sheet.paper-a4 {
+    height: 281mm !important;
+    min-height: 281mm !important;
+  }
+
   .invoice-sheet.paper-a5 {
+    height: 200mm !important;
+    min-height: 200mm !important;
     font-size: 0.68rem !important;
     padding: 0 !important;
   }
@@ -3464,6 +3510,10 @@ button {
   .invoice-sheet.paper-a5 .invoice-items td {
     padding: 0.15rem 0.2rem !important;
     font-size: 0.6rem !important;
+  }
+
+  .invoice-filler-row td {
+    height: 1.25rem !important;
   }
 }
 

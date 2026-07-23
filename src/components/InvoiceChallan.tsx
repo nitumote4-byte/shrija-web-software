@@ -146,221 +146,236 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
   const totHm = view?.lines.reduce((s, l) => s + l.hm, 0) ?? 0
   const totRej = view?.lines.reduce((s, l) => s + l.rej, 0) ?? 0
   const totMelt = view?.lines.reduce((s, l) => s + l.melt, 0) ?? 0
+  const lineCount = view?.lines.length || 0
+  /** Fill remaining table rows so challan uses full A4/A5 paper height */
+  const minRows = paperSize === 'A5' ? 8 : 14
+  const fillerRows = Math.max(0, minRows - Math.max(lineCount, 1))
+  const colSpan = 9
 
   return (
     <div
-      className={`invoice-sheet paper-${paperSize.toLowerCase()}`}
+      className={`invoice-sheet paper-${paperSize.toLowerCase()} invoice-fill-page`}
       id={printId}
       data-paper={paperSize}
     >
-      <div className="invoice-centre-head">
-        <strong>{centreName}</strong>
-        <div className="invoice-centre-addr">
-          {centreAddr || '\u00A0'}
+      <div className="invoice-sheet-topblock">
+        <div className="invoice-centre-head">
+          <strong>{centreName}</strong>
+          <div className="invoice-centre-addr">{centreAddr || '\u00A0'}</div>
+          <div className="invoice-gstin">CENTRE GSTIN: {centreGst}</div>
         </div>
-        <div className="invoice-gstin">CENTRE GSTIN: {centreGst}</div>
+
+        <div className="invoice-title-bar">
+          <h2>INVOICE CUM DELIVERY CHALLAN</h2>
+        </div>
+
+        <div className="invoice-meta-grid">
+          <div className="invoice-party invoice-meta-box">
+            <div>
+              <span>Bill To:</span> {view?.partyName || ''}
+            </div>
+            <div className="invoice-addr-line">{view?.partyAddress || '\u00A0'}</div>
+            <div>
+              <span>CUSTOMER GSTIN:</span> {view?.partyGstin || ''}
+            </div>
+            <div>
+              <span>Gold CML Number:</span> {view?.partyCml || ''}
+            </div>
+            <div>
+              <span>Place of Supply:</span>{' '}
+              {view?.placeOfSupply
+                ? `${view.placeOfSupply}${view.stateCode ? ` (Code: ${view.stateCode})` : ''}`
+                : ''}
+            </div>
+          </div>
+          <div className="invoice-doc invoice-meta-box">
+            <div>
+              <span>Invoice No:</span> {view?.invoiceNo || ''}
+            </div>
+            <div>
+              <span>Invoice Date:</span> {dateShown}
+            </div>
+            <div>
+              <span>SAC:</span> {view?.sac || '998346'}
+            </div>
+            <div>
+              <span>Request No:</span> {view?.requestNo || ''}
+            </div>
+            <div>
+              <span>Request Date:</span>{' '}
+              {view?.requestDate ? formatInvoiceDateTime(view.requestDate).slice(0, 10) : ''}
+            </div>
+            <div>
+              <span>C/O:</span> {view?.careOf || (view ? 'N/A' : '')}
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="invoice-title-bar">
-        <h2>INVOICE CUM DELIVERY CHALLAN</h2>
-      </div>
-
-      <div className="invoice-meta-grid">
-        <div className="invoice-party invoice-meta-box">
-          <div>
-            <span>Bill To:</span> {view?.partyName || ''}
-          </div>
-          <div className="invoice-addr-line">{view?.partyAddress || '\u00A0'}</div>
-          <div>
-            <span>CUSTOMER GSTIN:</span> {view?.partyGstin || ''}
-          </div>
-          <div>
-            <span>Gold CML Number:</span> {view?.partyCml || ''}
-          </div>
-          <div>
-            <span>Place of Supply:</span>{' '}
-            {view?.placeOfSupply
-              ? `${view.placeOfSupply}${view.stateCode ? ` (Code: ${view.stateCode})` : ''}`
-              : ''}
-          </div>
-        </div>
-        <div className="invoice-doc invoice-meta-box">
-          <div>
-            <span>Invoice No:</span> {view?.invoiceNo || ''}
-          </div>
-          <div>
-            <span>Invoice Date:</span> {dateShown}
-          </div>
-          <div>
-            <span>SAC:</span> {view?.sac || '998346'}
-          </div>
-          <div>
-            <span>Request No:</span> {view?.requestNo || ''}
-          </div>
-          <div>
-            <span>Request Date:</span>{' '}
-            {view?.requestDate ? formatInvoiceDateTime(view.requestDate).slice(0, 10) : ''}
-          </div>
-          <div>
-            <span>C/O:</span> {view?.careOf || (view ? 'N/A' : '')}
-          </div>
-        </div>
-      </div>
-
-      <table className="invoice-items">
-        <thead>
-          <tr>
-            {cols.sno !== false && <th>S.No.</th>}
-            {cols.description !== false && <th>Description</th>}
-            {cols.purity !== false && <th>Purity</th>}
-            {cols.pcsRec !== false && <th>Pcs Rec</th>}
-            {cols.hm !== false && <th>HM</th>}
-            {cols.rej !== false && <th>Rej</th>}
-            {cols.melt !== false && <th>Melt</th>}
-            {cols.ratePcs !== false && <th>Rate For PCS</th>}
-            {cols.amount !== false && <th>Amount in RS</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {!view || view.lines.length === 0 ? (
+      <div className="invoice-table-grow">
+        <table className="invoice-items">
+          <thead>
             <tr>
-              <td colSpan={9} className="invoice-empty">
-                &nbsp;
-              </td>
+              {cols.sno !== false && <th>S.No.</th>}
+              {cols.description !== false && <th>Description</th>}
+              {cols.purity !== false && <th>Purity</th>}
+              {cols.pcsRec !== false && <th>Pcs Rec</th>}
+              {cols.hm !== false && <th>HM</th>}
+              {cols.rej !== false && <th>Rej</th>}
+              {cols.melt !== false && <th>Melt</th>}
+              {cols.ratePcs !== false && <th>Rate For PCS</th>}
+              {cols.amount !== false && <th>Amount in RS</th>}
             </tr>
-          ) : (
-            view.lines.map((line, i) => (
-              <tr key={`${line.description}-${i}`}>
-                {cols.sno !== false && <td>{i + 1}</td>}
-                {cols.description !== false && <td>{line.description}</td>}
-                {cols.purity !== false && <td>{line.purity}</td>}
-                {cols.pcsRec !== false && <td>{line.pcsRec}</td>}
-                {cols.hm !== false && <td>{line.hm}</td>}
-                {cols.rej !== false && <td>{line.rej}</td>}
-                {cols.melt !== false && <td>{line.melt}</td>}
-                {cols.ratePcs !== false && <td>{money(line.rate)}</td>}
-                {cols.amount !== false && <td>{money(line.amount)}</td>}
+          </thead>
+          <tbody>
+            {!view || view.lines.length === 0 ? (
+              <tr className="invoice-data-row">
+                <td colSpan={colSpan} className="invoice-empty">
+                  &nbsp;
+                </td>
               </tr>
-            ))
-          )}
-          <tr className="invoice-total-row">
-            <td
-              colSpan={
-                [
-                  cols.sno !== false,
-                  cols.description !== false,
-                  cols.purity !== false,
-                ].filter(Boolean).length
-              }
-            >
-              <strong>Total</strong>
-            </td>
-            {cols.pcsRec !== false && (
-              <td>
-                <strong>{view ? totPcs : ''}</strong>
-              </td>
+            ) : (
+              view.lines.map((line, i) => (
+                <tr key={`${line.description}-${i}`} className="invoice-data-row">
+                  {cols.sno !== false && <td>{i + 1}</td>}
+                  {cols.description !== false && <td>{line.description}</td>}
+                  {cols.purity !== false && <td>{line.purity}</td>}
+                  {cols.pcsRec !== false && <td>{line.pcsRec}</td>}
+                  {cols.hm !== false && <td>{line.hm}</td>}
+                  {cols.rej !== false && <td>{line.rej}</td>}
+                  {cols.melt !== false && <td>{line.melt}</td>}
+                  {cols.ratePcs !== false && <td>{money(line.rate)}</td>}
+                  {cols.amount !== false && <td>{money(line.amount)}</td>}
+                </tr>
+              ))
             )}
-            {cols.hm !== false && (
-              <td>
-                <strong>{view ? totHm : ''}</strong>
+            {Array.from({ length: fillerRows }).map((_, i) => (
+              <tr key={`fill-${i}`} className="invoice-filler-row">
+                <td colSpan={colSpan}>&nbsp;</td>
+              </tr>
+            ))}
+            <tr className="invoice-total-row">
+              <td
+                colSpan={
+                  [
+                    cols.sno !== false,
+                    cols.description !== false,
+                    cols.purity !== false,
+                  ].filter(Boolean).length
+                }
+              >
+                <strong>Total</strong>
               </td>
-            )}
-            {cols.rej !== false && (
-              <td>
-                <strong>{view ? totRej : ''}</strong>
-              </td>
-            )}
-            {cols.melt !== false && (
-              <td>
-                <strong>{view ? totMelt : ''}</strong>
-              </td>
-            )}
-            {cols.ratePcs !== false && <td />}
-            {cols.amount !== false && (
-              <td>
-                <strong>{view ? money(view.taxable) : ''}</strong>
-              </td>
-            )}
-          </tr>
-        </tbody>
-      </table>
-
-      <div className="invoice-bottom-grid">
-        <div className="invoice-weights">
-          <div className="invoice-weight-pair">
-            <span>
-              Weight Received: {view ? view.weightReceived.toFixed(3) : ''}
-            </span>
-            <span>
-              Sample Weight: {view ? view.sampleWeight.toFixed(3) : ''}
-            </span>
-          </div>
-          <div>
-            <span>Unused Sample Return:</span> {view ? view.unusedSample.toFixed(3) : ''}
-          </div>
-          <div>
-            <span>Wt. of Residue Sample Returned:</span>{' '}
-            {view ? view.fireboxScrap.toFixed(3) : ''}
-          </div>
-          <div>
-            <span>Weight Returned:</span> {view ? view.weightReturned.toFixed(3) : ''}
-          </div>
-        </div>
-        <div className="invoice-tax">
-          <div>
-            <span>CGST @ 9.00 %</span>
-            <strong>{view && !view.useIgst ? money(view.cgst) : '0.00'}</strong>
-          </div>
-          <div>
-            <span>SGST @ 9.00 %</span>
-            <strong>{view && !view.useIgst ? money(view.sgst) : '0.00'}</strong>
-          </div>
-          <div>
-            <span>IGST @ 18.00 %</span>
-            <strong>{view?.useIgst ? money(view.igst) : '0.00'}</strong>
-          </div>
-          <div className="invoice-grand">
-            <span>Grand Total</span>
-            <strong>{view ? money(view.grandTotal) : ''}</strong>
-          </div>
-        </div>
+              {cols.pcsRec !== false && (
+                <td>
+                  <strong>{view ? totPcs : ''}</strong>
+                </td>
+              )}
+              {cols.hm !== false && (
+                <td>
+                  <strong>{view ? totHm : ''}</strong>
+                </td>
+              )}
+              {cols.rej !== false && (
+                <td>
+                  <strong>{view ? totRej : ''}</strong>
+                </td>
+              )}
+              {cols.melt !== false && (
+                <td>
+                  <strong>{view ? totMelt : ''}</strong>
+                </td>
+              )}
+              {cols.ratePcs !== false && <td />}
+              {cols.amount !== false && (
+                <td>
+                  <strong>{view ? money(view.taxable) : ''}</strong>
+                </td>
+              )}
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <p className="invoice-received-note">
-        Received the precious Metal / Jewellery in satisfactory condition
-      </p>
+      <div className="invoice-sheet-foot">
+        <div className="invoice-bottom-grid">
+          <div className="invoice-weights">
+            <div className="invoice-weight-pair">
+              <span>
+                Weight Received: {view ? view.weightReceived.toFixed(3) : ''}
+              </span>
+              <span>
+                Sample Weight: {view ? view.sampleWeight.toFixed(3) : ''}
+              </span>
+            </div>
+            <div>
+              <span>Unused Sample Return:</span> {view ? view.unusedSample.toFixed(3) : ''}
+            </div>
+            <div>
+              <span>Wt. of Residue Sample Returned:</span>{' '}
+              {view ? view.fireboxScrap.toFixed(3) : ''}
+            </div>
+            <div>
+              <span>Weight Returned:</span> {view ? view.weightReturned.toFixed(3) : ''}
+            </div>
+          </div>
+          <div className="invoice-tax">
+            <div>
+              <span>CGST @ 9.00 %</span>
+              <strong>{view && !view.useIgst ? money(view.cgst) : '0.00'}</strong>
+            </div>
+            <div>
+              <span>SGST @ 9.00 %</span>
+              <strong>{view && !view.useIgst ? money(view.sgst) : '0.00'}</strong>
+            </div>
+            <div>
+              <span>IGST @ 18.00 %</span>
+              <strong>{view?.useIgst ? money(view.igst) : '0.00'}</strong>
+            </div>
+            <div className="invoice-grand">
+              <span>Grand Total</span>
+              <strong>{view ? money(view.grandTotal) : ''}</strong>
+            </div>
+          </div>
+        </div>
 
-      <div className="invoice-sign-grid">
-        <div>
-          <div className="invoice-sign-label">CUSTOMER&apos;S SIGNATURE</div>
-          <label className="invoice-check">
-            <input type="checkbox" /> By Courier
-          </label>
-          <label className="invoice-check">
-            <input type="checkbox" /> By Hand
-          </label>
-        </div>
-        <div className="invoice-auth">
-          <div>FOR, {centreName}</div>
-          {settings.sealDataUrl ? (
-            <img src={settings.sealDataUrl} alt="Seal" className="invoice-seal" />
-          ) : (
-            <div className="invoice-sign-space" />
-          )}
-          <div className="invoice-sign-label">Authorized Signatory</div>
-        </div>
-      </div>
+        <p className="invoice-received-note">
+          Received the precious Metal / Jewellery in satisfactory condition
+        </p>
 
-      <div className="invoice-bank">
-        {firm.bankName || 'ICICI BANK'}
-        {firm.accountNo ? ` | AC No. ${firm.accountNo}` : ''}
-        {firm.ifsc ? ` | IFSC Code: ${firm.ifsc}` : ''}
-      </div>
-      {settings.qrDataUrl && (
-        <div className="invoice-qr">
-          <img src={settings.qrDataUrl} alt="Payment QR" />
+        <div className="invoice-sign-grid">
+          <div>
+            <div className="invoice-sign-label">CUSTOMER&apos;S SIGNATURE</div>
+            <label className="invoice-check">
+              <input type="checkbox" /> By Courier
+            </label>
+            <label className="invoice-check">
+              <input type="checkbox" /> By Hand
+            </label>
+          </div>
+          <div className="invoice-auth">
+            <div>FOR, {centreName}</div>
+            {settings.sealDataUrl ? (
+              <img src={settings.sealDataUrl} alt="Seal" className="invoice-seal" />
+            ) : (
+              <div className="invoice-sign-space" />
+            )}
+            <div className="invoice-sign-label">Authorized Signatory</div>
+          </div>
         </div>
-      )}
+
+        <div className="invoice-bank">
+          {firm.bankName || 'ICICI BANK'}
+          {firm.accountNo ? ` | AC No. ${firm.accountNo}` : ''}
+          {firm.ifsc ? ` | IFSC Code: ${firm.ifsc}` : ''}
+        </div>
+        {settings.qrDataUrl && (
+          <div className="invoice-qr">
+            <img src={settings.qrDataUrl} alt="Payment QR" />
+          </div>
+        )}
+      </div>
     </div>
   )
 }
+
