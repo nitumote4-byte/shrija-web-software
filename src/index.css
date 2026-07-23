@@ -2546,16 +2546,20 @@ button {
 }
 
 @media print {
-  body * {
+  /*
+   * Credit-note overlay print only — do NOT hide the whole app on every print.
+   * (Global body * { visibility:hidden } blanked Invoice / Job Card print preview.)
+   */
+  body:has(.cn-preview-overlay) * {
     visibility: hidden !important;
   }
 
-  .cn-preview-overlay,
-  .cn-preview-overlay * {
+  body:has(.cn-preview-overlay) .cn-preview-overlay,
+  body:has(.cn-preview-overlay) .cn-preview-overlay * {
     visibility: visible !important;
   }
 
-  .cn-preview-overlay {
+  body:has(.cn-preview-overlay) .cn-preview-overlay {
     position: static !important;
     background: #fff !important;
     padding: 0 !important;
@@ -2573,9 +2577,9 @@ button {
     box-shadow: none;
   }
 
-  .top-header,
-  .modules-fab,
-  .cn-main {
+  body:has(.cn-preview-overlay) .top-header,
+  body:has(.cn-preview-overlay) .modules-fab,
+  body:has(.cn-preview-overlay) .cn-main {
     display: none !important;
   }
 }
