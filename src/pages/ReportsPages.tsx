@@ -1205,56 +1205,282 @@ export function PartyGstRegister() {
 }
 
 export function ExpenseRegister() {
-  const expenses = store.getAll().expenses
-  const total = expenses.reduce(
-    (s, e) => s + (Number(e.grossAmount) || Number(e.amount) + (Number(e.gstAmount) || 0)),
-    0,
+  const data = store.getAll()
+  const { toast, Toast } = useToast()
+  const [startDate, setStartDate] = useState(() => localYmd())
+  const [endDate, setEndDate] = useState(() => localYmd())
+  /** Empty = All Parties */
+  const [partyName, setPartyName] = useState('')
+  /** Empty = All Products */
+  const [product, setProduct] = useState('')
+  const [fetched, setFetched] = useState(false)
+
+  const partyOptions = useMemo(() => {
+    const names = new Set<string>()
+    for (const p of data.purchaseParties || []) {
+      if (p.name?.trim()) names.add(p.name.trim())
+    }
+    for (const e of data.expenses) {
+      const n = (e.partyName || e.paidTo || '').trim()
+      if (n) names.add(n)
+    }
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [data.purchaseParties, data.expenses])
+
+  const productOptions = useMemo(() => {
+    const names = new Set<string>()
+    for (const p of data.purchaseParties || []) {
+      if (p.product?.trim()) names.add(p.product.trim())
+    }
+    for (const e of data.expenses) {
+      const n = (e.product || e.category || '').trim()
+      if (n) names.add(n)
+    }
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [data.purchaseParties, data.expenses])
+
+  const rows = useMemo(() => {
+    if (!fetched) return []
+    const partyKey = partyName.trim().toLowerCase()
+    const productKey = product.trim().toLowerCase()
+    return data.expenses
+      .filter((e) => {
+        if (e.date < startDate || e.date > endDate) return false
+        const pname = (e.partyName || e.paidTo || '').trim().toLowerCase()
+        const prod = (e.product || e.category || '').trim().toLowerCase()
+        if (partyKey && pname !== partyKey) return false
+        if (productKey && prod !== productKey) return false
+        return true
+      })
+      .map((e) => {
+        const amount = Number(e.amount) || 0
+        const gst = Number(e.gstAmount) || 0
+        const gross = Number(e.grossAmount) || Number((amount + gst).toFixed(2))
+        return {
+          id: e.id,
+          date: e.date,
+          partyName: e.partyName || e.paidTo || '—',
+          product: e.product || e.category || '—',
+          mode: e.mode || 'Cash',
+          amount,
+          gst,
+          gross,
+          remarks: e.remarks || '',
+        }
+      })
+      .sort((a, b) => a.date.localeCompare(b.date) || a.partyName.localeCompare(b.partyName))
+  }, [fetched, data.expenses, startDate, endDate, partyName, product])
+
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, r) => {
+          acc.amount += r.amount
+          acc.gst += r.gst
+          acc.gross += r.gross
+          return acc
+        },
+        { amount: 0, gst: 0, gross: 0 },
+      ),
+    [rows],
   )
+
+  const money2 = (n: number) =>
+    n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  const formatDisplay = (iso: string) => {
+    const [y, m, d] = iso.split('-')
+    if (!y || !m || !d) return iso
+    return `${d}-${m}-${y}`
+  }
+
+  const doFetch = () => {
+    setFetched(true)
+    const partyKey = partyName.trim().toLowerCase()
+    const productKey = product.trim().toLowerCase()
+    const count = data.expenses.filter((e) => {
+      if (e.date < startDate || e.date > endDate) return false
+      const pname = (e.partyName || e.paidTo || '').trim().toLowerCase()
+      const prod = (e.product || e.category || '').trim().toLowerCase()
+      if (partyKey && pname !== partyKey) return false
+      if (productKey && prod !== productKey) return false
+      return true
+    }).length
+    toast(
+      count
+        ? `${count} expense(s) · ${partyName.trim() || 'All Parties'}`
+        : 'No expenses found for selected filters',
+    )
+  }
+
+  const download = () => {
+    if (!fetched) {
+      toast('Click Fetch Data first')
+      return
+    }
+    downloadCsv(`expense-register-${startDate}_${endDate}.csv`, [
+      [
+        'Date',
+        'Party Name',
+        'Product',
+        'Transaction Type',
+        'Amount',
+        'GST Amount',
+        'Gross Amount',
+        'Remark',
+      ],
+      ...rows.map((r) => [
+        r.date,
+        r.partyName,
+        r.product,
+        r.mode,
+        r.amount.toFixed(2),
+        r.gst.toFixed(2),
+        r.gross.toFixed(2),
+        r.remarks,
+      ]),
+      ['', '', '', 'Total', totals.amount.toFixed(2), totals.gst.toFixed(2), totals.gross.toFixed(2), ''],
+    ])
+    toast('Report downloaded')
+  }
+
   return (
-    <ReportShell title="Expense Register" subtitle="Track all business expenses">
-      <div className="stats-row">
-        <div className="stat-card">
-          <span>Total Expenses</span>
-          <strong>₹ {total.toLocaleString('en-IN')}</strong>
+    <div className="expreg-page">
+      <Link to="/reports" className="back-link">
+        <ArrowLeft size={16} /> Back to Reports
+      </Link>
+
+      <section className="invlist-filter-card">
+        <h2>Expense Register Filters</h2>
+        <p className="invlist-filter-hint">
+          Choose date range. Leave party / product as <strong>All</strong> for the full register, or pick one
+          for a filtered view.
+        </p>
+        <div className="invlist-filter-grid expreg-filter-grid">
+          <div className="field">
+            <label>START DATE</label>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>END DATE</label>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>PARTY NAME (OPTIONAL)</label>
+            <select value={partyName} onChange={(e) => setPartyName(e.target.value)}>
+              <option value="">All Parties</option>
+              {partyOptions.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>EXPENSE PRODUCT (OPTIONAL)</label>
+            <select value={product} onChange={(e) => setProduct(e.target.value)}>
+              <option value="">All Products</option>
+              {productOptions.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </div>
-      <div className="panel">
+        <div className="invlist-filter-actions">
+          <button type="button" className="btn btn-navy" onClick={doFetch}>
+            <Search size={16} /> Fetch Data
+          </button>
+          <button type="button" className="btn btn-green" onClick={download} disabled={!fetched}>
+            <Download size={16} /> Download Report
+          </button>
+        </div>
+      </section>
+
+      <section className="invlist-table-card">
+        <div className="expreg-title">
+          <h2>Expense Register</h2>
+          {fetched ? (
+            <p>
+              {formatDisplay(startDate)} — {formatDisplay(endDate)}
+              {!partyName.trim() ? ' · All Parties' : ` · ${partyName.trim()}`}
+              {!product.trim() ? '' : ` · ${product.trim()}`}
+            </p>
+          ) : (
+            <p>Select filters and click Fetch Data</p>
+          )}
+        </div>
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table navy-head-table">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Mode</th>
-                <th>Product</th>
-                <th>Party</th>
-                <th>Amount</th>
-                <th>GST</th>
-                <th>Gross</th>
-                <th>Remarks</th>
+                <th>DATE</th>
+                <th>PARTY NAME</th>
+                <th>PRODUCT</th>
+                <th>TRANSACTION TYPE</th>
+                <th>AMOUNT</th>
+                <th>GST AMOUNT</th>
+                <th>GROSS AMOUNT</th>
+                <th>REMARK</th>
               </tr>
             </thead>
             <tbody>
-              {expenses.map((e) => {
-                const gross =
-                  Number(e.grossAmount) || Number(e.amount) + (Number(e.gstAmount) || 0)
-                return (
-                  <tr key={e.id}>
-                    <td>{e.date}</td>
-                    <td>{e.mode || 'Cash'}</td>
-                    <td>{e.product || e.category}</td>
-                    <td>{e.partyName || e.paidTo}</td>
-                    <td>₹ {e.amount.toLocaleString('en-IN')}</td>
-                    <td>₹ {(Number(e.gstAmount) || 0).toLocaleString('en-IN')}</td>
-                    <td>₹ {gross.toLocaleString('en-IN')}</td>
-                    <td>{e.remarks || '—'}</td>
+              {!fetched ? (
+                <tr>
+                  <td colSpan={8} className="empty-state">
+                    Select date range and click Fetch Data
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="empty-state">
+                    No expenses found for selected filters
+                  </td>
+                </tr>
+              ) : (
+                <>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>{formatDisplay(r.date)}</td>
+                      <td>{r.partyName}</td>
+                      <td>{r.product}</td>
+                      <td className="expreg-mode">{r.mode}</td>
+                      <td>{money2(r.amount)}</td>
+                      <td>{money2(r.gst)}</td>
+                      <td>{money2(r.gross)}</td>
+                      <td>{r.remarks || '—'}</td>
+                    </tr>
+                  ))}
+                  <tr className="expreg-total-row">
+                    <td colSpan={4}>
+                      <strong>Total</strong>
+                    </td>
+                    <td>
+                      <strong>{money2(totals.amount)}</strong>
+                    </td>
+                    <td>
+                      <strong>{money2(totals.gst)}</strong>
+                    </td>
+                    <td>
+                      <strong>{money2(totals.gross)}</strong>
+                    </td>
+                    <td />
                   </tr>
-                )
-              })}
+                </>
+              )}
             </tbody>
           </table>
         </div>
+      </section>
+
+      <div className="manual-actions">
+        <Link to="/reports" className="btn btn-navy">
+          Back
+        </Link>
       </div>
-    </ReportShell>
+      {Toast}
+    </div>
   )
 }
 

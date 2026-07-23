@@ -8340,3 +8340,51 @@ table.data-table tr:hover td {
     grid-template-columns: 1fr;
   }
 }
+
+/* Expense Register report */
+.expreg-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.expreg-filter-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+.expreg-title {
+  padding: 0.85rem 1rem 0.35rem;
+}
+
+.expreg-title h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--navy);
+}
+
+.expreg-title p {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.expreg-mode {
+  text-transform: lowercase;
+}
+
+.expreg-total-row td {
+  background: #f1f5f9 !important;
+  font-weight: 700;
+  border-top: 2px solid #cbd5e1;
+}
+
+@media (max-width: 980px) {
+  .expreg-filter-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .expreg-filter-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
