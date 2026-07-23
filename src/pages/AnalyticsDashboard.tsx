@@ -190,16 +190,9 @@ export function AnalyticsDashboard() {
     }
 
     const revenue = data.invoices.reduce((s, i) => s + i.total, 0)
-    const received = data.invoices
-      .filter((i) => i.status === 'Paid')
-      .reduce((s, i) => s + i.total, 0)
-    const partial = data.invoices
-      .filter((i) => i.status === 'Partial')
-      .reduce((s, i) => s + i.total * 0.5, 0)
-    const receivedAmt = received + partial
-    const due = data.invoices
-      .filter((i) => i.status !== 'Paid')
-      .reduce((s, i) => s + (i.status === 'Partial' ? i.total * 0.5 : i.total), 0)
+    // Fund Entry receipts — not invoice Paid flag (GoldShark-style)
+    const receivedAmt = data.funds.reduce((s, f) => s + (Number(f.amount) || 0), 0)
+    const due = Math.max(0, revenue - receivedAmt)
 
     const huid = data.requests.filter((r) =>
       ['Hallmarked', 'Billed', 'Delivered'].includes(r.status),
