@@ -146,10 +146,6 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
   const totHm = view?.lines.reduce((s, l) => s + l.hm, 0) ?? 0
   const totRej = view?.lines.reduce((s, l) => s + l.rej, 0) ?? 0
   const totMelt = view?.lines.reduce((s, l) => s + l.melt, 0) ?? 0
-  const lineCount = view?.lines.length || 0
-  /** Fill remaining table rows so challan uses full A4/A5 paper height */
-  const minRows = paperSize === 'A5' ? 8 : 14
-  const fillerRows = Math.max(0, minRows - Math.max(lineCount, 1))
   const colSpan = 9
 
   return (
@@ -249,11 +245,18 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
                 </tr>
               ))
             )}
-            {Array.from({ length: fillerRows }).map((_, i) => (
-              <tr key={`fill-${i}`} className="invoice-filler-row">
-                <td colSpan={colSpan}>&nbsp;</td>
-              </tr>
-            ))}
+            {/* One row stretches so data fills full A4/A5 paper */}
+            <tr className="invoice-spacer-row" aria-hidden="true">
+              {cols.sno !== false && <td>&nbsp;</td>}
+              {cols.description !== false && <td>&nbsp;</td>}
+              {cols.purity !== false && <td>&nbsp;</td>}
+              {cols.pcsRec !== false && <td>&nbsp;</td>}
+              {cols.hm !== false && <td>&nbsp;</td>}
+              {cols.rej !== false && <td>&nbsp;</td>}
+              {cols.melt !== false && <td>&nbsp;</td>}
+              {cols.ratePcs !== false && <td>&nbsp;</td>}
+              {cols.amount !== false && <td>&nbsp;</td>}
+            </tr>
             <tr className="invoice-total-row">
               <td
                 colSpan={

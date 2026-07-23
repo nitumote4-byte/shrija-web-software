@@ -2947,8 +2947,25 @@ button {
 
 .invoice-table-grow .invoice-items {
   flex: 1 1 auto;
+  width: 100%;
   height: 100%;
   margin-bottom: 0;
+  border-collapse: collapse;
+}
+
+.invoice-table-grow .invoice-items tbody {
+  height: 100%;
+}
+
+.invoice-spacer-row {
+  height: 100%;
+}
+
+.invoice-spacer-row td {
+  border: 1px solid #0f172a;
+  vertical-align: top;
+  height: 100%;
+  padding: 0.2rem;
 }
 
 .invoice-filler-row td {
@@ -2963,8 +2980,8 @@ button {
 
 .invoice-sheet-foot {
   flex: 0 0 auto;
-  margin-top: auto;
-  padding-top: 0.45rem;
+  margin-top: 0;
+  padding-top: 0.35rem;
 }
 
 .invoice-sheet.paper-a5 .invoice-centre-head strong {
@@ -3514,6 +3531,18 @@ button {
 
   .invoice-filler-row td {
     height: 1.25rem !important;
+  }
+
+  .invoice-spacer-row {
+    height: 100% !important;
+  }
+
+  .invoice-table-grow {
+    flex: 1 1 auto !important;
+  }
+
+  .invoice-table-grow .invoice-items {
+    height: 100% !important;
   }
 }
 
