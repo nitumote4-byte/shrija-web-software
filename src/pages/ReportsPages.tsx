@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -1926,6 +1926,7 @@ export function ProfitLossReport() {
 export function InvoiceListReport() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
+  /** Empty string = All Parties */
   const [partyName, setPartyName] = useState('')
   const [status, setStatus] = useState('All Status')
   const [txnType, setTxnType] = useState('All Types')
@@ -1937,31 +1938,41 @@ export function InvoiceListReport() {
   const [endDate, setEndDate] = useState(() => localYmd())
   const [fetched, setFetched] = useState(false)
 
-  const partyOptions = useMemo(
-    () => [...new Set(data.parties.map((p) => p.name))].sort(),
-    [data.parties],
-  )
+  const partyOptions = useMemo(() => {
+    const names = new Set<string>()
+    for (const p of data.parties) {
+      if (p.name?.trim()) names.add(p.name.trim())
+    }
+    for (const inv of data.invoices) {
+      if (inv.partyName?.trim()) names.add(inv.partyName.trim())
+    }
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [data.parties, data.invoices])
 
   const paymentStatusById = useMemo(
     () => computeInvoicePaymentStatuses(data.invoices, data.funds),
     [data.invoices, data.funds],
   )
 
+  const findParty = (name: string) =>
+    data.parties.find((p) => p.name.toLowerCase() === name.trim().toLowerCase())
+
   const rows = useMemo(() => {
     if (!fetched) return []
+    const partyKey = partyName.trim().toLowerCase()
     return data.invoices
       .filter((inv) => {
-        if (partyName && inv.partyName.toLowerCase() !== partyName.toLowerCase()) return false
+        if (partyKey && inv.partyName.trim().toLowerCase() !== partyKey) return false
         const payStatus = paymentStatusById.get(inv.id) || inv.status
         if (status !== 'All Status' && payStatus.toUpperCase() !== status.toUpperCase()) return false
         if (inv.date < startDate || inv.date > endDate) return false
-        const party = data.parties.find((p) => p.name === inv.partyName)
+        const party = findParty(inv.partyName)
         if (txnType !== 'All Types' && party && party.transactionType !== txnType) return false
         if (txnType !== 'All Types' && !party) return false
         return true
       })
       .map((inv) => {
-        const party = data.parties.find((p) => p.name === inv.partyName)
+        const party = findParty(inv.partyName)
         const req = data.requests.find((r) => r.requestNo === inv.requestNo)
         const rough = data.roughSheets.filter(
           (r) =>
@@ -1987,7 +1998,28 @@ export function InvoiceListReport() {
           txnType: party?.transactionType || '—',
         }
       })
+      .sort((a, b) => {
+        const byParty = a.inv.partyName.localeCompare(b.inv.partyName)
+        if (byParty !== 0) return byParty
+        return a.inv.date.localeCompare(b.inv.date) || a.inv.invoiceNo.localeCompare(b.inv.invoiceNo)
+      })
+    // findParty closes over data.parties — ok inside useMemo deps via data
   }, [fetched, data, partyName, status, txnType, startDate, endDate, paymentStatusById])
+
+  /** All Parties → group by party; single party → one group */
+  const partyGroups = useMemo(() => {
+    if (!fetched || rows.length === 0) return [] as { party: string; rows: typeof rows }[]
+    if (partyName.trim()) {
+      return [{ party: partyName.trim(), rows }]
+    }
+    const map = new Map<string, typeof rows>()
+    for (const r of rows) {
+      const key = r.inv.partyName || '—'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(r)
+    }
+    return [...map.entries()].map(([party, groupRows]) => ({ party, rows: groupRows }))
+  }, [fetched, rows, partyName])
 
   const summary = useMemo(() => {
     return rows.reduce(
@@ -2008,12 +2040,18 @@ export function InvoiceListReport() {
   const getInvoices = () => {
     store.syncInvoicePaymentStatuses()
     setFetched(true)
-    const inRange = data.invoices.filter((inv) => inv.date >= startDate && inv.date <= endDate)
+    // toast after state will use current filters on next render — compute here
+    const partyKey = partyName.trim().toLowerCase()
+    const matched = data.invoices.filter((inv) => {
+      if (partyKey && inv.partyName.trim().toLowerCase() !== partyKey) return false
+      return inv.date >= startDate && inv.date <= endDate
+    })
+    const scope = partyName.trim() ? partyName.trim() : 'All Parties'
     toast(
-      inRange.length
-        ? `${inRange.length} invoice(s) in date range`
+      matched.length
+        ? `${matched.length} invoice(s) · ${scope}`
         : data.invoices.length
-          ? `No invoices between ${startDate} and ${endDate} (${data.invoices.length} total — widen dates)`
+          ? `No invoices for ${scope} between ${startDate} and ${endDate}`
           : 'No invoices found',
     )
   }
@@ -2023,7 +2061,8 @@ export function InvoiceListReport() {
       toast('Click Get Invoices first')
       return
     }
-    downloadCsv('invoice-list.csv', [
+    const scope = partyName.trim() || 'all-parties'
+    downloadCsv(`invoice-list-${scope.replace(/\s+/g, '-').toLowerCase()}.csv`, [
       [
         'Bill Date',
         'Bill No',
@@ -2065,6 +2104,22 @@ export function InvoiceListReport() {
     return `${d}/${m}/${y}`
   }
 
+  const groupSubtotal = (groupRows: typeof rows) =>
+    groupRows.reduce(
+      (acc, r) => {
+        acc.hm += r.hmPiece
+        acc.amount += r.inv.amount
+        acc.sgst += r.sgst
+        acc.cgst += r.cgst
+        acc.igst += r.igst
+        acc.grand += r.inv.total
+        return acc
+      },
+      { hm: 0, amount: 0, sgst: 0, cgst: 0, igst: 0, grand: 0 },
+    )
+
+  const showPartyGroups = !partyName.trim() && partyGroups.length > 1
+
   return (
     <div className="invlist-page">
       <Link to="/reports" className="back-link">
@@ -2073,20 +2128,21 @@ export function InvoiceListReport() {
 
       <section className="invlist-filter-card">
         <h2>Filter Invoices by Date Range</h2>
+        <p className="invlist-filter-hint">
+          Choose <strong>All Parties</strong> for the full list (party-wise sections), or pick one party for
+          individual invoices.
+        </p>
         <div className="invlist-filter-grid">
           <div className="field">
-            <label>PARTY NAME</label>
-            <input
-              list="invlist-parties"
-              placeholder="Select Party (Optional)"
-              value={partyName}
-              onChange={(e) => setPartyName(e.target.value)}
-            />
-            <datalist id="invlist-parties">
+            <label>PARTY</label>
+            <select value={partyName} onChange={(e) => setPartyName(e.target.value)}>
+              <option value="">All Parties</option>
               {partyOptions.map((p) => (
-                <option key={p} value={p} />
+                <option key={p} value={p}>
+                  {p}
+                </option>
               ))}
-            </datalist>
+            </select>
           </div>
           <div className="field">
             <label>STATUS</label>
@@ -2128,6 +2184,18 @@ export function InvoiceListReport() {
       </section>
 
       <section className="invlist-table-card">
+        <div className="invlist-scope-bar">
+          {fetched ? (
+            <span>
+              Showing:{' '}
+              <strong>{partyName.trim() ? partyName.trim() : 'All Parties'}</strong>
+              {rows.length ? ` · ${rows.length} invoice(s)` : null}
+              {showPartyGroups ? ` · ${partyGroups.length} parties` : null}
+            </span>
+          ) : (
+            <span>Select filters and click Get Invoices</span>
+          )}
+        </div>
         <div className="table-wrap">
           <table className="data-table navy-head-table invlist-table">
             <thead>
@@ -2151,7 +2219,7 @@ export function InvoiceListReport() {
                 <tr>
                   <td colSpan={12} className="empty-state invlist-empty">
                     <span className="invlist-empty-icon">📄</span>
-                    Select date range and click &apos;Get Invoices&apos;
+                    Select All Parties or one party, then click &apos;Get Invoices&apos;
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
@@ -2160,6 +2228,54 @@ export function InvoiceListReport() {
                     No invoices found for selected filters
                   </td>
                 </tr>
+              ) : showPartyGroups ? (
+                partyGroups.map((g) => {
+                  const sub = groupSubtotal(g.rows)
+                  return (
+                    <Fragment key={g.party}>
+                      <tr className="invlist-party-head">
+                        <td colSpan={12}>
+                          <strong>{g.party}</strong>
+                          <span>
+                            {g.rows.length} bill(s) · HM {sub.hm} · {money(sub.grand)}
+                          </span>
+                        </td>
+                      </tr>
+                      {g.rows.map((r) => (
+                        <tr key={r.inv.id}>
+                          <td>{formatDate(r.inv.date)}</td>
+                          <td>{r.inv.invoiceNo}</td>
+                          <td>{r.inv.partyName}</td>
+                          <td>{r.party?.state || '—'}</td>
+                          <td>{r.party?.gstin || '—'}</td>
+                          <td>{r.hmPiece}</td>
+                          <td>{money(r.inv.amount)}</td>
+                          <td>{money(r.sgst)}</td>
+                          <td>{money(r.cgst)}</td>
+                          <td>{money(r.igst)}</td>
+                          <td>{money(r.inv.total)}</td>
+                          <td>
+                            <span
+                              className={`invlist-status ${r.payStatus === 'Unpaid' ? 'unpaid' : r.payStatus === 'Paid' ? 'paid' : 'partial'}`}
+                            >
+                              {r.payStatus.toUpperCase()}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="invlist-party-sub">
+                        <td colSpan={5}>Subtotal — {g.party}</td>
+                        <td>{sub.hm}</td>
+                        <td>{money(sub.amount)}</td>
+                        <td>{money(sub.sgst)}</td>
+                        <td>{money(sub.cgst)}</td>
+                        <td>{money(sub.igst)}</td>
+                        <td>{money(sub.grand)}</td>
+                        <td />
+                      </tr>
+                    </Fragment>
+                  )
+                })
               ) : (
                 rows.map((r) => (
                   <tr key={r.inv.id}>
