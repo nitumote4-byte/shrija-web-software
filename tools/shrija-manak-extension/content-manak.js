@@ -223,6 +223,10 @@ function markLotDone(lotKey) {
   })
 }
 
+function resolveFromSheet(sheet, selectText, lot) {
+  return MF.resolveStripRows(sheet, lot, selectText)
+}
+
 /** Sample Drawn / Button must be ≥ 2× max strip M1 so Manak accepts strip weights (fineness stays correct). */
 function requiredDrawnForStrips(sheet, selectText, lot) {
   const resolved = resolveFromSheet(sheet, selectText, lot)
@@ -232,7 +236,6 @@ function requiredDrawnForStrips(sheet, selectText, lot) {
   const need = Math.max(s1, s2) * 2 + 0.002
   return Number(Math.max(fromSheet, need).toFixed(3))
 }
-
 
 async function stepSampleDrawn(sheet, flow) {
   const resolved = resolveFromSheet(sheet, flow.selectText, flow.lot)
