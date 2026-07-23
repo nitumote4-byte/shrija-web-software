@@ -67,6 +67,8 @@ export type RoughSheetEntry = {
   address: string
   requestNo?: string
   jobCardNo?: string
+  /** True after Job Card No was saved (Gold Shark: Save before Complete) */
+  jobCardSaved?: boolean
   co?: string
   sampleTagId?: string
   cornet?: number
@@ -606,6 +608,7 @@ function normalizeRough(r: Partial<RoughSheetEntry> & { id: string }): RoughShee
     address: r.address ?? '',
     requestNo: r.requestNo,
     jobCardNo: r.jobCardNo ?? '',
+    jobCardSaved: Boolean(r.jobCardSaved),
     co: r.co ?? '',
     sampleTagId: r.sampleTagId ?? '',
     cornet: r.cornet,
@@ -780,6 +783,7 @@ export const store = {
         | 'samplingMethod'
         | 'weight'
         | 'jobCardNo'
+        | 'jobCardSaved'
         | 'co'
         | 'sampleTagId'
         | 'cornet'
@@ -793,6 +797,11 @@ export const store = {
     const row = data.roughSheets.find((r) => r.id === id)
     if (!row) return
     Object.assign(row, patch)
+    // Keep HallmarkRequest job card in sync when saved
+    if (patch.jobCardNo !== undefined && row.requestNo) {
+      const req = findRequestByNo(data, row.requestNo)
+      if (req) req.jobCardNo = patch.jobCardNo
+    }
     save(data)
   },
 
@@ -1121,27 +1130,29 @@ export const store = {
         data.requests.unshift(req)
       }
 
-      if (!data.roughSheets.some((r) => r.requestNo === requestNo && r.status === 'Pending')) {
-        data.roughSheets.unshift({
-          id: uid('rs'),
-          partyId: input.partyId,
-          partyName: input.partyName,
-          item: row.item || 'Jewellery',
-          pic: row.pic,
-          weight: row.weight,
-          purity,
-          sampleWeight: 0,
-          sampleQty: 0,
-          samplingMethod: '',
-          cml: row.cml || '',
-          status: 'Pending',
-          shift: input.night === 'Night' ? 'Night' : 'Day',
-          date: input.date,
-          address: partyAddr,
-          requestNo,
-          jobCardNo: row.jobCardNo || '',
-        })
-      }
+      // One day-sheet line per item (same Request No can have many Job Cards)
+      data.roughSheets.unshift({
+        id: uid('rs'),
+        partyId: input.partyId,
+        partyName: input.partyName,
+        item: row.item || 'Jewellery',
+        pic: row.pic,
+        weight: row.weight,
+        purity,
+        sampleWeight: 0,
+        sampleQty: 1,
+        samplingMethod: '',
+        cml: row.cml || '',
+        status: 'Accepted',
+        shift: input.night === 'Night' ? 'Night' : 'Day',
+        date: input.date,
+        address: partyAddr,
+        requestNo,
+        jobCardNo: row.jobCardNo || '',
+        jobCardSaved: false,
+        cornet: 0,
+        rejectPic: 0,
+      })
 
       return req
     })
@@ -1209,31 +1220,29 @@ export const store = {
         }
       }
 
-      // Create rough sheet line for lab (Gold Shark chain)
-      const existingRough = data.roughSheets.find(
-        (r) => r.requestNo === requestNo && r.status === 'Pending',
-      )
-      if (!existingRough) {
-        data.roughSheets.unshift({
-          id: uid('rs'),
-          partyId: row.partyId,
-          partyName: row.partyName,
-          item: row.item || 'Jewellery',
-          pic: row.pic,
-          weight: row.weight,
-          purity,
-          sampleWeight: 0,
-          sampleQty: 0,
-          samplingMethod: '',
-          cml: row.cml || '',
-          status: 'Pending',
-          shift: input.night === 'Night' ? 'Night' : 'Day',
-          date: row.date || today(),
-          address: partyAddr(row.partyId),
-          requestNo,
-          jobCardNo: row.jobCardNo || '',
-        })
-      }
+      // One day-sheet line per Auto item
+      data.roughSheets.unshift({
+        id: uid('rs'),
+        partyId: row.partyId,
+        partyName: row.partyName,
+        item: row.item || 'Jewellery',
+        pic: row.pic,
+        weight: row.weight,
+        purity,
+        sampleWeight: 0,
+        sampleQty: 1,
+        samplingMethod: '',
+        cml: row.cml || '',
+        status: 'Accepted',
+        shift: input.night === 'Night' ? 'Night' : 'Day',
+        date: row.date || today(),
+        address: partyAddr(row.partyId),
+        requestNo,
+        jobCardNo: row.jobCardNo || '',
+        jobCardSaved: false,
+        cornet: 0,
+        rejectPic: 0,
+      })
 
       return req
     })

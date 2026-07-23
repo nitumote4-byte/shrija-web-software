@@ -3022,6 +3022,23 @@ button {
   font-size: 0.75rem !important;
 }
 
+.reqlist-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.reqlist-cornet {
+  background: #fecaca !important;
+  border-color: #f87171 !important;
+  font-weight: 600;
+}
+
+.reqlist-jobcard-missing {
+  border-color: #dc2626 !important;
+  background: #fef2f2 !important;
+}
+
 .reqlist-dirty {
   background: #fffbeb;
 }

@@ -18,21 +18,43 @@ function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
   return entries.map((r) => ({
     ...r,
     jobCardNo: r.jobCardNo || '',
+    jobCardSaved: Boolean(r.jobCardSaved),
     co: r.co || '',
     sampleTagId: r.sampleTagId || '',
-    cornet: r.cornet ?? calcCornet(r.weight, r.purity),
+    sampleQty: r.sampleQty ?? 1,
+    cornet: r.cornet ?? 0,
     rejectPic: r.rejectPic ?? 0,
     checked: false,
     dirty: false,
   }))
 }
 
+function persistRow(row: SheetRow, markJobSaved: boolean) {
+  const jobCardNo = (row.jobCardNo || '').trim()
+  store.updateRoughSheetRow(row.id, {
+    jobCardNo,
+    jobCardSaved: markJobSaved ? Boolean(jobCardNo) : Boolean(row.jobCardSaved && jobCardNo),
+    co: row.co,
+    sampleWeight: Number(row.sampleWeight) || 0,
+    sampleQty: Number(row.sampleQty) || 0,
+    sampleTagId: row.sampleTagId,
+    samplingMethod: row.samplingMethod,
+    cornet: Number(row.cornet) || 0,
+    rejectPic: Number(row.rejectPic) || 0,
+    weight: Number(row.weight) || 0,
+  })
+}
+
+/**
+ * Gold Shark Daily Sheet / Request List:
+ * Saved Manual/Auto requests appear here with editable fields.
+ * Job Card No is mandatory — Save first, then Complete.
+ */
 export function RequestList() {
   const { toast, Toast } = useToast()
-  const data = store.getAll()
 
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [shift, setShift] = useState('')
+  const [shift, setShift] = useState('Day')
   const [metal, setMetal] = useState('')
   const [purity, setPurity] = useState('')
   const [status, setStatus] = useState('')
@@ -47,7 +69,6 @@ export function RequestList() {
   }
 
   void tick
-  void data
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -70,7 +91,8 @@ export function RequestList() {
   }, [rows, date, shift, metal, purity, status, requestNo, jobCardQ])
 
   const allChecked = filtered.length > 0 && filtered.every((r) => r.checked)
-  const selectedIds = filtered.filter((r) => r.checked).map((r) => r.id)
+  const selected = filtered.filter((r) => r.checked)
+  const selectedIds = selected.map((r) => r.id)
 
   const totals = useMemo(() => {
     return filtered.reduce(
@@ -92,9 +114,9 @@ export function RequestList() {
         if (r.id !== id) return r
         const next = { ...r, ...patch }
         const dataChanged = Object.keys(patch).some((k) => k !== 'checked')
-        if (dataChanged) next.dirty = true
-        if (patch.weight != null || patch.purity != null || patch.sampleWeight != null) {
-          next.cornet = calcCornet(Number(next.weight), next.purity)
+        if (dataChanged) {
+          next.dirty = true
+          if (patch.jobCardNo !== undefined) next.jobCardSaved = false
         }
         return next
       }),
@@ -109,66 +131,64 @@ export function RequestList() {
   const saveRow = (id: string) => {
     const row = rows.find((r) => r.id === id)
     if (!row) return
-    store.updateRoughSheetRow(id, {
-      jobCardNo: row.jobCardNo,
-      co: row.co,
-      sampleWeight: Number(row.sampleWeight) || 0,
-      sampleQty: Number(row.sampleQty) || 0,
-      sampleTagId: row.sampleTagId,
-      samplingMethod: row.samplingMethod,
-      cornet: Number(row.cornet) || 0,
-      rejectPic: Number(row.rejectPic) || 0,
-      weight: Number(row.weight) || 0,
-    })
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, dirty: false } : r)))
+    const jc = (row.jobCardNo || '').trim()
+    if (!jc) {
+      toast('Job Card No is mandatory — enter Job Card, then Save')
+      return
+    }
+    persistRow(row, true)
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, dirty: false, jobCardSaved: true, jobCardNo: jc } : r)),
+    )
     toast('Row saved')
   }
 
   const saveAll = () => {
-    const dirty = filtered.filter((r) => r.dirty || r.checked)
-    const targets = dirty.length ? dirty : filtered
-    for (const row of targets) {
-      store.updateRoughSheetRow(row.id, {
-        jobCardNo: row.jobCardNo,
-        co: row.co,
-        sampleWeight: Number(row.sampleWeight) || 0,
-        sampleQty: Number(row.sampleQty) || 0,
-        sampleTagId: row.sampleTagId,
-        samplingMethod: row.samplingMethod,
-        cornet: Number(row.cornet) || 0,
-        rejectPic: Number(row.rejectPic) || 0,
-        weight: Number(row.weight) || 0,
-      })
+    const targets = filtered.filter((r) => r.checked || r.dirty || !r.jobCardSaved)
+    const list = targets.length ? targets : filtered
+    const missing = list.filter((r) => !(r.jobCardNo || '').trim())
+    if (missing.length) {
+      toast(`Job Card No is mandatory on ${missing.length} row(s) — fill and Save first`)
+      return
     }
+    for (const row of list) persistRow(row, true)
     reload()
-    toast(`Saved ${targets.length} row(s)`)
+    toast(`Saved ${list.length} row(s)`)
   }
 
-  const bulkStatus = (next: RoughSheetEntry['status']) => {
+  const completeSelected = () => {
     if (selectedIds.length === 0) {
       toast('Select at least one row')
       return
     }
-    // Persist edits first
-    for (const id of selectedIds) {
-      const row = rows.find((r) => r.id === id)
-      if (!row) continue
-      store.updateRoughSheetRow(id, {
-        jobCardNo: row.jobCardNo,
-        sampleWeight: Number(row.sampleWeight) || 0,
-        sampleQty: Number(row.sampleQty) || 0,
-        cornet: Number(row.cornet) || 0,
-      })
+    const noJob = selected.filter((r) => !(r.jobCardNo || '').trim())
+    if (noJob.length) {
+      toast('Job Card No is mandatory — enter Job Card, Save, then Complete')
+      return
     }
-    store.updateRoughSheetStatus(selectedIds, next)
+    const unsaved = selected.filter((r) => r.dirty || !r.jobCardSaved)
+    if (unsaved.length) {
+      toast('Save Job Card first, then Complete')
+      return
+    }
+    store.updateRoughSheetStatus(selectedIds, 'Completed')
     reload()
-    toast(`${selectedIds.length} row(s) marked ${next}`)
+    toast(`${selectedIds.length} row(s) completed`)
+  }
+
+  const rejectSelected = () => {
+    if (selectedIds.length === 0) {
+      toast('Select at least one row')
+      return
+    }
+    store.updateRoughSheetStatus(selectedIds, 'Rejected')
+    reload()
+    toast(`${selectedIds.length} row(s) rejected`)
   }
 
   const weighRow = (id: string) => {
     const row = rows.find((r) => r.id === id)
     if (!row) return
-    // Simulate balance capture into sample weight
     const captured = Number((0.2 + Math.random() * 0.6).toFixed(3))
     patchRow(id, { sampleWeight: captured })
     toast(`Weighing captured: ${captured} g`)
@@ -196,13 +216,6 @@ export function RequestList() {
             </option>
           ))}
         </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Select Status</option>
-          <option value="Pending">Pending</option>
-          <option value="Accepted">Accepted</option>
-          <option value="Completed">Completed</option>
-          <option value="Rejected">Rejected</option>
-        </select>
         <input
           placeholder="Request number"
           value={requestNo}
@@ -213,19 +226,31 @@ export function RequestList() {
           value={jobCardQ}
           onChange={(e) => setJobCardQ(e.target.value)}
         />
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">Select Status</option>
+          <option value="Pending">Pending</option>
+          <option value="Accepted">Accepted</option>
+          <option value="Completed">Completed</option>
+          <option value="Rejected">Rejected</option>
+        </select>
       </div>
 
       <div className="reqlist-actions">
-        <button type="button" className="btn btn-navy" onClick={() => bulkStatus('Rejected')}>
+        <button type="button" className="btn btn-navy" onClick={rejectSelected}>
           Reject
         </button>
-        <button type="button" className="btn btn-navy" onClick={() => bulkStatus('Completed')}>
+        <button type="button" className="btn btn-navy" onClick={completeSelected}>
           Complete
         </button>
         <button type="button" className="btn btn-navy" onClick={saveAll}>
           Save All
         </button>
       </div>
+
+      <p className="reqlist-hint">
+        Job Card No is mandatory. Enter Job Card → <strong>Save</strong> / Save All → then{' '}
+        <strong>Complete</strong>.
+      </p>
 
       <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="table-wrap reqlist-table-wrap">
@@ -247,7 +272,7 @@ export function RequestList() {
                 <th>Weight</th>
                 <th>Purity</th>
                 <th>Request No</th>
-                <th>Job Card No</th>
+                <th>Job Card No *</th>
                 <th>Sample Weight</th>
                 <th>Sample Qty</th>
                 <th>Sample Tag Id</th>
@@ -262,7 +287,7 @@ export function RequestList() {
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={17} className="empty-state">
-                    No records found
+                    No records found — save Manual/Auto Request to populate this day sheet.
                   </td>
                 </tr>
               ) : (
@@ -290,10 +315,11 @@ export function RequestList() {
                     <td>{r.requestNo || '—'}</td>
                     <td>
                       <input
-                        className="table-input"
+                        className={`table-input reqlist-jobcard ${!(r.jobCardNo || '').trim() ? 'reqlist-jobcard-missing' : ''}`}
                         value={r.jobCardNo || ''}
                         onChange={(e) => patchRow(r.id, { jobCardNo: e.target.value })}
-                        placeholder="Job card"
+                        placeholder="Job card *"
+                        required
                       />
                     </td>
                     <td>
@@ -332,7 +358,17 @@ export function RequestList() {
                         onChange={(e) => patchRow(r.id, { samplingMethod: e.target.value })}
                       />
                     </td>
-                    <td>{Number(r.cornet || 0).toFixed(3)}</td>
+                    <td>
+                      <input
+                        className="table-input reqlist-cornet"
+                        type="number"
+                        step="0.001"
+                        value={Number(r.cornet || 0)}
+                        onChange={(e) =>
+                          patchRow(r.id, { cornet: Number(e.target.value) || 0 })
+                        }
+                      />
+                    </td>
                     <td>
                       <input
                         className="table-input"
@@ -355,13 +391,15 @@ export function RequestList() {
                       </button>
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn btn-navy reqlist-save"
-                        onClick={() => saveRow(r.id)}
-                      >
-                        Save
-                      </button>
+                      {(r.dirty || !r.jobCardSaved) && (
+                        <button
+                          type="button"
+                          className="btn btn-navy reqlist-save"
+                          onClick={() => saveRow(r.id)}
+                        >
+                          Save
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
