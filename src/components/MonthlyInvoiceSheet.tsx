@@ -1,7 +1,7 @@
 import { FileText } from 'lucide-react'
 import { formatInvoiceDateTime } from './InvoiceChallan'
 import { InvoicePaperSizeToggle } from './InvoicePaperSizeToggle'
-import { getFirmProfile } from '../data/firmProfile'
+import { getInvoiceHeader } from '../data/firmProfile'
 import type { MonthlyInvoice, MonthlyInvoiceLine } from '../data/store'
 import type { InvoicePaperSize } from '../utils/invoicePaper'
 
@@ -60,8 +60,12 @@ export function MonthlyInvoiceSheet({
   paperSize,
   printId = 'monthly-invoice-print',
 }: SheetProps) {
-  const firm = getFirmProfile()
-  const centreName = firm.firmName || 'Hallmarking Centre'
+  const header = getInvoiceHeader()
+  const centreName = header.centreName
+  const centreAddr =
+    header.centreKind === 'osc'
+      ? `${header.centreAddress}${header.firmName ? ` (Outlet of ${header.firmName})` : ''}`
+      : header.centreAddress
   const minRows = paperSize === 'A5' ? 8 : 12
   const filler = Math.max(0, minRows - Math.max(view?.lines.length || 0, 0))
 
@@ -74,8 +78,8 @@ export function MonthlyInvoiceSheet({
       <div className="invoice-sheet-topblock">
         <div className="invoice-centre-head">
           <strong>{centreName}</strong>
-          <div className="invoice-centre-addr">{firm.address || '\u00A0'}</div>
-          <div className="invoice-gstin">CENTRE GSTIN: {firm.gstNo || '—'}</div>
+          <div className="invoice-centre-addr">{centreAddr || '\u00A0'}</div>
+          <div className="invoice-gstin">CENTRE GSTIN: {header.centreGstin}</div>
         </div>
         <div className="invoice-title-bar">
           <h2>MONTHLY CONSOLIDATED INVOICE</h2>

@@ -34,6 +34,46 @@ function slugify(name: string) {
   )
 }
 
+type CentreRow = { id: string; kind: 'main' | 'osc'; name: string; address?: string }
+
+async function resolveUserCentre(
+  tenantId: string,
+  firmName: string,
+  centreId?: string | null,
+): Promise<{ centreId: string; centreKind: 'main' | 'osc'; centreName: string }> {
+  const { rows } = await pool.query(
+    `SELECT firm_name AS "firmName", address, centres FROM firm_profiles WHERE tenant_id = $1`,
+    [tenantId],
+  )
+  const row = rows[0] as
+    | { firmName: string; address: string; centres: unknown }
+    | undefined
+  let centres: CentreRow[] = []
+  try {
+    const raw = row?.centres
+    centres = Array.isArray(raw) ? (raw as CentreRow[]) : typeof raw === 'string' ? JSON.parse(raw) : []
+  } catch {
+    centres = []
+  }
+  const main: CentreRow = {
+    id: 'main',
+    kind: 'main',
+    name: row?.firmName || firmName,
+    address: row?.address || '',
+  }
+  const list = [
+    centres.find((c) => c?.kind === 'main' || c?.id === 'main') || main,
+    ...centres.filter((c) => c && c.kind === 'osc' && c.id),
+  ]
+  const wanted = (centreId || 'main').trim() || 'main'
+  const found = list.find((c) => c.id === wanted) || list[0] || main
+  return {
+    centreId: found.id || 'main',
+    centreKind: found.kind === 'osc' ? 'osc' : 'main',
+    centreName: String(found.name || firmName),
+  }
+}
+
 /** Public: centres available for login picker */
 authRouter.get('/tenants', async (_req, res) => {
   const { rows } = await pool.query(
@@ -189,13 +229,21 @@ authRouter.post('/login', authLimiter, async (req, res) => {
   // Expired centres can still log in to activate a new key (blocked from data APIs)
 
   const userRes = await pool.query(
-    `SELECT id, username, role, password_hash AS "passwordHash", is_admin AS "isAdmin"
+    `SELECT id, username, role, password_hash AS "passwordHash", is_admin AS "isAdmin",
+            COALESCE(centre_id, 'main') AS "centreId"
      FROM users
      WHERE tenant_id = $1 AND lower(username) = lower($2)`,
     [tenantId, username],
   )
   const user = userRes.rows[0] as
-    | { id: string; username: string; role: string; passwordHash: string; isAdmin: boolean }
+    | {
+        id: string
+        username: string
+        role: string
+        passwordHash: string
+        isAdmin: boolean
+        centreId: string
+      }
     | undefined
 
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
@@ -208,6 +256,8 @@ authRouter.post('/login', authLimiter, async (req, res) => {
     return
   }
 
+  const centre = await resolveUserCentre(tenant.id, tenant.firmName, user.centreId)
+
   const authUser: AuthUser = {
     userId: user.id,
     tenantId: tenant.id,
@@ -215,6 +265,9 @@ authRouter.post('/login', authLimiter, async (req, res) => {
     role: asAdmin ? 'admin' : user.role,
     isAdmin: Boolean(user.isAdmin) || asAdmin || user.role === 'quality_manager',
     tenantName: tenant.firmName,
+    centreId: centre.centreId,
+    centreKind: centre.centreKind,
+    centreName: centre.centreName,
   }
   const token = signToken(authUser)
   res.json({
@@ -226,6 +279,9 @@ authRouter.post('/login', authLimiter, async (req, res) => {
       loggedInAt: nowIso(),
       tenantId: authUser.tenantId,
       tenantName: authUser.tenantName,
+      centreId: authUser.centreId,
+      centreKind: authUser.centreKind,
+      centreName: authUser.centreName,
     },
     license,
   })
@@ -242,6 +298,9 @@ authRouter.get('/me', requireAuth, async (req, res) => {
       loggedInAt: nowIso(),
       tenantId: req.user!.tenantId,
       tenantName: req.user!.tenantName,
+      centreId: req.user!.centreId || 'main',
+      centreKind: req.user!.centreKind || 'main',
+      centreName: req.user!.centreName || req.user!.tenantName,
     },
     license,
   })
@@ -250,7 +309,9 @@ authRouter.get('/me', requireAuth, async (req, res) => {
 authRouter.get('/users', requireAuth, async (req, res) => {
   const tenantId = req.user!.tenantId
   const { rows } = await pool.query(
-    `SELECT id, username, role, is_admin AS "isAdmin", created_at AS "createdAt"
+    `SELECT id, username, role, is_admin AS "isAdmin",
+            COALESCE(centre_id, 'main') AS "centreId",
+            created_at AS "createdAt"
      FROM users WHERE tenant_id = $1 ORDER BY lower(username)`,
     [tenantId],
   )
@@ -263,6 +324,7 @@ const upsertUsersSchema = z.object({
       username: z.string().trim().min(1),
       role: z.string().min(1),
       password: z.string().min(1),
+      centreId: z.string().trim().optional().default('main'),
     }),
   ),
 })
@@ -307,10 +369,11 @@ authRouter.put('/users', requireAuth, async (req, res) => {
       } else {
         hash = bcrypt.hashSync(u.password, 10)
       }
+      const centreId = (u.centreId || 'main').trim() || 'main'
       await client.query(
-        `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [uid('usr'), tenantId, u.username, u.role, hash, isAdmin, createdAt],
+        `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, centre_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [uid('usr'), tenantId, u.username, u.role, hash, isAdmin, centreId, createdAt],
       )
     }
   })

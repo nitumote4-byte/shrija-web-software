@@ -66,7 +66,7 @@ export function getCurrentTenantName() {
   return getSession()?.tenantName || ''
 }
 
-type StoredUser = { username: string; role: string; password: string }
+type StoredUser = { username: string; role: string; password: string; centreId?: string }
 
 /** Access Management — server-enforced to JWT tenant */
 export async function saveAccessUsers(users: StoredUser[]) {
@@ -74,10 +74,13 @@ export async function saveAccessUsers(users: StoredUser[]) {
 }
 
 export async function loadAccessUsers(): Promise<StoredUser[]> {
-  const result = await api<{ users: { username: string; role: string }[] }>('/api/auth/users')
+  const result = await api<{ users: { username: string; role: string; centreId?: string }[] }>(
+    '/api/auth/users',
+  )
   return result.users.map((u) => ({
     username: u.username,
     role: u.role,
     password: '******',
+    centreId: u.centreId || 'main',
   }))
 }

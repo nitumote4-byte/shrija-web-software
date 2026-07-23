@@ -4,7 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { store } from '../data/store'
 import { CENTRE_NAME } from '../data/modules'
-import { getFirmProfile, saveFirmProfile } from '../data/firmProfile'
+import { getFirmProfile, saveFirmProfile, type CentreOutlet } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
 
 function SubPageShell({
@@ -477,6 +477,9 @@ export function CompanyProfile() {
   const [ifsc, setIfsc] = useState(initial.ifsc)
   const [city, setCity] = useState(initial.city)
   const [state, setState] = useState(initial.state)
+  const [oscOutlets, setOscOutlets] = useState<CentreOutlet[]>(() =>
+    (initial.centres || []).filter((c) => c.kind === 'osc'),
+  )
 
   const checkUnlock = () => {
     if (password === UNLOCK_PASSWORD) {
@@ -486,6 +489,28 @@ export function CompanyProfile() {
       return
     }
     toast('Incorrect password')
+  }
+
+  const addOsc = () => {
+    setOscOutlets((list) => [
+      ...list,
+      {
+        id: `osc-${Date.now()}`,
+        kind: 'osc',
+        name: `${firmName.trim() || CENTRE_NAME} — Off-Site Centre`,
+        address: '',
+        city: '',
+        state: '',
+      },
+    ])
+  }
+
+  const updateOsc = (id: string, patch: Partial<CentreOutlet>) => {
+    setOscOutlets((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+  }
+
+  const removeOsc = (id: string) => {
+    setOscOutlets((list) => list.filter((c) => c.id !== id))
   }
 
   const save = () => {
@@ -498,6 +523,16 @@ export function CompanyProfile() {
       toast('Firm name is required')
       return
     }
+    for (const o of oscOutlets) {
+      if (!o.name.trim()) {
+        toast('Off-Site Centre name is required')
+        return
+      }
+      if (!o.address.trim()) {
+        toast('Off-Site Centre outlet address is required')
+        return
+      }
+    }
     saveFirmProfile({
       firmName: name,
       email,
@@ -508,6 +543,15 @@ export function CompanyProfile() {
       ifsc,
       city,
       state,
+      centres: [
+        { id: 'main', kind: 'main', name, address, city, state },
+        ...oscOutlets.map((o) => ({
+          ...o,
+          kind: 'osc' as const,
+          name: o.name.trim(),
+          address: o.address.trim(),
+        })),
+      ],
     })
     toast('Firm details saved')
     setLocked(true)
@@ -538,10 +582,14 @@ export function CompanyProfile() {
         </div>
 
         <h1 className="firm-title">Firm Details</h1>
+        <p className="field-hint" style={{ marginTop: '-0.5rem', marginBottom: '1rem' }}>
+          One GSTIN for the firm. Off-Site Centres are outlets under the same GST — invoices show Main
+          GSTIN with the outlet address.
+        </p>
 
         <div className={`firm-form ${locked ? 'is-locked' : ''}`}>
           <div className="field">
-            <label>Firm Name</label>
+            <label>Firm Name (Main Centre)</label>
             <input
               value={firmName}
               onChange={(e) => setFirmName(e.target.value)}
@@ -558,7 +606,7 @@ export function CompanyProfile() {
             />
           </div>
           <div className="field">
-            <label>Address</label>
+            <label>Main Centre Address</label>
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
@@ -568,7 +616,7 @@ export function CompanyProfile() {
 
           <div className="firm-bank-grid">
             <div className="field">
-              <label>GST No</label>
+              <label>GST No (shared with outlets)</label>
               <input value={gstNo} onChange={(e) => setGstNo(e.target.value)} disabled={locked} />
             </div>
             <div className="field">
@@ -599,6 +647,89 @@ export function CompanyProfile() {
               <label>State</label>
               <input value={state} onChange={(e) => setState(e.target.value)} disabled={locked} />
             </div>
+          </div>
+
+          <div className="firm-osc-section" style={{ marginTop: '1.5rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                marginBottom: '0.75rem',
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Off-Site Centres (Outlets)</h2>
+                <p className="field-hint" style={{ margin: '0.25rem 0 0' }}>
+                  Same GST · separate outlet address · lab stays at Main
+                </p>
+              </div>
+              <button type="button" className="btn btn-secondary" onClick={addOsc} disabled={locked}>
+                Add Off-Site Centre
+              </button>
+            </div>
+
+            {oscOutlets.length === 0 ? (
+              <p className="field-hint">No Off-Site outlet added yet.</p>
+            ) : (
+              oscOutlets.map((o, idx) => (
+                <div
+                  key={o.id}
+                  className="firm-bank-grid"
+                  style={{
+                    border: '1px solid var(--border, #e2e8f0)',
+                    borderRadius: 8,
+                    padding: '0.75rem',
+                    marginBottom: '0.75rem',
+                  }}
+                >
+                  <div className="field" style={{ gridColumn: '1 / -1' }}>
+                    <label>Outlet {idx + 1} — Name</label>
+                    <input
+                      value={o.name}
+                      onChange={(e) => updateOsc(o.id, { name: e.target.value })}
+                      disabled={locked}
+                    />
+                  </div>
+                  <div className="field" style={{ gridColumn: '1 / -1' }}>
+                    <label>Outlet address (on invoice)</label>
+                    <input
+                      value={o.address}
+                      onChange={(e) => updateOsc(o.id, { address: e.target.value })}
+                      disabled={locked}
+                      placeholder="OSC full address"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>City</label>
+                    <input
+                      value={o.city || ''}
+                      onChange={(e) => updateOsc(o.id, { city: e.target.value })}
+                      disabled={locked}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>State</label>
+                    <input
+                      value={o.state || ''}
+                      onChange={(e) => updateOsc(o.id, { state: e.target.value })}
+                      disabled={locked}
+                    />
+                  </div>
+                  <div className="field" style={{ alignSelf: 'end' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => removeOsc(o.id)}
+                      disabled={locked}
+                    >
+                      Remove outlet
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           <div className="firm-actions">

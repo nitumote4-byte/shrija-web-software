@@ -8,6 +8,10 @@ export type ApiSession = {
   loggedInAt: string
   tenantId: string
   tenantName: string
+  /** Main or Off-Site outlet under the same GST firm */
+  centreId?: string
+  centreKind?: 'main' | 'osc'
+  centreName?: string
 }
 
 export function getToken(): string | null {

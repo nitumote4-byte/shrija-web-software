@@ -17,6 +17,9 @@ export type AuthUser = {
   role: string
   isAdmin: boolean
   tenantName: string
+  centreId?: string
+  centreKind?: 'main' | 'osc'
+  centreName?: string
 }
 
 declare global {
@@ -36,6 +39,9 @@ export function signToken(user: AuthUser): string {
       role: user.role,
       isAdmin: user.isAdmin,
       tenantName: user.tenantName,
+      centreId: user.centreId || 'main',
+      centreKind: user.centreKind || 'main',
+      centreName: user.centreName || user.tenantName,
     },
     jwtSecret(),
     { expiresIn: '12h' },
@@ -62,6 +68,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
       role: String(payload.role || ''),
       isAdmin: Boolean(payload.isAdmin),
       tenantName: String(payload.tenantName || ''),
+      centreId: String(payload.centreId || 'main'),
+      centreKind: payload.centreKind === 'osc' ? 'osc' : 'main',
+      centreName: String(payload.centreName || payload.tenantName || ''),
     }
     next()
   } catch {

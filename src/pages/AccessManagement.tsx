@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { loadAccessUsers, saveAccessUsers } from '../data/auth'
+import { getCentres } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
 
 type AppUser = {
@@ -21,6 +22,7 @@ type AppUser = {
   username: string
   role: string
   password: string
+  centreId: string
 }
 
 type ReceptionCreds = {
@@ -46,6 +48,7 @@ async function persistUsers(users: AppUser[]) {
       username: u.username,
       role: u.role,
       password: u.password,
+      centreId: u.centreId || 'main',
     })),
   )
 }
@@ -71,8 +74,14 @@ export function ManagePassword() {
   const [storedReception, setStoredReception] = useState<ReceptionCreds>(loadReception)
   const [showCreate, setShowCreate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ username: '', role: 'quality_manager', password: '' })
+  const [form, setForm] = useState({
+    username: '',
+    role: 'quality_manager',
+    password: '',
+    centreId: 'main',
+  })
   const [showInstructions, setShowInstructions] = useState(false)
+  const centres = getCentres()
 
   useEffect(() => {
     setStoredReception(loadReception())
@@ -84,6 +93,7 @@ export function ManagePassword() {
             username: u.username,
             role: u.role,
             password: u.password,
+            centreId: u.centreId || 'main',
           })),
         ),
       )
@@ -92,13 +102,18 @@ export function ManagePassword() {
 
   const openCreate = () => {
     setEditingId(null)
-    setForm({ username: '', role: 'quality_manager', password: '' })
+    setForm({ username: '', role: 'reception', password: '', centreId: 'main' })
     setShowCreate(true)
   }
 
   const openEdit = (user: AppUser) => {
     setEditingId(user.id)
-    setForm({ username: user.username, role: user.role, password: '' })
+    setForm({
+      username: user.username,
+      role: user.role,
+      password: '',
+      centreId: user.centreId || 'main',
+    })
     setShowCreate(true)
   }
 
@@ -113,6 +128,14 @@ export function ManagePassword() {
       return
     }
 
+    const centreId = form.centreId || 'main'
+    const centre = centres.find((c) => c.id === centreId)
+    // OSC outlet users should not be In Lab roles
+    if (centre?.kind === 'osc' && /assay_lab|in_lab|inlab/.test(form.role)) {
+      toast('Off-Site users cannot be In Lab — lab stays at Main Centre')
+      return
+    }
+
     let next: AppUser[]
     if (editingId) {
       next = users.map((u) =>
@@ -122,6 +145,7 @@ export function ManagePassword() {
               username: form.username.trim(),
               role: form.role,
               password: form.password.trim() || u.password,
+              centreId,
             }
           : u,
       )
@@ -132,6 +156,7 @@ export function ManagePassword() {
           username: form.username.trim(),
           role: form.role,
           password: form.password,
+          centreId,
         },
         ...users,
       ]
@@ -248,6 +273,7 @@ export function ManagePassword() {
               <tr>
                 <th>USER</th>
                 <th>ROLE</th>
+                <th>CENTRE</th>
                 <th>ACTIONS</th>
               </tr>
             </thead>
@@ -262,6 +288,12 @@ export function ManagePassword() {
                   </td>
                   <td>
                     <span className="role-badge">{u.role}</span>
+                  </td>
+                  <td>
+                    <span className="role-badge">
+                      {centres.find((c) => c.id === u.centreId)?.name ||
+                        (u.centreId === 'main' ? 'Main' : u.centreId)}
+                    </span>
                   </td>
                   <td>
                     <button
@@ -416,6 +448,22 @@ export function ManagePassword() {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="field">
+                <label>Centre / Outlet</label>
+                <select
+                  value={form.centreId}
+                  onChange={(e) => setForm((p) => ({ ...p, centreId: e.target.value }))}
+                >
+                  {centres.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.kind === 'osc' ? `OSC · ${c.name}` : `Main · ${c.name}`}
+                    </option>
+                  ))}
+                </select>
+                <small className="field-hint">
+                  OSC users: no lab access. Lab records stay on Main Centre.
+                </small>
               </div>
               <div className="field">
                 <label>{editingId ? 'New Password (optional)' : 'Password'}</label>

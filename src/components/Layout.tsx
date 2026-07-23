@@ -3,7 +3,7 @@ import { Bell, Building2, ChevronDown, LogOut, Menu, Search, Settings, X } from 
 import { useEffect, useRef, useState } from 'react'
 import { CENTRE_NAME, PRODUCT_NAME, USER_NAME, USER_ROLE, allModules, modules } from '../data/modules'
 import { clearSession, getSession } from '../data/auth'
-import { FIRM_PROFILE_EVENT, getFirmName } from '../data/firmProfile'
+import { FIRM_PROFILE_EVENT, getActiveCentre, getFirmName } from '../data/firmProfile'
 import { canAccessPath } from '../data/roles'
 import { getCachedLicense } from '../data/license'
 
@@ -11,13 +11,16 @@ export function Layout() {
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [allOpen, setAllOpen] = useState(false)
-  const [centreName, setCentreName] = useState(() => getFirmName())
+  const [centreName, setCentreName] = useState(() => getActiveCentre().name || getFirmName())
   const menuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const session = getSession()
   const displayName = session?.username || USER_NAME
   const displayRole = (session?.role || USER_ROLE).replace(/\s+/g, '_').toLowerCase()
-  const tenantLabel = session?.tenantName || centreName
+  const tenantLabel =
+    session?.centreKind === 'osc'
+      ? session.centreName || 'Off-Site Centre'
+      : session?.tenantName || centreName
   const license = getCachedLicense()
   const licenseWarn =
     license && license.ok && license.daysLeft !== null && license.daysLeft <= 14
@@ -40,7 +43,8 @@ export function Layout() {
 
   useEffect(() => {
     const syncName = () => {
-      const name = getFirmName()
+      const active = getActiveCentre()
+      const name = active.name || getFirmName()
       setCentreName(name)
       document.title = `${name} · ${PRODUCT_NAME}`
     }

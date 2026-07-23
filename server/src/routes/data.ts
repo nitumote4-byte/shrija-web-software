@@ -95,7 +95,7 @@ dataRouter.get('/backup', async (req, res) => {
   const storeRow = await pool.query(`SELECT payload FROM store_docs WHERE tenant_id = $1`, [tenantId])
   const firmRow = await pool.query(
     `SELECT firm_name AS "firmName", email, address, gst_no AS "gstNo",
-            bank_name AS "bankName", account_no AS "accountNo", ifsc, city, state
+            bank_name AS "bankName", account_no AS "accountNo", ifsc, city, state, centres
      FROM firm_profiles WHERE tenant_id = $1`,
     [tenantId],
   )
@@ -180,11 +180,25 @@ dataRouter.get('/firm-profile', async (req, res) => {
   const tenantId = req.user!.tenantId
   const { rows } = await pool.query(
     `SELECT firm_name AS "firmName", email, address, gst_no AS "gstNo",
-            bank_name AS "bankName", account_no AS "accountNo", ifsc, city, state
+            bank_name AS "bankName", account_no AS "accountNo", ifsc, city, state,
+            centres
      FROM firm_profiles WHERE tenant_id = $1`,
     [tenantId],
   )
-  res.json({ profile: rows[0] || { firmName: req.user!.tenantName } })
+  const row = rows[0] as Record<string, unknown> | undefined
+  if (!row) {
+    res.json({ profile: { firmName: req.user!.tenantName, centres: [] } })
+    return
+  }
+  let centres = row.centres
+  if (typeof centres === 'string') {
+    try {
+      centres = JSON.parse(centres)
+    } catch {
+      centres = []
+    }
+  }
+  res.json({ profile: { ...row, centres: Array.isArray(centres) ? centres : [] } })
 })
 
 dataRouter.put('/firm-profile', async (req, res) => {
@@ -193,10 +207,31 @@ dataRouter.put('/firm-profile', async (req, res) => {
   const firmName = String(p.firmName || '').trim() || req.user!.tenantName
   const updatedAt = nowIso()
 
+  const mainCentre = {
+    id: 'main',
+    kind: 'main',
+    name: firmName,
+    address: String(p.address || ''),
+    city: String(p.city || ''),
+    state: String(p.state || ''),
+  }
+  const incoming = Array.isArray(p.centres) ? p.centres : []
+  const oscCentres = incoming
+    .filter((c: { kind?: string; id?: string }) => c && c.kind === 'osc' && c.id)
+    .map((c: { id: string; name?: string; address?: string; city?: string; state?: string }) => ({
+      id: String(c.id),
+      kind: 'osc',
+      name: String(c.name || 'Off-Site Centre').trim() || 'Off-Site Centre',
+      address: String(c.address || ''),
+      city: String(c.city || ''),
+      state: String(c.state || ''),
+    }))
+  const centres = [mainCentre, ...oscCentres]
+
   await pool.query(
     `INSERT INTO firm_profiles
-     (tenant_id, firm_name, email, address, gst_no, bank_name, account_no, ifsc, city, state, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     (tenant_id, firm_name, email, address, gst_no, bank_name, account_no, ifsc, city, state, centres, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
      ON CONFLICT (tenant_id) DO UPDATE SET
        firm_name = EXCLUDED.firm_name,
        email = EXCLUDED.email,
@@ -207,6 +242,7 @@ dataRouter.put('/firm-profile', async (req, res) => {
        ifsc = EXCLUDED.ifsc,
        city = EXCLUDED.city,
        state = EXCLUDED.state,
+       centres = EXCLUDED.centres,
        updated_at = EXCLUDED.updated_at`,
     [
       tenantId,
@@ -219,6 +255,7 @@ dataRouter.put('/firm-profile', async (req, res) => {
       String(p.ifsc || ''),
       String(p.city || ''),
       String(p.state || ''),
+      JSON.stringify(centres),
       updatedAt,
     ],
   )
@@ -229,5 +266,5 @@ dataRouter.put('/firm-profile', async (req, res) => {
     tenantId,
   ])
 
-  res.json({ ok: true, profile: { ...p, firmName } })
+  res.json({ ok: true, profile: { ...p, firmName, centres } })
 })

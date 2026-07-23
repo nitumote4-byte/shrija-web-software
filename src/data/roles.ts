@@ -68,23 +68,42 @@ export function isLabOnlyRole(role?: string | null) {
   return r === 'assay_lab' || r === 'in_lab' || r === 'inlab'
 }
 
+/** Off-Site outlet — lab work stays at Main Centre only */
+export function isOscSession(session = getSession()) {
+  return session?.centreKind === 'osc'
+}
+
 export function getRoleModules(role?: string | null): string[] | '*' {
   const r = normalizeRole(role || 'quality_manager')
   return ROLE_MODULES[r] ?? ROLE_MODULES.quality_manager
 }
 
+function isLabPath(path: string) {
+  return (
+    path.startsWith('/create-fire-assay') ||
+    path.startsWith('/view-fire-assay') ||
+    path.startsWith('/qm-stock') ||
+    path.startsWith('/lab-stock')
+  )
+}
+
 export function canAccessPath(pathname: string): boolean {
   const session = getSession()
   if (!session) return false
-  if (session.isAdmin) return true
-  const role = normalizeRole(session.role || 'quality_manager')
-  const allowed = getRoleModules(role)
-  if (allowed === '*') return true
 
   const path = pathname.replace(/\/$/, '') || '/'
   // Home always allowed — module cards are filtered separately
   if (path === '/' || path === '') return true
   if (path === '/license' || path.startsWith('/others/license')) return true
+
+  // OSC outlet: never lab (fire assay + stock stay on Main)
+  if (isOscSession(session) && isLabPath(path)) return false
+
+  if (session.isAdmin) return true
+  const role = normalizeRole(session.role || 'quality_manager')
+  const allowed = getRoleModules(role)
+  if (allowed === '*') return true
+
   if (path.startsWith('/reports')) return allowed.includes('reports')
   if (path.startsWith('/others')) {
     return allowed.includes('others')

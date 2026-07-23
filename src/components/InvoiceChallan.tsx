@@ -1,4 +1,4 @@
-import { getFirmProfile } from '../data/firmProfile'
+import { getFirmProfile, getInvoiceHeader } from '../data/firmProfile'
 import type { Invoice, InvoiceLine } from '../data/store'
 import { tenantGet } from '../data/tenant'
 
@@ -259,10 +259,14 @@ type Props = {
 export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize = 'A4' }: Props) {
   const settings = loadInvoiceSettings()
   const firm = getFirmProfile()
+  const header = getInvoiceHeader()
   const cols = settings.columns
-  const centreGst = firm.gstNo || '—'
-  const centreName = firm.firmName || 'Hallmarking Centre'
-  const centreAddr = firm.address || ''
+  const centreGst = header.centreGstin
+  const centreName = header.centreName
+  const centreAddr =
+    header.centreKind === 'osc'
+      ? `${header.centreAddress}${header.firmName ? ` (Outlet of ${header.firmName})` : ''}`
+      : header.centreAddress
   const dateShown = formatInvoiceDateTime(view?.invoiceDateTime || view?.date)
 
   const totPcs = view?.lines.reduce((s, l) => s + l.pcsRec, 0) ?? 0
