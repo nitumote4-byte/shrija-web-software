@@ -793,14 +793,24 @@ export function DailyCashFlow() {
 
   const bankReceived = dayFunds.filter((f) => f.mode === 'Bank' || f.mode === 'Cheque' || f.mode === 'UPI')
   const cashReceived = dayFunds.filter((f) => f.mode === 'Cash')
-  // Expenses without mode → treat as Cash (matches Gold Shark cash expense rows)
-  const bankExpenses = dayExpenses.filter((e) => /bank|cheque|upi/i.test(`${e.remarks} ${e.category}`))
-  const cashExpenses = dayExpenses.filter((e) => !/bank|cheque|upi/i.test(`${e.remarks} ${e.category}`))
+  const bankExpenses = dayExpenses.filter((e) => {
+    const m = (e.mode || '').toLowerCase()
+    if (m === 'bank' || m === 'upi' || m === 'cheque') return true
+    if (m === 'cash') return false
+    return /bank|cheque|upi/i.test(`${e.remarks} ${e.category}`)
+  })
+  const cashExpenses = dayExpenses.filter((e) => !bankExpenses.includes(e))
 
   const bankRecvTotal = bankReceived.reduce((s, f) => s + f.amount, 0)
   const cashRecvTotal = cashReceived.reduce((s, f) => s + f.amount, 0)
-  const bankExpTotal = bankExpenses.reduce((s, e) => s + e.amount, 0)
-  const cashExpTotal = cashExpenses.reduce((s, e) => s + e.amount, 0)
+  const bankExpTotal = bankExpenses.reduce(
+    (s, e) => s + (Number(e.grossAmount) || e.amount + (Number(e.gstAmount) || 0)),
+    0,
+  )
+  const cashExpTotal = cashExpenses.reduce(
+    (s, e) => s + (Number(e.grossAmount) || e.amount + (Number(e.gstAmount) || 0)),
+    0,
+  )
 
   const bankClosing = bankOpen + bankRecvTotal - bankExpTotal
   const cashClosing = cashOpen + cashRecvTotal - cashExpTotal
@@ -959,8 +969,8 @@ export function DailyCashFlow() {
             amount: f.amount,
           }))}
           expenses={bankExpenses.map((e) => ({
-            name: e.category,
-            amount: e.amount,
+            name: e.product || e.category,
+            amount: Number(e.grossAmount) || e.amount + (Number(e.gstAmount) || 0),
           }))}
           recvTotal={bankRecvTotal}
           expTotal={bankExpTotal}
@@ -975,8 +985,8 @@ export function DailyCashFlow() {
             amount: f.amount,
           }))}
           expenses={cashExpenses.map((e) => ({
-            name: e.category,
-            amount: e.amount,
+            name: e.product || e.category,
+            amount: Number(e.grossAmount) || e.amount + (Number(e.gstAmount) || 0),
           }))}
           recvTotal={cashRecvTotal}
           expTotal={cashExpTotal}

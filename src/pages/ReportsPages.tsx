@@ -1206,7 +1206,10 @@ export function PartyGstRegister() {
 
 export function ExpenseRegister() {
   const expenses = store.getAll().expenses
-  const total = expenses.reduce((s, e) => s + e.amount, 0)
+  const total = expenses.reduce(
+    (s, e) => s + (Number(e.grossAmount) || Number(e.amount) + (Number(e.gstAmount) || 0)),
+    0,
+  )
   return (
     <ReportShell title="Expense Register" subtitle="Track all business expenses">
       <div className="stats-row">
@@ -1221,22 +1224,32 @@ export function ExpenseRegister() {
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Category</th>
-                <th>Paid To</th>
+                <th>Mode</th>
+                <th>Product</th>
+                <th>Party</th>
                 <th>Amount</th>
+                <th>GST</th>
+                <th>Gross</th>
                 <th>Remarks</th>
               </tr>
             </thead>
             <tbody>
-              {expenses.map((e) => (
-                <tr key={e.id}>
-                  <td>{e.date}</td>
-                  <td>{e.category}</td>
-                  <td>{e.paidTo}</td>
-                  <td>₹ {e.amount.toLocaleString('en-IN')}</td>
-                  <td>{e.remarks || '—'}</td>
-                </tr>
-              ))}
+              {expenses.map((e) => {
+                const gross =
+                  Number(e.grossAmount) || Number(e.amount) + (Number(e.gstAmount) || 0)
+                return (
+                  <tr key={e.id}>
+                    <td>{e.date}</td>
+                    <td>{e.mode || 'Cash'}</td>
+                    <td>{e.product || e.category}</td>
+                    <td>{e.partyName || e.paidTo}</td>
+                    <td>₹ {e.amount.toLocaleString('en-IN')}</td>
+                    <td>₹ {(Number(e.gstAmount) || 0).toLocaleString('en-IN')}</td>
+                    <td>₹ {gross.toLocaleString('en-IN')}</td>
+                    <td>{e.remarks || '—'}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

@@ -8080,3 +8080,263 @@ table.data-table tr:hover td {
     grid-template-columns: 1fr;
   }
 }
+
+/* Expense Entry (GoldShark-style) */
+.exp-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.exp-layout {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.exp-party-layout {
+  grid-template-columns: 1.15fr 0.85fr;
+}
+
+.exp-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.exp-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-bottom: 0.9rem;
+}
+
+.exp-card-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--navy);
+}
+
+.exp-card-head p {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.exp-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.exp-card-icon.red {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.exp-card-icon.orange {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.exp-card-icon.blue {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.exp-add-party-btn {
+  margin-left: auto;
+  padding: 0.45rem 0.75rem !important;
+  font-size: 0.82rem !important;
+}
+
+.exp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.exp-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.exp-gst-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.exp-gross-box {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.exp-gross-box span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #047857;
+}
+
+.exp-gross-box strong {
+  font-size: 1.25rem;
+  color: #065f46;
+}
+
+.exp-form-actions {
+  display: flex;
+  gap: 0.65rem;
+  margin-top: 0.25rem;
+}
+
+.exp-refresh {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #ea580c;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  padding: 0.25rem;
+  border-radius: 6px;
+}
+
+.exp-summary-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.exp-summary-tile {
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.exp-summary-tile span {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.exp-summary-tile strong {
+  font-size: 1.15rem;
+}
+
+.exp-summary-tile.cash {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.exp-summary-tile.bank {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+
+.exp-summary-tile.grand {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+.exp-list-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.exp-list-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  font-weight: 700;
+  color: #fff;
+  font-size: 0.92rem;
+}
+
+.exp-list-head.cash {
+  background: #0d9488;
+}
+
+.exp-list-head.bank {
+  background: #7c3aed;
+}
+
+.exp-list-card .table-wrap {
+  border: none;
+  border-radius: 0;
+}
+
+.exp-list-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.7rem 1rem;
+  background: #0f2744;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.exp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  color: #94a3b8;
+  padding: 1.25rem !important;
+}
+
+.exp-row-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.exp-igst-flag {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.88rem;
+  color: #065f46;
+  font-weight: 600;
+}
+
+.exp-igst-flag input {
+  width: auto;
+}
+
+.req {
+  color: #dc2626;
+}
+
+@media (max-width: 980px) {
+  .exp-layout,
+  .exp-party-layout,
+  .exp-two-col {
+    grid-template-columns: 1fr;
+  }
+}

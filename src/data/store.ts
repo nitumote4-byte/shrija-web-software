@@ -204,10 +204,36 @@ export type FundEntry = {
 export type ExpenseEntry = {
   id: string
   date: string
+  /** Product / expense label (legacy: category) */
   category: string
+  /** Base / taxable amount */
   amount: number
+  /** Vendor name (legacy: paidTo) */
   paidTo: string
   remarks: string
+  mode?: 'Cash' | 'Bank' | 'UPI' | 'Cheque'
+  partyId?: string
+  partyName?: string
+  product?: string
+  gstAmount?: number
+  gstRate?: number
+  /** amount + gst */
+  grossAmount?: number
+  centreId?: string
+  centreKind?: 'main' | 'osc'
+}
+
+/** Vendor / supplier used on Expense Entry (GoldShark purchase party). */
+export type PurchaseParty = {
+  id: string
+  name: string
+  product: string
+  address: string
+  gstin: string
+  gstRate: number
+  phone: string
+  igstApplicable: boolean
+  createdAt: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -297,6 +323,7 @@ type StoreShape = {
   monthlyInvoices: MonthlyInvoice[]
   funds: FundEntry[]
   expenses: ExpenseEntry[]
+  purchaseParties: PurchaseParty[]
   fireAssays: FireAssay[]
   stock: StockItem[]
   touches: TouchRecord[]
@@ -315,6 +342,7 @@ function emptyStore(): StoreShape {
     monthlyInvoices: [],
     funds: [],
     expenses: [],
+    purchaseParties: [],
     fireAssays: [],
     stock: [],
     touches: [],
@@ -457,6 +485,7 @@ function scopeStoreForSession(data: StoreShape): StoreShape {
     // Funds: strict centre tag only — never inherit via party (avoids OSC↔Main mix)
     const funds = data.funds.filter((f) => match(f))
     const expenses = data.expenses.filter((e) => match(e))
+    const purchaseParties = (data.purchaseParties || []).filter((p) => match(p))
     const touches = data.touches.filter((t) => match(t))
     const xray = data.xray.filter((x) => {
       if (match(x)) return true
@@ -478,6 +507,7 @@ function scopeStoreForSession(data: StoreShape): StoreShape {
       monthlyInvoices,
       funds,
       expenses,
+      purchaseParties,
       touches,
       xray,
       fireAssays,
@@ -823,8 +853,15 @@ function seed(): StoreShape {
         amount: 2500,
         paidTo: 'Lab Supplies Co.',
         remarks: 'Nitric acid restock',
+        mode: 'Cash',
+        product: 'Chemicals',
+        partyName: 'Lab Supplies Co.',
+        gstAmount: 0,
+        gstRate: 0,
+        grossAmount: 2500,
       },
     ],
+    purchaseParties: [],
     fireAssays: [
       {
         id: 'fa1',
@@ -931,7 +968,34 @@ function normalizeLoaded(parsed: StoreShape): StoreShape {
   if (!parsed.pendingRough) parsed.pendingRough = []
   if (!parsed.monthlyInvoices) parsed.monthlyInvoices = []
   if (!parsed.jewelleryCategories) parsed.jewelleryCategories = []
+  if (!parsed.purchaseParties) parsed.purchaseParties = []
   parsed.parties = (parsed.parties ?? []).map((p) => normalizeParty(p))
+  parsed.purchaseParties = (parsed.purchaseParties ?? [])
+    .filter((p) => p && String(p.name || '').trim())
+    .map((p) => ({
+      id: p.id || uid('pp'),
+      name: String(p.name).trim(),
+      product: String(p.product || '').trim(),
+      address: String(p.address || '').trim(),
+      gstin: String(p.gstin || '').trim(),
+      gstRate: Number(p.gstRate) || 0,
+      phone: String(p.phone || '').trim(),
+      igstApplicable: Boolean(p.igstApplicable),
+      createdAt: p.createdAt || today(),
+      centreId: p.centreId,
+      centreKind: p.centreKind === 'osc' ? 'osc' : p.centreKind === 'main' ? 'main' : undefined,
+    }))
+  parsed.expenses = (parsed.expenses ?? []).map((e) => ({
+    ...e,
+    mode: e.mode || 'Cash',
+    product: e.product || e.category,
+    partyName: e.partyName || e.paidTo,
+    gstAmount: Number(e.gstAmount) || 0,
+    gstRate: Number(e.gstRate) || 0,
+    grossAmount:
+      Number(e.grossAmount) ||
+      Number(((Number(e.amount) || 0) + (Number(e.gstAmount) || 0)).toFixed(2)),
+  }))
   parsed.jewelleryCategories = (parsed.jewelleryCategories ?? [])
     .filter((c) => c && String(c.name || '').trim())
     .map((c) => ({
@@ -1723,16 +1787,83 @@ export const store = {
   addExpense(input: Omit<ExpenseEntry, 'id'>) {
     const data = load()
     const stamp = sessionCentreStamp()
+    const amount = Number(input.amount) || 0
+    const gstAmount = Number(input.gstAmount) || 0
+    const product = (input.product || input.category || '').trim()
+    const partyName = (input.partyName || input.paidTo || '').trim()
     const entry: ExpenseEntry = {
       ...input,
       ...stamp,
       centreId: stamp.centreId,
       centreKind: stamp.centreKind,
       id: uid('e'),
+      amount,
+      gstAmount,
+      gstRate: Number(input.gstRate) || 0,
+      grossAmount: Number(input.grossAmount) || Number((amount + gstAmount).toFixed(2)),
+      product,
+      category: product || input.category,
+      partyName,
+      paidTo: partyName || input.paidTo,
+      mode: input.mode || 'Cash',
     }
     data.expenses.unshift(entry)
     save(data)
     return entry
+  },
+
+  addPurchaseParty(input: Omit<PurchaseParty, 'id' | 'createdAt'>) {
+    const data = load()
+    const stamp = sessionCentreStamp()
+    if (!data.purchaseParties) data.purchaseParties = []
+    const party: PurchaseParty = {
+      ...input,
+      ...stamp,
+      centreId: stamp.centreId,
+      centreKind: stamp.centreKind,
+      id: uid('pp'),
+      createdAt: today(),
+      name: String(input.name || '').trim(),
+      product: String(input.product || '').trim(),
+      address: String(input.address || '').trim(),
+      gstin: String(input.gstin || '').trim().toUpperCase(),
+      gstRate: Number(input.gstRate) || 0,
+      phone: String(input.phone || '').trim(),
+      igstApplicable: Boolean(input.igstApplicable),
+    }
+    data.purchaseParties.unshift(party)
+    save(data)
+    return party
+  },
+
+  updatePurchaseParty(id: string, patch: Partial<Omit<PurchaseParty, 'id' | 'createdAt'>>) {
+    const data = load()
+    const row = (data.purchaseParties || []).find((p) => p.id === id)
+    if (!row) return null
+    Object.assign(row, patch)
+    if (patch.name !== undefined) row.name = String(patch.name).trim()
+    if (patch.product !== undefined) row.product = String(patch.product).trim()
+    if (patch.gstRate !== undefined) row.gstRate = Number(patch.gstRate) || 0
+    save(data)
+    return row
+  },
+
+  deletePurchaseParty(id: string) {
+    const data = load()
+    const before = (data.purchaseParties || []).length
+    data.purchaseParties = (data.purchaseParties || []).filter((p) => p.id !== id)
+    if (data.purchaseParties.length === before) return false
+    save(data)
+    return true
+  },
+
+  deleteExpense(id: string) {
+    const data = load()
+    const before = data.expenses.length
+    data.expenses = data.expenses.filter((e) => e.id !== id)
+    if (data.expenses.length === before) return false
+    save(data)
+    return true
   },
 
   addFireAssay(input: Omit<FireAssay, 'id' | 'assayNo' | 'date'> & { assayNo?: string; date?: string }) {
