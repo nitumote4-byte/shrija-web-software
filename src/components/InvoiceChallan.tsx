@@ -155,20 +155,22 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
     >
       <div className="invoice-centre-head">
         <strong>{centreName}</strong>
-        {centreAddr ? <div className="invoice-centre-addr">{centreAddr}</div> : null}
+        <div className="invoice-centre-addr">
+          {centreAddr || '\u00A0'}
+        </div>
         <div className="invoice-gstin">CENTRE GSTIN: {centreGst}</div>
       </div>
 
-      <div className="invoice-sheet-top">
+      <div className="invoice-title-bar">
         <h2>INVOICE CUM DELIVERY CHALLAN</h2>
       </div>
 
       <div className="invoice-meta-grid">
-        <div className="invoice-party">
+        <div className="invoice-party invoice-meta-box">
           <div>
             <span>Bill To:</span> {view?.partyName || ''}
           </div>
-          <div>{view?.partyAddress || ''}</div>
+          <div className="invoice-addr-line">{view?.partyAddress || '\u00A0'}</div>
           <div>
             <span>CUSTOMER GSTIN:</span> {view?.partyGstin || ''}
           </div>
@@ -182,7 +184,7 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
               : ''}
           </div>
         </div>
-        <div className="invoice-doc">
+        <div className="invoice-doc invoice-meta-box">
           <div>
             <span>Invoice No:</span> {view?.invoiceNo || ''}
           </div>

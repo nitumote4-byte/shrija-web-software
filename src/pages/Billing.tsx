@@ -312,11 +312,15 @@ export function Billing() {
       </section>
 
       <section className="gb-card gb-preview-card">
-        <header className="gb-card-head no-print">
+        <header className="gb-card-head gb-preview-toolbar no-print">
           <FileText size={18} />
           <h2>Invoice Preview</h2>
           <InvoicePaperSizeToggle value={paperSize} onChange={setPaper} />
         </header>
+        <p className="invoice-hint no-print">
+          Select request → <strong>Get Data</strong> to fill challan · choose <strong>A4</strong> or{' '}
+          <strong>A5</strong> before Print / PDF
+        </p>
         <div className={`invoice-preview-stage paper-${paperSize.toLowerCase()}`}>
           <InvoiceChallan view={preview} paperSize={paperSize} />
         </div>

@@ -2931,8 +2931,19 @@ button {
   font-size: 0.88rem;
 }
 
-.invoice-sheet.paper-a5 .invoice-sheet-top h2 {
-  font-size: 0.85rem;
+.invoice-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.invoice-sheet.paper-a5 .invoice-title-bar h2 {
+  font-size: 0.78rem;
+}
+
+.invoice-sheet.paper-a5 .invoice-meta-box {
+  min-height: 5.5rem;
+  padding: 0.3rem 0.4rem;
 }
 
 .invoice-sheet.paper-a5 .invoice-items th,
@@ -3093,18 +3104,23 @@ button {
 
 .invoice-centre-head {
   text-align: center;
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.35rem;
 }
 
 .invoice-centre-head strong {
-  font-size: 1.05rem;
-  letter-spacing: 0.02em;
+  font-size: 1.12rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  display: block;
 }
 
 .invoice-centre-addr {
-  font-size: 0.75rem;
-  color: #334155;
+  font-size: 0.72rem;
+  color: #1e293b;
   margin-top: 0.2rem;
+  line-height: 1.35;
+  min-height: 1em;
 }
 
 .invoice-pcs-tot {
@@ -3160,7 +3176,8 @@ button {
   .gb-card-head,
   .gb-search-row,
   .gb-back-wrap,
-  .generated-edit-panel {
+  .generated-edit-panel,
+  .invoice-hint {
     display: none !important;
   }
 
@@ -3175,24 +3192,31 @@ button {
 
 .invoice-sheet {
   background: #fff;
-  border: 1px solid #94a3b8;
-  border-radius: 4px;
-  padding: 1.1rem 1.2rem 1.25rem;
+  border: 2px solid #0f172a;
+  border-radius: 2px;
+  padding: 0.85rem 1rem 1rem;
   color: #0f172a;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
 }
 
+.invoice-title-bar {
+  border: 1.5px solid #0f172a;
+  background: #f1f5f9;
+  text-align: center;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.invoice-title-bar h2 {
+  margin: 0;
+  font-size: 0.98rem;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+}
+
 .invoice-sheet-top {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-bottom: 0.85rem;
-  border-bottom: 1px solid #cbd5e1;
-  padding-bottom: 0.55rem;
-  position: relative;
+  display: none;
 }
 
 .invoice-sheet-top h2 {
@@ -3206,6 +3230,7 @@ button {
 .invoice-gstin {
   font-size: 0.75rem;
   font-weight: 700;
+  margin-top: 0.2rem;
 }
 
 .invoice-format {
@@ -3218,14 +3243,30 @@ button {
 
 .invoice-meta-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 1rem;
-  margin-bottom: 0.85rem;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 0;
+  margin-bottom: 0.65rem;
+  border: 1px solid #0f172a;
+}
+
+.invoice-meta-box {
+  padding: 0.45rem 0.55rem;
+  min-height: 7.5rem;
+}
+
+.invoice-party.invoice-meta-box {
+  border-right: 1px solid #0f172a;
+}
+
+.invoice-addr-line {
+  min-height: 1.1em;
+  margin-bottom: 0.25rem;
 }
 
 .invoice-party div,
 .invoice-doc div {
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.18rem;
+  font-size: 0.78rem;
 }
 
 .invoice-party span,
@@ -3238,54 +3279,77 @@ button {
 .invoice-items {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.65rem;
 }
 
 .invoice-items th,
 .invoice-items td {
-  border: 1px solid #94a3b8;
-  padding: 0.35rem 0.4rem;
+  border: 1px solid #0f172a;
+  padding: 0.32rem 0.35rem;
   text-align: center;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
 }
 
 .invoice-items th {
   background: #f8fafc;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .invoice-empty {
-  height: 72px;
+  height: 64px;
 }
 
 .invoice-total-row td {
   background: #f8fafc;
+  font-weight: 700;
 }
 
 .invoice-bottom-grid {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 1rem;
-  margin-bottom: 0.85rem;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 0;
+  margin-bottom: 0.65rem;
+  border: 1px solid #0f172a;
+}
+
+.invoice-weights {
+  padding: 0.45rem 0.55rem;
+  border-right: 1px solid #0f172a;
 }
 
 .invoice-weights div {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.22rem;
+  font-size: 0.75rem;
+}
+
+.invoice-tax {
+  padding: 0.35rem 0.55rem;
 }
 
 .invoice-tax > div {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
-  border-bottom: 1px solid #e2e8f0;
-  padding: 0.3rem 0;
+  border-bottom: 1px solid #cbd5e1;
+  padding: 0.28rem 0;
+  font-size: 0.75rem;
 }
 
 .invoice-grand {
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 800;
   border-bottom: none !important;
-  margin-top: 0.25rem;
+  margin-top: 0.2rem;
+}
+
+.gb-preview-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fff;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .invoice-received-note {
