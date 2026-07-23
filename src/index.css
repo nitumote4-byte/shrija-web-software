@@ -2539,6 +2539,20 @@ button {
   padding: 0.45rem 0.55rem;
 }
 
+.cn-print-meta-right {
+  text-align: right;
+}
+
+.cn-print-items tbody {
+  height: 220px;
+}
+
+.cn-print-spacer td {
+  height: 160px;
+  border-top: none;
+  vertical-align: top;
+}
+
 .cn-print-table thead th {
   background: #f3f4f6;
   text-align: left;

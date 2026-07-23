@@ -2951,8 +2951,11 @@ type CreditNoteRecord = {
   discountedTotal: number
   finalDiscount: number
   status: 'Unpaid' | 'Paid'
+  /** After Pay: show CN ? until user confirms */
+  cnReady: boolean
   invoiceGenerated: boolean
   paidAt?: string
+  generatedAt?: string
 }
 
 const CN_KEY = 'shrija-credit-notes'
@@ -2966,6 +2969,10 @@ function loadCreditNotes(): CreditNoteRecord[] {
     return parsed.map((n) => ({
       ...n,
       status: n.status === 'Paid' ? 'Paid' : 'Unpaid',
+      cnReady:
+        Boolean(n.cnReady) ||
+        Boolean(n.invoiceGenerated) ||
+        (n.status === 'Paid' && Boolean(n.cnNo)),
       invoiceGenerated: Boolean(n.invoiceGenerated),
       cnNo: n.cnNo || '',
     }))
@@ -3004,12 +3011,58 @@ function formatCnDateTime(d = new Date()) {
   return `${dd}-${mm}-${yyyy} ${String(h).padStart(2, '0')}:${min} ${ampm}`
 }
 
+function cnAmountInWords(amount: number): string {
+  const n = Math.round(Math.abs(amount))
+  if (!n) return 'Rupees Only'
+  const ones = [
+    '',
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Five',
+    'Six',
+    'Seven',
+    'Eight',
+    'Nine',
+    'Ten',
+    'Eleven',
+    'Twelve',
+    'Thirteen',
+    'Fourteen',
+    'Fifteen',
+    'Sixteen',
+    'Seventeen',
+    'Eighteen',
+    'Nineteen',
+  ]
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
+  const two = (x: number) => {
+    if (x < 20) return ones[x]
+    return `${tens[Math.floor(x / 10)]}${x % 10 ? ` ${ones[x % 10]}` : ''}`.trim()
+  }
+  const three = (x: number) => {
+    if (x < 100) return two(x)
+    return `${ones[Math.floor(x / 100)]} Hundred${x % 100 ? ` ${two(x % 100)}` : ''}`.trim()
+  }
+  const crore = Math.floor(n / 10000000)
+  const lakh = Math.floor((n % 10000000) / 100000)
+  const thousand = Math.floor((n % 100000) / 1000)
+  const rest = n % 1000
+  const parts: string[] = []
+  if (crore) parts.push(`${three(crore)} Crore`)
+  if (lakh) parts.push(`${three(lakh)} Lakh`)
+  if (thousand) parts.push(`${three(thousand)} Thousand`)
+  if (rest) parts.push(three(rest))
+  return `Rupees ${parts.join(' ')} Only`
+}
+
 export function CreditNoteReport() {
   const { toast, Toast } = useToast()
-  const data = store.getAll()
+  const data = store.getLedgerData()
   const firm = useMemo(() => getFirmProfile(), [])
 
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [month, setMonth] = useState(() => localYmd().slice(0, 7))
   const [partyQuery, setPartyQuery] = useState('')
   const [partyOpen, setPartyOpen] = useState(false)
   const [partyId, setPartyId] = useState('')
@@ -3027,8 +3080,8 @@ export function CreditNoteReport() {
       (p) =>
         !q ||
         p.name.toLowerCase().includes(q) ||
-        p.phone.includes(q) ||
-        p.address.toLowerCase().includes(q),
+        (p.phone || '').includes(q) ||
+        (p.address || '').toLowerCase().includes(q),
     )
   }, [data.parties, partyQuery])
 
@@ -3037,24 +3090,62 @@ export function CreditNoteReport() {
     saveCreditNotes(next)
   }
 
+  const computeMetrics = (p: (typeof data.parties)[0], m: string) => {
+    const reqPic = data.requests
+      .filter((r) => r.partyId === p.id && (r.date || '').startsWith(m))
+      .reduce((s, r) => s + (Number(r.pieces) || 0), 0)
+    const roughPic = (data.roughSheets || [])
+      .filter((r) => r.partyId === p.id && (r.date || '').startsWith(m))
+      .reduce((s, r) => s + Math.max(0, (Number(r.pic) || 0) - (Number(r.rejectPic) || 0)), 0)
+    const totalPic = Math.max(reqPic, roughPic)
+
+    const monthInvoices = (data.invoices || []).filter((inv) => {
+      if (!(inv.date || '').startsWith(m)) return false
+      if ((inv.invoiceNo || '').toUpperCase().startsWith('CN')) return false
+      const sameParty =
+        inv.partyName.trim().toLowerCase() === p.name.trim().toLowerCase() ||
+        (inv as { partyId?: string }).partyId === p.id
+      return sameParty && Number(inv.amount) > 0
+    })
+    const gross = monthInvoices.reduce((s, inv) => s + Number(inv.amount || 0), 0)
+    const discountPct = Number(p.discount) || 0
+    const finalDiscount = Number(((gross * discountPct) / 100).toFixed(2))
+    const discountedTotal = Number(Math.max(0, gross - finalDiscount).toFixed(2))
+
+    const useMin = Boolean(p.minBillCalc) && !p.skipMinBill
+    const totalPicMinBills = useMin ? 0 : 0
+    const finalAmountMinBills = useMin ? 0 : 0
+
+    return {
+      totalPic,
+      totalPicMinBills,
+      discountPct,
+      finalAmountMinBills,
+      discountedTotal,
+      finalDiscount,
+    }
+  }
+
   const buildRow = (p: (typeof data.parties)[0], m: string): CreditNoteRecord => {
     const existing = notes.find((n) => n.partyId === p.id && n.month === m)
-    const totalPic = data.requests
-      .filter((r) => r.partyId === p.id && r.date.startsWith(m))
-      .reduce((s, r) => s + r.pieces, 0)
-    const totalPicMinBills = p.skipMinBill ? 0 : 0
-    const discountPct = existing?.discountPct ?? 0
-    const finalAmountMinBills = 0
-    const discountedTotal = existing?.discountedTotal ?? 0
-    const finalDiscount = existing?.finalDiscount ?? 0
+    const live = computeMetrics(p, m)
+
+    if (existing?.status === 'Paid') {
+      return {
+        ...existing,
+        partyName: p.name,
+        cnReady: Boolean(existing.cnReady) || Boolean(existing.invoiceGenerated),
+      }
+    }
 
     if (existing) {
       return {
         ...existing,
-        totalPic,
-        totalPicMinBills,
-        finalAmountMinBills,
+        ...live,
         partyName: p.name,
+        status: 'Unpaid',
+        cnReady: false,
+        invoiceGenerated: false,
       }
     }
 
@@ -3064,13 +3155,9 @@ export function CreditNoteReport() {
       partyId: p.id,
       partyName: p.name,
       month: m,
-      totalPicMinBills,
-      discountPct,
-      totalPic,
-      finalAmountMinBills,
-      discountedTotal,
-      finalDiscount,
+      ...live,
       status: 'Unpaid',
+      cnReady: false,
       invoiceGenerated: false,
     }
   }
@@ -3079,7 +3166,7 @@ export function CreditNoteReport() {
     if (!fetched || !party) return []
     return [buildRow(party, month)]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetched, party, month, notes, data.requests])
+  }, [fetched, party, month, notes, data.requests, data.roughSheets, data.invoices])
 
   const totals = useMemo(
     () => ({
@@ -3105,27 +3192,39 @@ export function CreditNoteReport() {
   }
 
   const nextCnNo = (list: CreditNoteRecord[]) => {
-    const nums = list
+    const fromNotes = list
       .map((n) => Number((n.cnNo || '').replace(/\D/g, '')))
       .filter((n) => !Number.isNaN(n) && n > 0)
-    const max = nums.length ? Math.max(...nums) : 0
+    const fromInvoices = (data.invoices || [])
+      .map((inv) => {
+        const no = (inv.invoiceNo || '').toUpperCase()
+        if (!no.startsWith('CN')) return 0
+        return Number(no.replace(/\D/g, '')) || 0
+      })
+      .filter((n) => n > 0)
+    const max = Math.max(0, ...fromNotes, ...fromInvoices)
     return `CN-${max + 1}`
   }
 
+  const upsertNote = (saved: CreditNoteRecord) => {
+    const rest = notes.filter((n) => !(n.partyId === saved.partyId && n.month === saved.month))
+    persist([saved, ...rest])
+  }
+
+  /** Pay only — CN number assigned later on Generate Invoice (GoldShark flow). */
   const payRow = (row: CreditNoteRecord) => {
     if (row.status === 'Paid') return
-    const cnNo = nextCnNo(notes)
     const saved: CreditNoteRecord = {
       ...row,
       id: `cn-${row.partyId}-${row.month}`,
-      cnNo,
+      cnNo: '',
       status: 'Paid',
+      cnReady: false,
       invoiceGenerated: false,
       paidAt: new Date().toISOString(),
     }
-    const rest = notes.filter((n) => !(n.partyId === row.partyId && n.month === row.month))
-    persist([saved, ...rest])
-    toast(`Marked paid — ${cnNo}`)
+    upsertNote(saved)
+    toast('Marked paid — click CN ? then Generate Invoice')
   }
 
   const payAll = () => {
@@ -3137,12 +3236,12 @@ export function CreditNoteReport() {
     let paid = 0
     for (const row of rows) {
       if (row.status === 'Paid') continue
-      const cnNo = nextCnNo(list)
       const saved: CreditNoteRecord = {
         ...row,
         id: `cn-${row.partyId}-${row.month}`,
-        cnNo,
+        cnNo: '',
         status: 'Paid',
+        cnReady: false,
         invoiceGenerated: false,
         paidAt: new Date().toISOString(),
       }
@@ -3154,7 +3253,16 @@ export function CreditNoteReport() {
       return
     }
     persist(list)
-    toast(`Paid ${paid} credit note(s)`)
+    toast(`Paid ${paid} — click CN ? then Generate Invoice`)
+  }
+
+  const markCnReady = (row: CreditNoteRecord) => {
+    if (row.status !== 'Paid') {
+      toast('Pay first')
+      return
+    }
+    const saved: CreditNoteRecord = { ...row, cnReady: true }
+    upsertNote(saved)
   }
 
   const generateInvoice = (row: CreditNoteRecord) => {
@@ -3162,24 +3270,35 @@ export function CreditNoteReport() {
       toast('Pay first')
       return
     }
-    const updatedRow: CreditNoteRecord = { ...row, invoiceGenerated: true }
-    const updated = notes.map((n) =>
-      n.partyId === row.partyId && n.month === row.month ? updatedRow : n,
-    )
-    persist(updated)
-    const amount = Number(row.finalDiscount || row.discountedTotal || 0)
-    const tax = Number((Math.abs(amount) * 0.18).toFixed(2))
+    if (!row.cnReady) {
+      toast('Click CN ? first')
+      return
+    }
+    const cnNo = row.cnNo || nextCnNo(notes)
+    const updatedRow: CreditNoteRecord = {
+      ...row,
+      cnNo,
+      cnReady: true,
+      invoiceGenerated: true,
+      generatedAt: new Date().toISOString(),
+    }
+    upsertNote(updatedRow)
+    const amount = Number(row.finalDiscount || 0)
     store.addInvoice({
       partyName: row.partyName,
-      requestNo: row.cnNo || `CN-${row.month}`,
+      requestNo: cnNo,
       amount: -Math.abs(amount),
-      tax: -tax,
-      total: -(Math.abs(amount) + tax),
+      tax: 0,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      total: -Math.abs(amount),
       status: 'Paid',
-      invoiceNo: row.cnNo || undefined,
+      invoiceNo: cnNo,
+      sac: '000000',
     })
     setPreview({ kind: 'invoice', row: updatedRow })
-    toast('Credit note invoice generated')
+    toast(`Credit note ${cnNo} generated`)
   }
 
   const deleteNote = (row: CreditNoteRecord) => {
@@ -3197,7 +3316,7 @@ export function CreditNoteReport() {
       toast('Search first')
       return
     }
-    downloadCsv(`Credit_Note_Report_${new Date().toISOString().slice(0, 10)}.csv`, [
+    downloadCsv(`Credit_Note_Report_${localYmd()}.csv`, [
       [
         'Name',
         'Total Pic (Minimum Bills)',
@@ -3207,7 +3326,7 @@ export function CreditNoteReport() {
         'Discounted Total',
         'Final Discount',
         'Status',
-        'Actions',
+        'CN No',
       ],
       ...rows.map((r) => [
         r.partyName,
@@ -3218,7 +3337,7 @@ export function CreditNoteReport() {
         r.discountedTotal.toFixed(2),
         r.finalDiscount.toFixed(2),
         r.status,
-        r.status === 'Paid' ? `${r.cnNo}Delete` : 'Pay',
+        r.cnNo || '',
       ]),
       [
         'Total:',
@@ -3241,6 +3360,7 @@ export function CreditNoteReport() {
       return
     }
     setPreview({ kind: 'report' })
+    window.setTimeout(() => window.print(), 200)
   }
 
   const num = (n: number) => n.toFixed(2)
@@ -3250,189 +3370,202 @@ export function CreditNoteReport() {
       ? data.parties.find((x) => x.id === preview.row.partyId)
       : undefined
   const previewAmount =
-    preview?.kind === 'invoice'
-      ? preview.row.finalDiscount || preview.row.discountedTotal || 0
-      : 0
-  const previewDated = formatCnDateTime()
+    preview?.kind === 'invoice' ? Number(preview.row.finalDiscount || 0) : 0
+  const previewDated =
+    preview?.kind === 'invoice' && preview.row.generatedAt
+      ? formatCnDateTime(new Date(preview.row.generatedAt))
+      : formatCnDateTime()
 
   return (
     <div className={`cn-page ${preview ? 'cn-printing' : ''}`}>
       <div className="cn-main no-print">
-      <Link to="/reports" className="back-link">
-        <ArrowLeft size={16} /> Back to Reports
-      </Link>
-
-      <section className="cn-filters">
-        <div className="field">
-          <label>Select Month</label>
-          <input type="month" value={month} onChange={(e) => { setMonth(e.target.value); setFetched(false) }} />
-        </div>
-
-        <div className="field cn-party-field">
-          <label>Select Party</label>
-          <div className="party-search">
+        <section className="cn-filters">
+          <div className="field">
+            <label>Select Month</label>
             <input
-              placeholder="Select a party"
-              value={party ? party.name : partyQuery}
+              type="month"
+              value={month}
               onChange={(e) => {
-                setPartyId('')
-                setPartyQuery(e.target.value)
-                setPartyOpen(true)
+                setMonth(e.target.value)
                 setFetched(false)
               }}
-              onFocus={() => setPartyOpen(true)}
-              onBlur={() => setTimeout(() => setPartyOpen(false), 150)}
             />
-            {party && (
-              <button
-                type="button"
-                className="fundreg-clear"
-                title="Clear party"
-                onClick={() => {
+          </div>
+
+          <div className="field cn-party-field">
+            <label>Select Party</label>
+            <div className="party-search">
+              <input
+                placeholder="Select a party"
+                value={party ? party.name : partyQuery}
+                onChange={(e) => {
                   setPartyId('')
-                  setPartyQuery('')
+                  setPartyQuery(e.target.value)
+                  setPartyOpen(true)
                   setFetched(false)
                 }}
-              >
-                ×
-              </button>
-            )}
-            {partyOpen && partyOptions.length > 0 && (
-              <div className="party-dropdown">
-                {partyOptions.slice(0, 8).map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="party-option"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setPartyId(p.id)
-                      setPartyQuery(p.name)
-                      setPartyOpen(false)
-                      setFetched(false)
-                    }}
-                  >
-                    <strong>{p.name}</strong>
-                    <span>{p.address || p.phone || '—'}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+                onFocus={() => setPartyOpen(true)}
+                onBlur={() => setTimeout(() => setPartyOpen(false), 150)}
+              />
+              {party && (
+                <button
+                  type="button"
+                  className="fundreg-clear"
+                  title="Clear party"
+                  onClick={() => {
+                    setPartyId('')
+                    setPartyQuery('')
+                    setFetched(false)
+                  }}
+                >
+                  ×
+                </button>
+              )}
+              {partyOpen && partyOptions.length > 0 && (
+                <div className="party-dropdown">
+                  {partyOptions.slice(0, 12).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="party-option"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setPartyId(p.id)
+                        setPartyQuery(p.name)
+                        setPartyOpen(false)
+                        setFetched(false)
+                      }}
+                    >
+                      <strong>{p.name}</strong>
+                      <span>{p.address || p.phone || '—'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="cn-actions">
-          <button type="button" className="btn btn-navy" onClick={doSearch}>
-            <Search size={16} /> Search
-          </button>
-          <button type="button" className="btn btn-cn-payall" onClick={payAll}>
-            <Wallet size={16} /> Pay All
-          </button>
-          <button type="button" className="btn btn-green" onClick={exportExcel}>
-            <FileSpreadsheet size={16} /> Excel
-          </button>
-          <button type="button" className="btn btn-pdf" onClick={exportPdf}>
-            <FileText size={16} /> PDF
-          </button>
-        </div>
-      </section>
+          <div className="cn-actions">
+            <button type="button" className="btn btn-navy" onClick={doSearch}>
+              <Search size={16} /> Search
+            </button>
+            <button type="button" className="btn btn-cn-payall" onClick={payAll}>
+              <Wallet size={16} /> Pay All
+            </button>
+            <button type="button" className="btn btn-green" onClick={exportExcel}>
+              <FileSpreadsheet size={16} /> Excel
+            </button>
+            <button type="button" className="btn btn-pdf" onClick={exportPdf}>
+              <FileText size={16} /> PDF
+            </button>
+          </div>
+        </section>
 
-      {fetched && (
-        <section className="cn-sheet">
-          <header className="cn-sheet-head">
-            <h2>Credit Note Report</h2>
-            <p>{rangeLabel}</p>
-          </header>
+        {fetched && (
+          <section className="cn-sheet">
+            <header className="cn-sheet-head">
+              <h2>Credit Note Report</h2>
+              <p>{rangeLabel}</p>
+            </header>
 
-          <div className="table-wrap">
-            <table className="data-table cn-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Total Pic (Minimum Bills)</th>
-                  <th>Discount (%)</th>
-                  <th>Total Pic</th>
-                  <th>Final Amount (Min Bills)</th>
-                  <th>Discounted Total</th>
-                  <th>Final Discount</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.partyName}</td>
-                    <td>{num(r.totalPicMinBills)}</td>
-                    <td>{num(r.discountPct)}</td>
-                    <td>{num(r.totalPic)}</td>
-                    <td>{num(r.finalAmountMinBills)}</td>
-                    <td>{num(r.discountedTotal)}</td>
-                    <td>{num(r.finalDiscount)}</td>
-                    <td>
-                      <span className={`cn-status ${r.status === 'Paid' ? 'paid' : 'unpaid'}`}>
-                        {r.status}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="cn-row-actions">
-                        {r.status === 'Unpaid' && (
-                          <button type="button" className="btn btn-navy btn-sm" onClick={() => payRow(r)}>
-                            Pay
-                          </button>
-                        )}
-                        {r.status === 'Paid' && !r.invoiceGenerated && (
-                          <button
-                            type="button"
-                            className="btn btn-cn-generate btn-sm"
-                            onClick={() => generateInvoice(r)}
-                          >
-                            Generate Invoice
-                          </button>
-                        )}
-                        {r.status === 'Paid' && r.invoiceGenerated && (
-                          <>
+            <div className="table-wrap">
+              <table className="data-table cn-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Total Pic (Minimum Bills)</th>
+                    <th>Discount (%)</th>
+                    <th>Total Pic</th>
+                    <th>Final Amount (Min Bills)</th>
+                    <th>Discounted Total</th>
+                    <th>Final Discount</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.partyName}</td>
+                      <td>{num(r.totalPicMinBills)}</td>
+                      <td>{num(r.discountPct)}</td>
+                      <td>{num(r.totalPic)}</td>
+                      <td>{num(r.finalAmountMinBills)}</td>
+                      <td>{num(r.discountedTotal)}</td>
+                      <td>{num(r.finalDiscount)}</td>
+                      <td>
+                        <span className={`cn-status ${r.status === 'Paid' ? 'paid' : 'unpaid'}`}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="cn-row-actions">
+                          {r.status === 'Unpaid' && (
+                            <button type="button" className="btn btn-navy btn-sm" onClick={() => payRow(r)}>
+                              Pay
+                            </button>
+                          )}
+                          {r.status === 'Paid' && !r.invoiceGenerated && !r.cnReady && (
                             <button
                               type="button"
                               className="btn btn-green btn-sm"
-                              onClick={() => printCreditNote(r)}
+                              onClick={() => markCnReady(r)}
                             >
-                              {r.cnNo || 'CN'}
+                              CN ?
                             </button>
+                          )}
+                          {r.status === 'Paid' && !r.invoiceGenerated && r.cnReady && (
                             <button
                               type="button"
-                              className="btn btn-cn-delete btn-sm"
-                              onClick={() => deleteNote(r)}
+                              className="btn btn-cn-generate btn-sm"
+                              onClick={() => generateInvoice(r)}
                             >
-                              <Trash2 size={14} /> Delete
+                              Generate Invoice
                             </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
+                          )}
+                          {r.status === 'Paid' && r.invoiceGenerated && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-green btn-sm"
+                                onClick={() => printCreditNote(r)}
+                              >
+                                {r.cnNo || 'CN'}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-cn-delete btn-sm"
+                                onClick={() => deleteNote(r)}
+                              >
+                                <Trash2 size={14} /> Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="cn-total-row">
+                    <td>Total:</td>
+                    <td>{num(totals.totalPicMinBills)}</td>
+                    <td>{num(totals.discountPct)}</td>
+                    <td>{num(totals.totalPic)}</td>
+                    <td>{num(totals.finalAmountMinBills)}</td>
+                    <td>{num(totals.discountedTotal)}</td>
+                    <td>{num(totals.finalDiscount)}</td>
+                    <td colSpan={2} />
                   </tr>
-                ))}
-                <tr className="cn-total-row">
-                  <td>Total:</td>
-                  <td>{num(totals.totalPicMinBills)}</td>
-                  <td>{num(totals.discountPct)}</td>
-                  <td>{num(totals.totalPic)}</td>
-                  <td>{num(totals.finalAmountMinBills)}</td>
-                  <td>{num(totals.discountedTotal)}</td>
-                  <td>{num(totals.finalDiscount)}</td>
-                  <td colSpan={2} />
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
-      <div className="cn-back">
-        <Link to="/reports" className="btn btn-secondary">
-          Back
-        </Link>
-      </div>
+        <div className="cn-back">
+          <Link to="/reports" className="btn btn-secondary">
+            Back
+          </Link>
+        </div>
       </div>
 
       {preview && (
@@ -3452,24 +3585,32 @@ export function CreditNoteReport() {
               <p className="cn-print-sub">(Original Copy)</p>
               <div className="cn-print-meta">
                 <div>
-                  <strong>{preview.row.partyName}</strong>
+                  <strong>{(preview.row.partyName || '').toUpperCase()}</strong>
                   <div>{previewParty?.address || '—'}</div>
                   <div>GSTIN: {previewParty?.gstin || '—'}</div>
                   <div>State Code: {previewParty?.stateCode || '—'}</div>
                 </div>
-                <div>
-                  <div>Invoice No: {preview.row.cnNo || '—'}</div>
-                  <div>Dated: {previewDated}</div>
-                  <div>Place: {previewParty?.stateCode || '—'}</div>
-                  <div>SAC Code: 998900</div>
+                <div className="cn-print-meta-right">
+                  <div>
+                    <strong>Invoice No:</strong> {preview.row.cnNo || '—'}
+                  </div>
+                  <div>
+                    <strong>Dated:</strong> {previewDated}
+                  </div>
+                  <div>
+                    <strong>Place:</strong> {previewParty?.stateCode || '—'}
+                  </div>
+                  <div>
+                    <strong>SAC Code:</strong> 000000
+                  </div>
                 </div>
               </div>
-              <table className="cn-print-table">
+              <table className="cn-print-table cn-print-items">
                 <thead>
                   <tr>
-                    <th>S.N.</th>
+                    <th style={{ width: '10%' }}>S.N.</th>
                     <th>Description of Goods</th>
-                    <th>Amount</th>
+                    <th style={{ width: '18%' }}>Amount</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3478,11 +3619,16 @@ export function CreditNoteReport() {
                     <td>Discount Exp. A/C</td>
                     <td>{previewAmount.toFixed(2)}</td>
                   </tr>
+                  <tr className="cn-print-spacer">
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                  </tr>
                 </tbody>
               </table>
               <div className="cn-print-bottom">
                 <div className="cn-print-words">
-                  <strong>Amount in Words:</strong> Rupees Only
+                  <strong>Amount in Words:</strong> {cnAmountInWords(previewAmount)}
                 </div>
                 <div className="cn-print-totals">
                   <div>Add: CGST: 0.00</div>
@@ -3501,7 +3647,7 @@ export function CreditNoteReport() {
                 <br />
                 <br />
                 <br />
-                Authorised Signatory
+                Authorized Signatory
               </div>
             </div>
           )}
@@ -3536,7 +3682,9 @@ export function CreditNoteReport() {
                     </tr>
                   ))}
                   <tr className="cn-total-row">
-                    <td>Total:</td>
+                    <td>
+                      <strong>Total:</strong>
+                    </td>
                     <td>{num(totals.totalPicMinBills)}</td>
                     <td>{num(totals.discountPct)}</td>
                     <td>{num(totals.totalPic)}</td>
