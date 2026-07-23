@@ -14,12 +14,12 @@ Gold Shark–style bridge: **Create Sheet** in Shrija Hallmark Suite publishes a
 ## Flow
 
 1. QM Stock → CG WEIGHT — add unused CG1/CG2
-2. **Cg Auto Fire Assay** → select **Purity** (BIS fields auto-fill)
-3. Set **No. of Rows** (default **22**) → **Create Sheet** / Fill Rows
-4. Paste Job Card as `1_8080132061` (optional in app)
-5. **Create Sheet does not open Chrome**
-6. Open Manak yourself → open Fire Assaying Sheet → **select Lot No**
-7. Extension fills Strip/CG weights for that lot → review → Save → Submit For HUID
+2. **Cg Auto Fire Assay** → select **Purity** → **22 rows auto-created** (BIS fill)
+3. Paste Job Card Nos: `1_127087789`, `2_127087793`, …
+4. **Create Sheet** → saves payload for extension (does **not** open Chrome)
+5. Open Manak yourself → Fire Assaying Sheet → **select Lot No** (e.g. `Lot 1:127087789`)
+6. Extension matches that job/lot and auto-fills Strip + CG weights
+7. Review → Save → Submit For HUID
 
 ## Notes
 

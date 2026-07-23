@@ -48,6 +48,8 @@ function parseLotJobCard(raw: string): { lotNo: number; jobCard: string } {
   const t = raw.trim()
   const m = /^(\d+)\s*[_\-/]\s*(\d+)$/.exec(t)
   if (m) return { lotNo: Number(m[1]), jobCard: m[2] }
+  // Plain Manak job card number only
+  if (/^\d{6,}$/.test(t)) return { lotNo: 0, jobCard: t }
   return { lotNo: 1, jobCard: t }
 }
 
@@ -280,6 +282,20 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       }
     }
 
+    // Gold Shark: selecting purity auto-creates No. of Rows (Job Card empty for paste)
+    if (noJobPick) {
+      const prevCards = rows.map((r) => r.jobCardNo)
+      const generated = generateSheetRowsFor(nextPurity)
+      setRows(
+        generated.map((r, i) => ({
+          ...r,
+          jobCardNo: prevCards[i] || '',
+          lotNo: prevCards[i] ? parseLotJobCard(prevCards[i]).lotNo || r.lotNo : r.lotNo,
+        })),
+      )
+      return
+    }
+
     setRows((prev) => {
       if (!prev.length) return prev
       return autofillRows(prev, nextPurity, Number(avgDelta) || 0, bis.silverStrip, bis.lead)
@@ -354,18 +370,20 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   }
 
   /** Gold Shark: create exactly No. of Rows (default 22) — no job selection required. */
-  const generateSheetRows = (count?: number): SheetRow[] => {
-    const pur = purity || '916'
-    const bis = getBisDefaults(pur)
+  const generateSheetRowsFor = (pur: string, count?: number): SheetRow[] => {
+    const p = pur || '916'
+    const bis = getBisDefaults(p)
     const avg = Number(avgDelta) || 0
     const target = Math.max(2, Math.min(50, count ?? (Number(noOfRows) || 22)))
     const pairCount = Math.ceil(target / 2)
     const next: SheetRow[] = []
     for (let i = 0; i < pairCount; i++) {
-      next.push(...buildBlankLotPair(i + 1, avg, bis.silverStrip, bis.lead, pur))
+      next.push(...buildBlankLotPair(i + 1, avg, bis.silverStrip, bis.lead, p))
     }
     return next.slice(0, target)
   }
+
+  const generateSheetRows = (count?: number) => generateSheetRowsFor(purity || '916', count)
 
   const fillJobs = () => {
     if (!purity) {
@@ -374,7 +392,12 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     }
     // CG Auto / Cornet: no separate jobs — fill N blank BIS rows
     if (noJobPick) {
-      const next = generateSheetRows()
+      const prevCards = rows.map((r) => r.jobCardNo)
+      const next = generateSheetRows().map((r, i) => ({
+        ...r,
+        jobCardNo: prevCards[i] || '',
+        lotNo: prevCards[i] ? parseLotJobCard(prevCards[i]).lotNo || r.lotNo : r.lotNo,
+      }))
       setRows(next)
       toast(`${next.length} rows ready — paste Job Card No (1_8080132061 …) then Create Sheet`)
       return
@@ -392,7 +415,6 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     picked.forEach((id, i) => {
       next.push(...buildPairRows(id, i + 1, avg, bis.silverStrip, bis.lead, purity))
     })
-    // Pad to No. of Rows if fewer jobs selected (Gold Shark always shows full row count)
     while (next.length < target) {
       const lot = Math.floor(next.length / 2) + 1
       next.push(...buildBlankLotPair(lot, avg, bis.silverStrip, bis.lead, purity))
@@ -406,13 +428,25 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       toast('Select Purity first')
       return
     }
-
-    // Gold Shark: Create Sheet builds N rows if table empty (no job pick needed)
-    let sheetRows = rows
-    if (sheetRows.length === 0) {
-      sheetRows = generateSheetRows()
-      setRows(sheetRows)
+    if (rows.length === 0) {
+      toast('Select Purity first — rows auto-create, then fill Job Card Nos')
+      return
     }
+
+    const missingJc = rows.filter((r) => !r.jobCardNo.trim())
+    if (missingJc.length) {
+      toast(
+        `Fill Job Card No for all rows first (e.g. 1_127087789 for Lot 1). ${missingJc.length} empty.`,
+      )
+      return
+    }
+
+    const sheetRows = rows.map((r, i) => {
+      const parsed = parseLotJobCard(r.jobCardNo)
+      const lot = parsed.lotNo || r.lotNo || Math.floor(i / 2) + 1
+      return { ...r, lotNo: lot }
+    })
+    setRows(sheetRows)
 
     const avg = Number(avgDelta) || 0
     for (const row of sheetRows) {
@@ -433,7 +467,6 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       store.updateRequestStatus(req.id, 'Assayed')
     }
 
-    // Persist sheet assay even without linked requests (CG Auto blank lots)
     if (!sheetRows.some((r) => r.requestNo)) {
       store.addFireAssay({
         requestNo: `SHEET-${sheetNo}`,
@@ -478,11 +511,13 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         avgDelta: avg,
       },
       rows: sheetRows.map((r, i) => {
-        const { lotNo } = parseLotJobCard(r.jobCardNo)
-        const lot = r.lotNo || lotNo || Math.floor(i / 2) + 1
+        const parsed = parseLotJobCard(r.jobCardNo)
+        const lot = parsed.lotNo || r.lotNo || Math.floor(i / 2) + 1
+        const manakJobCard = parsed.jobCard || r.jobCardNo.replace(/^\d+[_\-/]/, '').trim()
         return {
           lotNo: lot,
-          jobCardNo: r.jobCardNo.trim() || `${lot}_`,
+          jobCardNo: r.jobCardNo.trim(),
+          manakJobCard,
           sampleDrawn: Number(r.sampleDrawn) || 0,
           sampleWeight: Number(r.sampleWeight) || 0,
           silver: Number(r.silver) || 0,
@@ -504,35 +539,42 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       /* ignore */
     }
 
-    // Gold Shark: do NOT open Chrome — open Manak yourself, select Lot No; extension fills
     toast(
-      `Sheet FS-${sheetNo} ready (${sheetRows.length} rows). Open Manak → select Lot No — extension fills.`,
+      `Sheet ready for extension (${sheetRows.length} rows). Open Manak Fire Assay → select Lot No — auto-fills that lot.`,
     )
   }
 
   const updateRow = (key: string, patch: Partial<SheetRow>) => {
     setRows((prev) => {
-      const next = prev.map((r) => (r.key === key ? { ...r, ...patch } : r))
-      const byReq = new Map<string, number[]>()
-      next.forEach((r, idx) => {
-        const sw = Number(r.sampleWeight)
-        const w = Number(r.wotgcaa)
-        if (sw > 0 && w > 0) r.fineness = finenessPpt(sw, w).toFixed(3)
-        const k = r.requestNo || String(Math.floor(idx / 2))
-        const list = byReq.get(k) || []
-        list.push(idx)
-        byReq.set(k, list)
+      const next = prev.map((r) => {
+        if (r.key !== key) return r
+        const updated = { ...r, ...patch }
+        if (patch.jobCardNo != null) {
+          const parsed = parseLotJobCard(patch.jobCardNo)
+          if (parsed.lotNo > 0) updated.lotNo = parsed.lotNo
+        }
+        return updated
       })
-      for (const idxs of byReq.values()) {
-        if (idxs.length < 2) continue
-        const a = next[idxs[0]]
-        const b = next[idxs[1]]
-        const mean = ((Number(a.fineness) + Number(b.fineness)) / 2).toFixed(3)
+      // Pair by lot index (every 2 rows)
+      for (let i = 0; i + 1 < next.length; i += 2) {
+        const a = next[i]
+        const b = next[i + 1]
+        const swA = Number(a.sampleWeight)
+        const wA = Number(a.wotgcaa)
+        const swB = Number(b.sampleWeight)
+        const wB = Number(b.wotgcaa)
+        if (swA > 0 && wA > 0) a.fineness = finenessPpt(swA, wA).toFixed(3)
+        if (swB > 0 && wB > 0) b.fineness = finenessPpt(swB, wB).toFixed(3)
         a.meanFineness = '0.0'
-        b.meanFineness = mean
+        b.meanFineness = ((Number(a.fineness) + Number(b.fineness)) / 2).toFixed(3)
         if (patch.jobCardNo != null && (key === a.key || key === b.key)) {
+          const parsed = parseLotJobCard(patch.jobCardNo)
           a.jobCardNo = patch.jobCardNo
           b.jobCardNo = patch.jobCardNo
+          if (parsed.lotNo > 0) {
+            a.lotNo = parsed.lotNo
+            b.lotNo = parsed.lotNo
+          }
         }
       }
       return [...next]
@@ -659,7 +701,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       <div className="panel cg-form-panel">
         <p className="cg-flow-hint">
           {noJobPick
-            ? 'Flow: CG WEIGHT add → Select Purity (BIS auto-fill) → Create Sheet makes 22 rows → paste Job Card (1_8080132061) → open Manak yourself → select Lot No (extension fills). Chrome does not open.'
+            ? 'Flow: Select Purity → 22 rows auto → fill Job Card (1_127087789) → Create Sheet (extension payload) → open Manak Fire Assay → select Lot No → auto-fill that lot.'
             : 'Flow: Select Purity → Fill Jobs → Job Card → Create Sheet → Manak extension.'}
         </p>
         <div className="cg-form-grid">
@@ -937,7 +979,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
                 <tr>
                   <td colSpan={8} className="empty-state">
                     {noJobPick
-                      ? 'Select Purity → Create Sheet (or Fill Rows) for 22 BIS rows. Job Card paste later; open Manak yourself + select Lot.'
+                      ? 'Select Purity to auto-create 22 rows. Fill Job Card Nos, then Create Sheet. Open Manak → select Lot No for correct fill.'
                       : 'Select purity → Fill Jobs. Job Card stays empty until you paste Manak lot nos.'}
                   </td>
                 </tr>

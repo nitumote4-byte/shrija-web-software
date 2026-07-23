@@ -5,7 +5,10 @@ export const MANAK_FIRE_ASSAY_EVENT = 'shrija:manak-fire-assay-sheet'
 
 export type ManakFireAssayRow = {
   lotNo: number
+  /** Full entry as typed in Shrija, e.g. 1_127087789 */
   jobCardNo: string
+  /** Numeric Manak job card only, e.g. 127087789 — used for Lot dropdown match */
+  manakJobCard: string
   sampleDrawn: number
   sampleWeight: number
   silver: number
