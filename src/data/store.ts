@@ -972,12 +972,113 @@ function save(data: StoreShape) {
   setStoreCache(data)
 }
 
+function normPartyName(name: string | undefined | null) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+function fundBelongsToParty(f: FundEntry, partyName: string) {
+  const key = normPartyName(partyName)
+  if (!key) return false
+  return normPartyName(f.partyName) === key || normPartyName(f.source) === key
+}
+
+/**
+ * Allocate party funds FIFO (oldest invoice first) → Paid / Partial / Unpaid.
+ * Returns a map of invoiceId → status (does not mutate).
+ */
+export function computeInvoicePaymentStatuses(
+  invoices: Invoice[],
+  funds: FundEntry[],
+  partyName?: string,
+): Map<string, Invoice['status']> {
+  const result = new Map<string, Invoice['status']>()
+  const partyKey = partyName ? normPartyName(partyName) : null
+
+  const byParty = new Map<string, Invoice[]>()
+  for (const inv of invoices) {
+    const k = normPartyName(inv.partyName)
+    if (!k) continue
+    if (partyKey && k !== partyKey) continue
+    if (!byParty.has(k)) byParty.set(k, [])
+    byParty.get(k)!.push(inv)
+  }
+
+  for (const [k, invs] of byParty) {
+    let pool = funds
+      .filter((f) => fundBelongsToParty(f, k))
+      .reduce((s, f) => s + (Number(f.amount) || 0), 0)
+
+    const sorted = [...invs].sort((a, b) => {
+      const d = String(a.date || '').localeCompare(String(b.date || ''))
+      if (d !== 0) return d
+      return String(a.invoiceNo || '').localeCompare(String(b.invoiceNo || ''))
+    })
+
+    for (const inv of sorted) {
+      const total = Number(inv.total) || 0
+      if (pool <= 0.009) {
+        result.set(inv.id, 'Unpaid')
+      } else if (pool + 0.009 >= total) {
+        result.set(inv.id, 'Paid')
+        pool = Number((pool - total).toFixed(2))
+      } else {
+        result.set(inv.id, 'Partial')
+        pool = 0
+      }
+    }
+  }
+  return result
+}
+
+/** Persist Paid/Partial/Unpaid from Fund Entry totals (FIFO). */
+function applyInvoicePaymentStatuses(data: StoreShape, partyName?: string) {
+  const statuses = computeInvoicePaymentStatuses(data.invoices, data.funds, partyName)
+  let changed = false
+  const now = new Date().toISOString()
+  for (const inv of data.invoices) {
+    const next = statuses.get(inv.id)
+    if (!next || inv.status === next) continue
+    inv.status = next
+    inv.updatedAt = now
+    changed = true
+  }
+  return changed
+}
+
+/** Party outstanding: billed − paid (negative = advance / credit). */
+export function calcPartyBalance(
+  invoices: Invoice[],
+  funds: FundEntry[],
+  partyName: string,
+  excludeVoucherNo?: string,
+) {
+  const billed = invoices
+    .filter((i) => normPartyName(i.partyName) === normPartyName(partyName))
+    .reduce((s, i) => s + (Number(i.total) || 0), 0)
+  const paid = funds
+    .filter((f) => fundBelongsToParty(f, partyName))
+    .filter((f) => !excludeVoucherNo || String(f.voucherNo) !== String(excludeVoucherNo))
+    .reduce((s, f) => s + (Number(f.amount) || 0), 0)
+  return Number((billed - paid).toFixed(2))
+}
+
 export const store = {
   /** UI lists — OSC sessions are centre-scoped; Main sees full firm data */
   getAll: () => scopeStoreForSession(load()),
 
   /** Unscoped — mutations / Main lab handoff */
   getAllRaw: () => load(),
+
+  /** Recompute invoice Paid/Partial/Unpaid from funds (optional party filter). */
+  syncInvoicePaymentStatuses(partyName?: string) {
+    const data = load()
+    if (!applyInvoicePaymentStatuses(data, partyName)) return 0
+    save(data)
+    return 1
+  },
 
   addParty(input: Omit<Party, 'id' | 'createdAt'>) {
     const data = load()
@@ -1560,6 +1661,8 @@ export const store = {
       voucherNo: input.voucherNo || String(n),
     }
     data.funds.unshift(entry)
+    const partyForStatus = entry.partyName || entry.source
+    if (partyForStatus) applyInvoicePaymentStatuses(data, partyForStatus)
     save(data)
     return entry
   },

@@ -31,7 +31,7 @@ import {
 import { statusBadge, useToast } from '../components/ui'
 import { getFirmProfile } from '../data/firmProfile'
 import { CENTRE_NAME } from '../data/modules'
-import { store } from '../data/store'
+import { computeInvoicePaymentStatuses, store } from '../data/store'
 import { tenantGet, tenantSet } from '../data/tenant'
 
 function ReportShell({
@@ -1936,12 +1936,18 @@ export function InvoiceListReport() {
     [data.parties],
   )
 
+  const paymentStatusById = useMemo(
+    () => computeInvoicePaymentStatuses(data.invoices, data.funds),
+    [data.invoices, data.funds],
+  )
+
   const rows = useMemo(() => {
     if (!fetched) return []
     return data.invoices
       .filter((inv) => {
         if (partyName && inv.partyName.toLowerCase() !== partyName.toLowerCase()) return false
-        if (status !== 'All Status' && inv.status.toUpperCase() !== status.toUpperCase()) return false
+        const payStatus = paymentStatusById.get(inv.id) || inv.status
+        if (status !== 'All Status' && payStatus.toUpperCase() !== status.toUpperCase()) return false
         if (inv.date < startDate || inv.date > endDate) return false
         const party = data.parties.find((p) => p.name === inv.partyName)
         if (txnType !== 'All Types' && party && party.transactionType !== txnType) return false
@@ -1966,6 +1972,7 @@ export function InvoiceListReport() {
         const igst = useIgst ? inv.tax : 0
         return {
           inv,
+          payStatus: paymentStatusById.get(inv.id) || inv.status,
           party,
           hmPiece,
           sgst,
@@ -1974,7 +1981,7 @@ export function InvoiceListReport() {
           txnType: party?.transactionType || '—',
         }
       })
-  }, [fetched, data, partyName, status, txnType, startDate, endDate])
+  }, [fetched, data, partyName, status, txnType, startDate, endDate, paymentStatusById])
 
   const summary = useMemo(() => {
     return rows.reduce(
@@ -1993,6 +2000,7 @@ export function InvoiceListReport() {
   }, [rows])
 
   const getInvoices = () => {
+    store.syncInvoicePaymentStatuses()
     setFetched(true)
     toast('Invoices loaded')
   }
@@ -2029,7 +2037,7 @@ export function InvoiceListReport() {
         r.cgst.toFixed(2),
         r.igst.toFixed(2),
         r.inv.total.toFixed(2),
-        r.inv.status.toUpperCase(),
+        r.payStatus.toUpperCase(),
       ]),
     ])
     toast('Report downloaded')
@@ -2155,9 +2163,9 @@ export function InvoiceListReport() {
                     <td>{money(r.inv.total)}</td>
                     <td>
                       <span
-                        className={`invlist-status ${r.inv.status === 'Unpaid' ? 'unpaid' : r.inv.status === 'Paid' ? 'paid' : 'partial'}`}
+                        className={`invlist-status ${r.payStatus === 'Unpaid' ? 'unpaid' : r.payStatus === 'Paid' ? 'paid' : 'partial'}`}
                       >
-                        {r.inv.status.toUpperCase()}
+                        {r.payStatus.toUpperCase()}
                       </span>
                     </td>
                   </tr>

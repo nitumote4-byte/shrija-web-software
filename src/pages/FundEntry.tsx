@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { History, PackageOpen, Plus, Printer, RefreshCw, X } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { getInvoiceHeader } from '../data/firmProfile'
-import { store, type FundEntry, type Party } from '../data/store'
+import { calcPartyBalance, store, type FundEntry, type Party } from '../data/store'
 
 function money(n: number) {
   return `₹ ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -19,14 +19,17 @@ function formatReceiptDate(iso: string) {
 
 function partyBalance(partyName: string, excludeVoucherNo?: string) {
   const data = store.getAll()
-  const billed = data.invoices
-    .filter((i) => i.partyName === partyName)
-    .reduce((s, i) => s + i.total, 0)
-  const paid = data.funds
-    .filter((f) => (f.partyName || f.source) === partyName)
-    .filter((f) => !excludeVoucherNo || String(f.voucherNo) !== String(excludeVoucherNo))
-    .reduce((s, f) => s + f.amount, 0)
-  return billed - paid
+  return calcPartyBalance(data.invoices, data.funds, partyName, excludeVoucherNo)
+}
+
+function formatBalanceLabel(balance: number) {
+  if (balance < -0.009) {
+    return { label: 'ADVANCE / CREDIT', value: money(Math.abs(balance)), isCredit: true }
+  }
+  if (Math.abs(balance) <= 0.009) {
+    return { label: 'CURRENT BALANCE', value: money(0), isCredit: false }
+  }
+  return { label: 'CURRENT BALANCE', value: money(balance), isCredit: false }
 }
 
 type ReceiptView = {
@@ -186,6 +189,7 @@ export function FundEntry() {
     if (!party) return 0
     return partyBalance(party.name)
   }, [party, balanceKey, tick])
+  const balanceView = formatBalanceLabel(balance)
 
   const partyOptions = useMemo(() => {
     const q = partyQuery.trim().toLowerCase()
@@ -389,20 +393,24 @@ export function FundEntry() {
               </div>
               <div className="fund-balance-box">
                 <div className="fund-balance-top">
-                  <span>CURRENT BALANCE</span>
+                  <span>{party ? balanceView.label : 'CURRENT BALANCE'}</span>
                   <button
                     type="button"
                     className="fund-sync-btn"
                     title="Sync balance"
                     onClick={() => {
+                      if (party) store.syncInvoicePaymentStatuses(party.name)
                       setBalanceKey((k) => k + 1)
+                      setTick((t) => t + 1)
                       toast(party ? 'Balance synced' : 'Select a party first')
                     }}
                   >
                     <RefreshCw size={14} />
                   </button>
                 </div>
-                <strong>{money(balance)}</strong>
+                <strong className={party && balanceView.isCredit ? 'fund-balance-credit' : undefined}>
+                  {party ? balanceView.value : money(0)}
+                </strong>
               </div>
             </div>
 

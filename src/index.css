@@ -4643,6 +4643,10 @@ button {
   color: #065f46;
 }
 
+.fund-balance-box strong.fund-balance-credit {
+  color: #1d4ed8;
+}
+
 .fund-sync-btn,
 .fund-refresh,
 .fund-print-icon {
