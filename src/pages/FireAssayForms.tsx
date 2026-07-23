@@ -641,11 +641,10 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       /* ignore */
     }
 
-    const filledLots = new Set(sheet.rows.map((r) => r.lotNo)).size
     toast(
       overwriting
-        ? `Sheet FS-${activeSheet} UPDATED (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)) — same sheet overwrite. Manak: Lot select → Fill.`
-        : `Sheet FS-${activeSheet} created (${sheet.viewRows?.length || 0} rows, ${filledLots} lot(s)). Manak: Lot select → Fill. Naya sheet chahiye to Sheet No badlo.`,
+        ? `Sheet FS-${activeSheet} UPDATED — Manak kholo → Lot select = AUTO fill (koi Fill button nahi).`
+        : `Sheet FS-${activeSheet} ready — Manak kholo → Lot select = AUTO fill. Naya sheet: New Sheet No.`,
     )
   }
 

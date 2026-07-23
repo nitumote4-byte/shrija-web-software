@@ -1,0 +1,411 @@
+/**
+ * Pure Manak Fire Assay fill helpers (no chrome.*).
+ * Loaded before content-manak.js in the extension; also used by Node tests.
+ */
+(function (root) {
+  const ManakFill = {}
+
+  ManakFill.delay = (ms) => new Promise((r) => setTimeout(r, ms))
+
+  ManakFill.isUnsafeTarget = function isUnsafeTarget(el) {
+    if (!el || !/INPUT|TEXTAREA/.test(el.tagName)) return true
+    const t = (el.type || '').toLowerCase()
+    if (t === 'hidden' || t === 'button' || t === 'submit' || t === 'checkbox' || t === 'radio') return true
+    const idCls = `${el.id || ''} ${el.className || ''} ${el.name || ''} ${el.placeholder || ''}`
+    if (/select2|chosen|combobox|autocomplete|purity|ddlPurity|Declared/i.test(idCls)) return true
+    if (el.getAttribute('role') === 'combobox') return true
+    const near = ((el.closest('td, th, div, tr, li') || el.parentElement)?.textContent || '')
+      .replace(/\s+/g, ' ')
+      .slice(0, 160)
+    if (/Declared\s*Purity|Material\s*Category|\bMaterials\b|Job\s*Card\s*Number/i.test(near)) {
+      if (!/Sample\s*Drawn|Button\s*Weight|Initial\s*weight|Silver|Copper|Lead|cornet|\bM1\b|\bM2\b/i.test(near)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ManakFill.setNativeValue = function setNativeValue(el, value) {
+    if (!el || value == null || value === '') return false
+    if (ManakFill.isUnsafeTarget(el)) return false
+    const v = String(value)
+    try {
+      el.removeAttribute('readonly')
+      if (el.disabled) el.disabled = false
+    } catch {
+      /* ignore */
+    }
+    const proto = el.tagName === 'TEXTAREA' ? root.HTMLTextAreaElement.prototype : root.HTMLInputElement.prototype
+    const desc = Object.getOwnPropertyDescriptor(proto, 'value')
+    try {
+      el.focus()
+    } catch {
+      /* ignore */
+    }
+    if (desc && desc.set) desc.set.call(el, v)
+    else el.value = v
+    el.dispatchEvent(new root.Event('input', { bubbles: true }))
+    el.dispatchEvent(new root.Event('change', { bubbles: true }))
+    el.dispatchEvent(new root.Event('blur', { bubbles: true }))
+    return Math.abs(Number(el.value) - Number(v)) < 0.001 || String(el.value) === v
+  }
+
+  ManakFill.shortText = function shortText(el) {
+    const own = Array.from(el.childNodes)
+      .filter((n) => n.nodeType === 3)
+      .map((n) => n.textContent || '')
+      .join('')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (own) return own
+    const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
+    return t.length <= 90 ? t : ''
+  }
+
+  ManakFill.visible = function visible(el) {
+    if (!el) return false
+    if (el.offsetParent === null && el.tagName !== 'BODY') {
+      // jsdom often has offsetParent null — treat connected inputs as visible in tests
+      if (typeof el.getBoundingClientRect === 'function') {
+        try {
+          const r = el.getBoundingClientRect()
+          if (r && (r.width || r.height)) return true
+        } catch {
+          /* ignore */
+        }
+      }
+      if (el.isConnected !== false && /INPUT|SELECT|TEXTAREA|BUTTON/.test(el.tagName)) return true
+    }
+    try {
+      const s = root.getComputedStyle?.(el)
+      if (s && (s.display === 'none' || s.visibility === 'hidden')) return false
+    } catch {
+      /* ignore */
+    }
+    return true
+  }
+
+  ManakFill.parseLotOptionText = function parseLotOptionText(text) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim()
+    if (/^select|^--/i.test(t)) return { lot: null, jobCard: '' }
+    const m = /Lot\s*(\d+)\s*[:：]\s*(\d+)/i.exec(t) || /Lot\s*(\d+)\s*[:：]?\s*(\d+)?/i.exec(t)
+    if (!m) {
+      const bare = /^(\d{6,})$/.exec(t)
+      if (bare) return { lot: null, jobCard: bare[1] }
+      return { lot: null, jobCard: '' }
+    }
+    return { lot: Number(m[1]), jobCard: m[2] || '' }
+  }
+
+  ManakFill.parseShrijaJob = function parseShrijaJob(jobCardNo) {
+    const t = String(jobCardNo || '').trim()
+    const m = /^(\d+)\s*[_\-/]\s*(\d+)$/.exec(t)
+    if (m) return { lot: Number(m[1]), card: m[2] }
+    if (/^\d{6,}$/.test(t)) return { lot: 0, card: t }
+    return { lot: 0, card: t }
+  }
+
+  ManakFill.resolveStripRows = function resolveStripRows(sheet, preferredLot, selectText) {
+    const filled = (sheet.rows || []).filter((r) => r.jobCardNo || r.manakJobCard)
+    const fromView = (sheet.viewRows || []).filter((r) => r.jobCardNo || r.manakJobCard)
+    const allRows = filled.length ? filled : fromView
+    const fromOpt = ManakFill.parseLotOptionText(selectText)
+    const lotNum = preferredLot != null ? Number(preferredLot) : fromOpt.lot
+    const jobCard = fromOpt.jobCard || ''
+
+    if (jobCard) {
+      const byCard = allRows.filter((r) => {
+        const card = String(r.manakJobCard || ManakFill.parseShrijaJob(r.jobCardNo).card || '')
+        return card === jobCard || String(r.jobCardNo).includes(jobCard)
+      })
+      if (byCard.length >= 2) return { rows: byCard.slice(0, 2), lotNum: byCard[0].lotNo, jobCard }
+      if (byCard.length === 1) {
+        const lot = byCard[0].lotNo
+        const pair = allRows.filter((r) => Number(r.lotNo) === Number(lot))
+        if (pair.length >= 2) return { rows: pair.slice(0, 2), lotNum: lot, jobCard }
+        return { rows: byCard, lotNum: lot, jobCard }
+      }
+    }
+
+    if (lotNum != null && !Number.isNaN(lotNum)) {
+      const byLot = allRows.filter((r) => Number(r.lotNo) === Number(lotNum))
+      if (byLot.length >= 2) return { rows: byLot.slice(0, 2), lotNum, jobCard }
+      const byPrefix = allRows.filter((r) => ManakFill.parseShrijaJob(r.jobCardNo).lot === Number(lotNum))
+      if (byPrefix.length >= 2) return { rows: byPrefix.slice(0, 2), lotNum, jobCard }
+    }
+
+    if (allRows.length >= 2) {
+      const lot = allRows[0].lotNo || 1
+      const pair = allRows.filter((r) => Number(r.lotNo) === Number(lot))
+      if (pair.length >= 2) return { rows: pair.slice(0, 2), lotNum: lot, jobCard }
+      return { rows: allRows.slice(0, 2), lotNum: lot, jobCard }
+    }
+
+    return { rows: [], lotNum, jobCard }
+  }
+
+  /** Exact label cell → input in same row (Manak Sampling table layout). */
+  ManakFill.findInputBesideExactLabel = function findInputBesideExactLabel(labelRe, root) {
+    const scope = root || root.document || document
+    const nodes = Array.from(scope.querySelectorAll('td, th, label, span, b, strong, font, div'))
+    for (const n of nodes) {
+      const t = ManakFill.shortText(n)
+      if (!t || !labelRe.test(t)) continue
+      const tr = n.closest('tr')
+      if (tr) {
+        const inputs = Array.from(tr.querySelectorAll('input')).filter(
+          (el) => ManakFill.visible(el) && !ManakFill.isUnsafeTarget(el),
+        )
+        if (inputs[0]) return inputs[0]
+      }
+      let sib = n.nextElementSibling
+      for (let i = 0; i < 5 && sib; i++) {
+        const input = sib.matches?.('input')
+          ? sib
+          : sib.querySelector?.('input:not([type="hidden"])')
+        if (input && ManakFill.visible(input) && !ManakFill.isUnsafeTarget(input)) return input
+        sib = sib.nextElementSibling
+      }
+    }
+    return null
+  }
+
+  ManakFill.findSamplingInputs = function findSamplingInputs(doc) {
+    const document = doc || root.document
+    // Prefer the smallest table/section that contains both labels
+    let section = null
+    const tables = Array.from(document.querySelectorAll('table, fieldset, div'))
+    for (const t of tables) {
+      const text = (t.textContent || '').replace(/\s+/g, ' ')
+      if (/Sample Drawn Weight/i.test(text) && /Button Weight/i.test(text) && text.length < 2500) {
+        section = t
+        break
+      }
+    }
+    const sampleDrawn =
+      ManakFill.findInputBesideExactLabel(/Sample Drawn Weight/i, section || document) ||
+      ManakFill.findInputBesideExactLabel(/^Sample Drawn/i, section || document)
+    const buttonWt = ManakFill.findInputBesideExactLabel(/Button Weight/i, section || document)
+    return {
+      sampleDrawn: sampleDrawn && !ManakFill.isUnsafeTarget(sampleDrawn) ? sampleDrawn : null,
+      buttonWt: buttonWt && !ManakFill.isUnsafeTarget(buttonWt) ? buttonWt : null,
+      section,
+    }
+  }
+
+  ManakFill.findSaveBeside = function findSaveBeside(input) {
+    if (!input) return null
+    const row = input.closest('tr') || input.parentElement
+    const scopes = [row, row?.parentElement, input.closest('table')].filter(Boolean)
+    for (const scope of scopes) {
+      const btn = Array.from(scope.querySelectorAll('input[type="button"], input[type="submit"], button')).find(
+        (el) => {
+          const t = `${el.value || ''} ${el.textContent || ''}`.trim()
+          return /^save$/i.test(t) || (/^save$/i.test(t.replace(/\s+/g, '')))
+        },
+      )
+      if (btn) return btn
+      const btn2 = Array.from(scope.querySelectorAll('input[type="button"], input[type="submit"], button')).find(
+        (el) => {
+          const t = `${el.value || ''} ${el.textContent || ''}`
+          return /save/i.test(t) && !/initial|cornet|huid/i.test(t)
+        },
+      )
+      if (btn2) return btn2
+    }
+    return null
+  }
+
+  ManakFill.findLotSelect = function findLotSelect(doc) {
+    const document = doc || root.document
+    const selects = Array.from(document.querySelectorAll('select'))
+    const byOptions = selects.find((s) =>
+      Array.from(s.options || []).some((o) => /Lot\s*\d+/i.test(String(o.text || o.value || ''))),
+    )
+    return byOptions || selects.find((s) => /lot/i.test(`${s.id || ''} ${s.name || ''}`)) || null
+  }
+
+  /**
+   * Assay table: locate by Strip 1 / Fire Assaying, map columns by header text.
+   * Returns { m1:[4], silver:[4], copper:[4], lead:[4], m2:[4] }
+   */
+  ManakFill.collectAssayInputs = function collectAssayInputs(doc) {
+    const document = doc || root.document
+    const table = Array.from(document.querySelectorAll('table')).find((t) => {
+      const tx = t.textContent || ''
+      return /Strip\s*1/i.test(tx) && /Initial weight|M1/i.test(tx) && /Silver/i.test(tx)
+    })
+    if (!table) return { m1: [], silver: [], copper: [], lead: [], m2: [] }
+
+    const headerRow =
+      Array.from(table.querySelectorAll('tr')).find((tr) =>
+        /Initial weight|M1/i.test(tr.textContent || '') && /Silver/i.test(tr.textContent || ''),
+      ) || table.querySelector('tr')
+
+    const headerCells = Array.from(headerRow.querySelectorAll('th, td'))
+    const colOf = (re) => {
+      let idx = -1
+      headerCells.forEach((c, i) => {
+        const t = (c.textContent || '').replace(/\s+/g, ' ')
+        if (re.test(t)) idx = i
+      })
+      return idx
+    }
+
+    const iM1 = colOf(/Initial weight|\bM1\b/i)
+    const iAg = colOf(/Weight of Silver|\bSilver\b/i)
+    const iCu = colOf(/Weight of Copper|\bCopper\b/i)
+    const iPb = colOf(/Weight of Lead|\bLead\b/i)
+    const iM2 = colOf(/cornet after|\bM2\b/i)
+
+    const bodyRows = Array.from(table.querySelectorAll('tr')).filter((tr) => {
+      const t = (tr.textContent || '').replace(/\s+/g, ' ')
+      return /Strip\s*1|Strip\s*2|C1\s*\(|C2\s*\(|Check\s*Gold/i.test(t)
+    })
+
+    // Stable order: Strip1, Strip2, C1, C2
+    const ordered = []
+    for (const re of [/Strip\s*1/i, /Strip\s*2/i, /C1\s*\(|C1\b/i, /C2\s*\(|C2\b/i]) {
+      const row = bodyRows.find((tr) => re.test(tr.textContent || '') && !ordered.includes(tr))
+      if (row) ordered.push(row)
+    }
+    while (ordered.length < 4 && bodyRows[ordered.length]) ordered.push(bodyRows[ordered.length])
+
+    const pick = (tr, col) => {
+      if (!tr || col < 0) return null
+      const cells = Array.from(tr.querySelectorAll('td'))
+      const cell = cells[col]
+      if (!cell) {
+        // fallback: nth input in row
+        const inputs = Array.from(tr.querySelectorAll('input')).filter((el) => !ManakFill.isUnsafeTarget(el))
+        return inputs[col > 0 ? col - 1 : 0] || null
+      }
+      return (
+        Array.from(cell.querySelectorAll('input')).find((el) => !ManakFill.isUnsafeTarget(el)) || null
+      )
+    }
+
+    // If header indices look wrong, fall back to input order per row
+    const useFallback = iM1 < 0 || iAg < 0
+    if (useFallback) {
+      const grid = ordered.map((tr) =>
+        Array.from(tr.querySelectorAll('input')).filter((el) => !ManakFill.isUnsafeTarget(el)),
+      )
+      return {
+        m1: grid.map((g) => g[0] || null),
+        silver: grid.map((g) => g[1] || null),
+        copper: grid.map((g) => g[2] || null),
+        lead: grid.map((g) => g[3] || null),
+        m2: grid.map((g) => g[4] || null),
+      }
+    }
+
+    return {
+      m1: ordered.map((tr) => pick(tr, iM1)),
+      silver: ordered.map((tr) => pick(tr, iAg)),
+      copper: ordered.map((tr) => pick(tr, iCu)),
+      lead: ordered.map((tr) => pick(tr, iPb)),
+      m2: ordered.map((tr) => pick(tr, iM2)),
+    }
+  }
+
+  ManakFill.clickByText = function clickByText(re, doc) {
+    const document = doc || root.document
+    const nodes = Array.from(document.querySelectorAll('input[type="button"], input[type="submit"], button, a'))
+    const btn = nodes.find((el) => re.test(`${el.value || ''} ${el.textContent || ''}`.replace(/\s+/g, ' ')))
+    if (!btn) return false
+    btn.click()
+    return true
+  }
+
+  /**
+   * Fill sampling + assay fields for one lot (does not depend on chrome).
+   * opts.clickSave — default true
+   * opts.afterSampling — optional async hook (for postback simulation)
+   */
+  ManakFill.fillLot = async function fillLot(sheet, selectText, opts = {}) {
+    const document = opts.document || root.document
+    const clickSave = opts.clickSave !== false
+    const resolved = ManakFill.resolveStripRows(sheet, opts.lot, selectText)
+    if (!resolved.rows.length) return { ok: false, error: 'no_matching_lot' }
+
+    const stripRows = resolved.rows
+    const drawn = Number(stripRows[0]?.sampleDrawn || 0)
+    if (!(drawn > 0)) return { ok: false, error: 'sample_drawn_zero' }
+
+    const { sampleDrawn, buttonWt } = ManakFill.findSamplingInputs(document)
+    if (!sampleDrawn) return { ok: false, error: 'sample_drawn_field_missing' }
+    if (!buttonWt) return { ok: false, error: 'button_weight_field_missing' }
+
+    // Declared purity must stay untouched
+    const purity = document.querySelector('#declaredPurity, [name*="Purity"], .select2-search__field')
+
+    if (!ManakFill.setNativeValue(sampleDrawn, drawn)) return { ok: false, error: 'sample_drawn_set_failed' }
+    if (clickSave) {
+      const s1 = ManakFill.findSaveBeside(sampleDrawn)
+      if (s1) s1.click()
+    }
+    if (typeof opts.afterSampleSave === 'function') await opts.afterSampleSave()
+
+    if (!ManakFill.setNativeValue(buttonWt, drawn)) return { ok: false, error: 'button_weight_set_failed' }
+    if (clickSave) {
+      const s2 = ManakFill.findSaveBeside(buttonWt)
+      if (s2) s2.click()
+    }
+    if (typeof opts.afterButtonSave === 'function') await opts.afterButtonSave()
+
+    const cg = sheet.cg || {}
+    const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
+    const silvers = [stripRows[0]?.silver, stripRows[1]?.silver, cg.silverCg1, cg.silverCg2]
+    const coppers = [0, 0, cg.copperCg1 ?? 0, cg.copperCg2 ?? 0]
+    const leads = [
+      stripRows[0]?.lead || 4,
+      stripRows[1]?.lead || 4,
+      cg.leadCg1 || 4,
+      cg.leadCg2 || 4,
+    ]
+    const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
+
+    const cols = ManakFill.collectAssayInputs(document)
+    let filledM1 = 0
+    for (let i = 0; i < 4; i++) {
+      if (ManakFill.setNativeValue(cols.m1[i], m1s[i])) filledM1 += 1
+      ManakFill.setNativeValue(cols.silver[i], silvers[i])
+      ManakFill.setNativeValue(cols.copper[i], coppers[i])
+      ManakFill.setNativeValue(cols.lead[i], leads[i])
+    }
+
+    if (clickSave) {
+      ManakFill.clickByText(/Save\s*\(?\s*Initial\s*Weight\s*\)?/i, document) ||
+        ManakFill.clickByText(/Initial\s*Weight/i, document)
+    }
+
+    // M2 only if unlocked
+    const m2Open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
+    if (m2Open) {
+      cols.m2.forEach((el, i) => ManakFill.setNativeValue(el, m2s[i]))
+      if (clickSave) {
+        ManakFill.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
+      }
+    }
+
+    const purityVal = purity && 'value' in purity ? purity.value : null
+    return {
+      ok: true,
+      filledM1,
+      drawn,
+      lotNum: resolved.lotNum,
+      jobCard: resolved.jobCard,
+      sampleDrawnValue: sampleDrawn.value,
+      buttonWtValue: buttonWt.value,
+      m1Values: cols.m1.map((el) => el?.value),
+      silverValues: cols.silver.map((el) => el?.value),
+      purityUntouched: purityVal == null || purityVal === '' || purityVal === '916',
+      m2Pending: !m2Open,
+      m2Values: m2s,
+    }
+  }
+
+  root.ManakFill = ManakFill
+  if (typeof module !== 'undefined' && module.exports) module.exports = ManakFill
+})(typeof globalThis !== 'undefined' ? globalThis : window)

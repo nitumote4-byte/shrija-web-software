@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "1.3.3",
-  "description": "Manak Fire Assay fill; Create Sheet overwrites same sheet number.",
+  "version": "2.0.0",
+  "description": "AUTO: Create Sheet → Manak Lot select → all fields fill. No extra buttons.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",
@@ -30,11 +30,11 @@
         "https://huid.manakonline.in/*",
         "https://newmanak.uat.dcservices.in/*"
       ],
-      "js": ["content-manak.js"],
+      "js": ["manak-fill-lib.js", "content-manak.js"],
       "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_title": "Shrija → Manak Fire Assay"
+    "default_title": "Shrija → Manak AUTO"
   }
 }

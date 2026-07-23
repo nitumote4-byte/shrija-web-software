@@ -1,422 +1,15 @@
 /**
- * Manak Online Fire Assaying Sheet filler (Gold Shark–style).
- *
- * Official Manak steps:
- * 1) Sampling Details → Sample Drawn Wt → Save, Button Wt → Save
- * 2) Fire Assaying Details → M1 + Silver + Copper + Lead → Save (Initial Weight)
- * 3) Wait until Manak timing completes (M2 unlocks)
- * 4) Fill M2 (cornet) → Save (Cornet Weight)
- *
- * URL example: /MANAK/SamplingweightingDeatils?...
+ * Shrija → Manak AUTO fill (no Fill / Load buttons).
+ * Stepped for ASP.NET postback: sample Save → reload → button Save → reload → assay.
  */
 const KEY = 'shrija-manak-fire-assay-sheet'
 const M2_PENDING_KEY = 'shrija-manak-m2-pending'
 const FLOW_KEY = 'shrija-manak-fill-flow'
 
-function delay(ms) {
-  return new Promise((r) => setTimeout(r, ms))
-}
+const MF = globalThis.ManakFill
+if (!MF) console.error('[Shrija] manak-fill-lib.js missing — reload extension')
 
-function setNativeValue(el, value) {
-  if (!el || value == null || value === '') return false
-  if (isUnsafeTarget(el)) return false
-  const v = String(value)
-  try {
-    el.removeAttribute('readonly')
-    if (el.disabled) el.disabled = false
-  } catch {
-    /* ignore */
-  }
-  const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
-  const desc = Object.getOwnPropertyDescriptor(proto, 'value')
-  el.focus()
-  if (desc && desc.set) desc.set.call(el, v)
-  else el.value = v
-  el.dispatchEvent(new Event('input', { bubbles: true }))
-  el.dispatchEvent(new Event('change', { bubbles: true }))
-  el.dispatchEvent(new Event('blur', { bubbles: true }))
-  el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }))
-  try {
-    el.dispatchEvent(new Event('propertychange', { bubbles: true }))
-  } catch {
-    /* ignore */
-  }
-  return (
-    Math.abs(Number(el.value) - Number(v)) < 0.001 ||
-    String(el.value) === v ||
-    String(el.value).replace(/\.0+$/, '') === String(Number(v))
-  )
-}
-
-/** Reject Select2 / Declared Purity / wrong header fields */
-function isUnsafeTarget(el) {
-  if (!el || !/INPUT|TEXTAREA/.test(el.tagName)) return true
-  const t = (el.type || '').toLowerCase()
-  if (t === 'hidden' || t === 'button' || t === 'submit' || t === 'checkbox' || t === 'radio') return true
-  const idCls = `${el.id || ''} ${el.className || ''} ${el.name || ''} ${el.placeholder || ''}`
-  if (/select2|chosen|combobox|autocomplete|purity|ddlPurity|Declared/i.test(idCls)) return true
-  if (el.getAttribute('role') === 'combobox') return true
-  const near = ((el.closest('td, th, div, tr, li') || el.parentElement)?.textContent || '')
-    .replace(/\s+/g, ' ')
-    .slice(0, 120)
-  if (/Declared\s*Purity|Material\s*Category|Materials\b|Job\s*Card\s*Number/i.test(near)) {
-    if (!/Sample\s*Drawn|Button\s*Weight|Initial\s*weight|Silver|Copper|Lead|cornet|M1|M2/i.test(near)) {
-      return true
-    }
-  }
-  return false
-}
-
-function shortText(el) {
-  const own = Array.from(el.childNodes)
-    .filter((n) => n.nodeType === 3)
-    .map((n) => n.textContent || '')
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (own) return own
-  const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
-  return t.length <= 80 ? t : ''
-}
-
-function findSectionByTitle(titleRe) {
-  const nodes = Array.from(
-    document.querySelectorAll('td, th, div, span, legend, h1, h2, h3, h4, b, strong, font, label, p'),
-  )
-  for (const h of nodes) {
-    const t = shortText(h)
-    if (!t || !titleRe.test(t)) continue
-    const root =
-      h.closest('fieldset, table, .panel, .box, .card, .form-group, div[id*="Sampling"], div[id*="pnl"]') ||
-      h.parentElement?.parentElement ||
-      h.parentElement
-    if (root) return root
-  }
-  return null
-}
-
-/**
- * Find numeric input next to a short label — scoped to a section.
- * Never walks giant wrappers (that was putting 333.07 into Declared Purity).
- */
-function findFieldByShortLabel(labelRe, sectionRoot) {
-  const root = sectionRoot || document
-  const candidates = Array.from(root.querySelectorAll('td, th, label, span, div, b, strong, font, p'))
-    .map((n) => ({ n, t: shortText(n) }))
-    .filter(({ t }) => t && labelRe.test(t))
-
-  for (const { n } of candidates) {
-    const tr = n.closest('tr')
-    if (tr) {
-      const inputs = Array.from(
-        tr.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
-      ).filter((el) => visible(el) && !isUnsafeTarget(el))
-      if (inputs[0]) return inputs[0]
-    }
-    let sib = n.nextElementSibling
-    for (let i = 0; i < 4 && sib; i++) {
-      const input =
-        sib.matches?.('input, textarea')
-          ? sib
-          : sib.querySelector?.('input:not([type="hidden"]):not([type="button"]):not([type="submit"])')
-      if (input && visible(input) && !isUnsafeTarget(input)) return input
-      sib = sib.nextElementSibling
-    }
-    const parent = n.parentElement
-    if (parent) {
-      const input = Array.from(
-        parent.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
-      ).find((el) => visible(el) && !isUnsafeTarget(el))
-      if (input) return input
-    }
-  }
-
-  // id/name within section
-  const scoped = Array.from(root.querySelectorAll('input, textarea')).filter(
-    (el) => visible(el) && !isUnsafeTarget(el),
-  )
-  return (
-    scoped.find((el) => labelRe.test(`${el.id || ''} ${el.name || ''} ${el.placeholder || ''}`)) || null
-  )
-}
-
-function findSamplingInputs() {
-  const section =
-    findSectionByTitle(/^Sampling Details$/i) ||
-    findSectionByTitle(/Sampling Details/i) ||
-    findSectionByTitle(/Sample Drawn Weight/i)
-
-  const sampleDrawn =
-    findFieldByShortLabel(/Sample Drawn Weight/i, section) ||
-    findFieldByShortLabel(/^Sample Drawn/i, section) ||
-    findInputByIdName(/sampledrawn|sample_drawn|txtSampleDrawn|SampleDrawn|DrawnWeight/i)
-
-  const buttonWt =
-    findFieldByShortLabel(/Button Weight/i, section) ||
-    findInputByIdName(/buttonweight|button_weight|txtButtonWeight|ButtonWeight/i)
-
-  // Final safety: never return Declared Purity
-  return {
-    sampleDrawn: sampleDrawn && !isUnsafeTarget(sampleDrawn) ? sampleDrawn : null,
-    buttonWt: buttonWt && !isUnsafeTarget(buttonWt) ? buttonWt : null,
-    section,
-  }
-}
-
-function findSaveBeside(input) {
-  if (!input) return null
-  const row = input.closest('tr, td, div, li, span') || input.parentElement
-  const scopes = [row, row?.parentElement, input.closest('table'), findSectionByTitle(/Sampling Details/i)].filter(
-    Boolean,
-  )
-  for (const scope of scopes) {
-    const btn = Array.from(
-      scope.querySelectorAll('input[type="button"], input[type="submit"], button, a'),
-    ).find((el) => {
-      const t = textOf(el)
-      return /^save$/i.test(t.trim()) || (/save/i.test(t) && !/initial|cornet|huid/i.test(t))
-    })
-    if (btn && visible(btn)) return btn
-  }
-  return null
-}
-
-function findInputByIdName(re) {
-  return (
-    allControls().find((el) => {
-      if (!/INPUT|TEXTAREA/.test(el.tagName)) return false
-      if (isUnsafeTarget(el)) return false
-      return re.test(`${el.id || ''} ${el.name || ''} ${el.className || ''}`)
-    }) || null
-  )
-}
-
-function visible(el) {
-  if (!el) return false
-  const s = window.getComputedStyle(el)
-  return s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null
-}
-
-function allControls() {
-  return Array.from(
-    document.querySelectorAll('input, select, textarea, button, a'),
-  ).filter(visible)
-}
-
-function textOf(el) {
-  return `${el.value || ''} ${el.textContent || ''} ${el.title || ''} ${el.getAttribute('aria-label') || ''}`
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function clickByText(re) {
-  const nodes = allControls().filter((el) => {
-    const tag = el.tagName
-    if (tag === 'INPUT') {
-      const t = (el.type || '').toLowerCase()
-      return t === 'button' || t === 'submit' || t === 'image'
-    }
-    return tag === 'BUTTON' || tag === 'A' || el.getAttribute('role') === 'button'
-  })
-  const btn = nodes.find((el) => re.test(textOf(el)))
-  if (!btn) return false
-  btn.click()
-  return true
-}
-
-/** Find input closest to a label / header matching regex */
-function findInputByLabel(labelRe) {
-  const candidates = Array.from(
-    document.querySelectorAll('label, td, th, span, div, b, strong, font'),
-  ).filter((n) => labelRe.test((n.textContent || '').replace(/\s+/g, ' ').trim()))
-
-  for (const node of candidates) {
-    const direct =
-      node.querySelector('input:not([type="hidden"]), select, textarea') ||
-      (node.nextElementSibling &&
-      /INPUT|SELECT|TEXTAREA/.test(node.nextElementSibling.tagName)
-        ? node.nextElementSibling
-        : null)
-    if (direct && visible(direct)) return direct
-
-    const parent = node.closest('td, tr, div, table, fieldset, form') || node.parentElement
-    if (!parent) continue
-    const input = parent.querySelector('input:not([type="hidden"]), select, textarea')
-    if (input && visible(input)) return input
-  }
-
-  // name/id heuristics
-  const byName = allControls().find((el) => {
-    if (!/INPUT|TEXTAREA|SELECT/.test(el.tagName)) return false
-    const id = `${el.id || ''} ${el.name || ''} ${el.placeholder || ''}`
-    return labelRe.test(id)
-  })
-  return byName || null
-}
-
-function findSaveNear(labelRe) {
-  const labelNodes = Array.from(
-    document.querySelectorAll('label, td, th, span, div, b, strong'),
-  ).filter((n) => labelRe.test((n.textContent || '').replace(/\s+/g, ' ').trim()))
-
-  for (const node of labelNodes) {
-    const scope =
-      node.closest('td, tr, div.form-group, div.row, fieldset, table') || node.parentElement
-    if (!scope) continue
-    const btn = Array.from(
-      scope.querySelectorAll('input[type="button"], input[type="submit"], button, a'),
-    ).find((el) => /save/i.test(textOf(el)) && !/initial|cornet/i.test(textOf(el)))
-    if (btn) return btn
-  }
-  return null
-}
-
-function parseLotOptionText(text) {
-  const t = String(text || '').replace(/\s+/g, ' ').trim()
-  // Manak: "Lot 1:104736831" or "Lot 1: 104736831"
-  const m = /Lot\s*(\d+)\s*[:：]\s*(\d+)/i.exec(t) || /Lot\s*(\d+)\s*[:：]?\s*(\d+)?/i.exec(t)
-  if (!m) {
-    // bare job card in option value
-    const bare = /^(\d{6,})$/.exec(t)
-    if (bare) return { lot: null, jobCard: bare[1] }
-    return { lot: null, jobCard: '' }
-  }
-  return { lot: Number(m[1]), jobCard: m[2] || '' }
-}
-
-/** Manak Lot dropdown — do NOT use findInputByLabel (it grabs wrong INPUT in the Job Card table). */
-function findLotSelect() {
-  const selects = Array.from(document.querySelectorAll('select')).filter(visible)
-  const byOptions = selects.find((s) =>
-    Array.from(s.options || []).some((o) => /Lot\s*\d+/i.test(String(o.text || o.value || ''))),
-  )
-  if (byOptions) return byOptions
-  return (
-    selects.find((s) => /lot/i.test(`${s.id || ''} ${s.name || ''}`)) ||
-    findInputByIdName(/ddlLot|LotNo|lotno|Lot_No|cmbLot/i) ||
-    null
-  )
-}
-
-function readPageJobCard() {
-  const body = (document.body?.innerText || '').replace(/\s+/g, ' ')
-  const m =
-    /Job\s*Card\s*(?:Number|No\.?)\s*[:：]?\s*(\d{6,})/i.exec(body) ||
-    /Job\s*No\.?\s*[:：]?\s*(\d{6,})/i.exec(body)
-  return m ? m[1] : ''
-}
-
-function parseShrijaJob(jobCardNo) {
-  const t = String(jobCardNo || '').trim()
-  const m = /^(\d+)\s*[_\-/]\s*(\d+)$/.exec(t)
-  if (m) return { lot: Number(m[1]), card: m[2] }
-  if (/^\d{6,}$/.test(t)) return { lot: 0, card: t }
-  return { lot: 0, card: t }
-}
-
-function resolveStripRows(sheet, preferredLot, selectText) {
-  const filled = (sheet.rows || []).filter((r) => r.jobCardNo || r.manakJobCard)
-  const fromView = (sheet.viewRows || []).filter((r) => r.jobCardNo || r.manakJobCard)
-  const allRows = filled.length ? filled : fromView
-  const fromOpt = parseLotOptionText(selectText)
-  const lotNum = preferredLot != null ? Number(preferredLot) : fromOpt.lot
-  const jobCard = fromOpt.jobCard || ''
-
-  if (jobCard) {
-    const byCard = allRows.filter((r) => {
-      const card = String(r.manakJobCard || parseShrijaJob(r.jobCardNo).card || '')
-      return card === jobCard || String(r.jobCardNo).includes(jobCard)
-    })
-    if (byCard.length >= 2) return { rows: byCard.slice(0, 2), lotNum: byCard[0].lotNo, jobCard }
-    if (byCard.length === 1) {
-      const lot = byCard[0].lotNo
-      const pair = allRows.filter((r) => Number(r.lotNo) === Number(lot))
-      if (pair.length >= 2) return { rows: pair.slice(0, 2), lotNum: lot, jobCard }
-      return { rows: byCard, lotNum: lot, jobCard }
-    }
-  }
-
-  if (lotNum != null && !Number.isNaN(lotNum)) {
-    const byLot = allRows.filter((r) => Number(r.lotNo) === Number(lotNum))
-    if (byLot.length >= 2) return { rows: byLot.slice(0, 2), lotNum, jobCard }
-    const byPrefix = allRows.filter((r) => parseShrijaJob(r.jobCardNo).lot === Number(lotNum))
-    if (byPrefix.length >= 2) return { rows: byPrefix.slice(0, 2), lotNum, jobCard }
-  }
-
-  // Fallback: first filled pair so fill still runs if Lot text parse fails
-  if (allRows.length >= 2) {
-    const lot = allRows[0].lotNo || 1
-    const pair = allRows.filter((r) => Number(r.lotNo) === Number(lot))
-    if (pair.length >= 2) return { rows: pair.slice(0, 2), lotNum: lot, jobCard }
-    return { rows: allRows.slice(0, 2), lotNum: lot, jobCard }
-  }
-
-  return { rows: [], lotNum, jobCard }
-}
-
-/** Locate assay table column inputs by header keywords (4 rows: Strip1, Strip2, C1, C2). */
-function columnInputs(headerRe) {
-  const tables = Array.from(document.querySelectorAll('table'))
-  for (const table of tables) {
-    const headers = Array.from(table.querySelectorAll('th, thead td, tr:first-child td'))
-    let col = -1
-    headers.forEach((h, i) => {
-      if (headerRe.test((h.textContent || '').replace(/\s+/g, ' '))) col = i
-    })
-    if (col < 0) continue
-
-    const bodyRows = Array.from(table.querySelectorAll('tr')).filter((tr) => {
-      const t = (tr.textContent || '').replace(/\s+/g, ' ')
-      return /Strip\s*1|Strip\s*2|C1|C2|Check\s*Gold/i.test(t)
-    })
-    if (bodyRows.length < 2) continue
-
-    const inputs = []
-    for (const tr of bodyRows.slice(0, 4)) {
-      const cells = Array.from(tr.querySelectorAll('td'))
-      const cell = cells[col] || cells.find((c) => c.querySelector('input'))
-      const input = Array.from(cell?.querySelectorAll('input:not([type="hidden"])') || []).find(
-        (el) => !isUnsafeTarget(el),
-      )
-      inputs.push(input || null)
-    }
-    if (inputs.filter(Boolean).length >= 2) return inputs
-  }
-  return []
-}
-
-function collectAssayInputs() {
-  // Prefer header-based columns
-  let m1 = columnInputs(/Initial weight|M1/i)
-  let silver = columnInputs(/Weight of Silver|Silver/i)
-  let copper = columnInputs(/Weight of Copper|Copper/i)
-  let lead = columnInputs(/Weight of Lead|Lead/i)
-  let m2 = columnInputs(/cornet after|M2/i)
-
-  // Fallback: first big table with many inputs — group by row
-  if (m1.filter(Boolean).length < 2) {
-    const table = Array.from(document.querySelectorAll('table')).find((t) =>
-      /Strip\s*1|Check\s*Gold|Fire Assaying/i.test(t.textContent || ''),
-    )
-    if (table) {
-      const rows = Array.from(table.querySelectorAll('tr')).filter((tr) =>
-        /Strip|C1|C2|Check/i.test(tr.textContent || ''),
-      )
-      const grid = rows.slice(0, 4).map((tr) =>
-        Array.from(tr.querySelectorAll('input:not([type="hidden"])')),
-      )
-      m1 = grid.map((g) => g[0] || null)
-      silver = grid.map((g) => g[1] || null)
-      copper = grid.map((g) => g[2] || null)
-      lead = grid.map((g) => g[3] || null)
-      m2 = grid.map((g) => g[4] || null)
-    }
-  }
-
-  return { m1, silver, copper, lead, m2 }
-}
-
-function showToast(msg, ms = 6000) {
+function showToast(msg, ms = 7000) {
   const n = document.createElement('div')
   n.textContent = msg
   Object.assign(n.style, {
@@ -430,51 +23,156 @@ function showToast(msg, ms = 6000) {
     borderRadius: '8px',
     font: '600 13px/1.35 system-ui,sans-serif',
     boxShadow: '0 8px 24px rgba(0,0,0,.25)',
-    maxWidth: '360px',
+    maxWidth: '380px',
   })
   document.body.appendChild(n)
   setTimeout(() => n.remove(), ms)
 }
 
-function isM2Unlocked(m2Inputs) {
-  return m2Inputs.some((el) => el && !el.disabled && !el.readOnly)
+function storageGet(keys) {
+  return new Promise((resolve) => chrome.storage.local.get(keys, resolve))
+}
+function storageSet(obj) {
+  return new Promise((resolve) => chrome.storage.local.set(obj, resolve))
+}
+function storageRemove(keys) {
+  return new Promise((resolve) => chrome.storage.local.remove(keys, resolve))
 }
 
-async function fillM2AndSave(m2Values) {
-  const { m2 } = collectAssayInputs()
-  if (!isM2Unlocked(m2)) return false
-  m2.forEach((el, i) => setNativeValue(el, m2Values[i]))
-  await delay(400)
-  const ok =
-    clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i) ||
-    clickByText(/Cornet\s*Weight/i)
-  showToast(ok ? 'Shrija: M2 filled + Save (Cornet Weight)' : 'Shrija: M2 filled (click Save Cornet Weight)')
-  return true
+function ensureStatusBadge() {
+  let el = document.getElementById('shrija-manak-auto-status')
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'shrija-manak-auto-status'
+    Object.assign(el.style, {
+      position: 'fixed',
+      bottom: '20px',
+      right: '20px',
+      zIndex: 999999,
+      background: '#15803d',
+      color: '#fff',
+      padding: '10px 14px',
+      borderRadius: '10px',
+      font: '700 12px/1.35 system-ui,sans-serif',
+      boxShadow: '0 8px 24px rgba(0,0,0,.28)',
+      maxWidth: '280px',
+    })
+    document.body.appendChild(el)
+  }
+  chrome.storage.local.get([KEY], (data) => {
+    const sheet = data[KEY]
+    const n = sheet?.rows?.length || sheet?.viewRows?.length || 0
+    if (n) {
+      el.style.background = '#15803d'
+      el.textContent = `AUTO · FS-${sheet.sheetNo || '?'} · ${n} rows — sirf Lot select karo`
+    } else {
+      el.style.background = '#b45309'
+      el.textContent = 'AUTO · No sheet — Shrija Create Sheet pehle'
+    }
+  })
 }
 
 function watchM2Unlock(m2Values) {
-  chrome.storage.local.set({
-    [M2_PENDING_KEY]: { m2Values, at: Date.now() },
-  })
+  chrome.storage.local.set({ [M2_PENDING_KEY]: { m2Values, at: Date.now() } })
   if (window.__shrijaM2Timer) clearInterval(window.__shrijaM2Timer)
   let tries = 0
   window.__shrijaM2Timer = setInterval(async () => {
     tries += 1
-    const done = await fillM2AndSave(m2Values)
-    if (done || tries > 180) {
-      // ~6 min @ 2s
+    const cols = MF.collectAssayInputs(document)
+    const open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
+    if (open) {
+      cols.m2.forEach((el, i) => MF.setNativeValue(el, m2Values[i]))
+      await MF.delay(300)
+      MF.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
+      showToast('Shrija AUTO: M2 + Cornet Save')
       clearInterval(window.__shrijaM2Timer)
       window.__shrijaM2Timer = null
-      if (done) chrome.storage.local.remove(M2_PENDING_KEY)
+      chrome.storage.local.remove(M2_PENDING_KEY)
+    } else if (tries > 180) {
+      clearInterval(window.__shrijaM2Timer)
+      window.__shrijaM2Timer = null
     }
   }, 2000)
 }
 
-async function fillAssayInitialWeights(sheet, stripRows) {
+function resolveFromSheet(sheet, selectText, lot) {
+  return MF.resolveStripRows(sheet, lot, selectText)
+}
+
+async function stepSampleDrawn(sheet, flow) {
+  const resolved = resolveFromSheet(sheet, flow.selectText, flow.lot)
+  if (!resolved.rows.length) return showToast('Shrija AUTO: lot match nahi')
+  const drawn = Number(resolved.rows[0]?.sampleDrawn || 0)
+  if (!(drawn > 0)) return showToast('Shrija AUTO: Sample Drawn 0')
+
+  const { sampleDrawn } = MF.findSamplingInputs(document)
+  if (!sampleDrawn) return showToast('Shrija AUTO: Sample Drawn field nahi mila')
+
+  if (!MF.setNativeValue(sampleDrawn, drawn)) {
+    return showToast('Shrija AUTO: Sample Drawn set fail (galat field block)')
+  }
+
+  await storageSet({
+    [FLOW_KEY]: { ...flow, step: 'button', drawn, at: Date.now() },
+  })
+  showToast('Shrija AUTO: Sample Drawn → Save…')
+  const btn = MF.findSaveBeside(sampleDrawn)
+  if (btn) btn.click()
+  else showToast('Shrija AUTO: Sample Drawn Save button nahi mila')
+
+  // If no postback, continue after short wait
+  await MF.delay(1500)
+  const still = (await storageGet([FLOW_KEY]))[FLOW_KEY]
+  if (still?.step === 'button') await stepButtonWeight(sheet, still)
+}
+
+async function stepButtonWeight(sheet, flow) {
+  const drawn = Number(flow.drawn || 0)
+  const { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
+  if (sampleDrawn && Number(sampleDrawn.value) === 0 && drawn) {
+    MF.setNativeValue(sampleDrawn, drawn)
+  }
+  if (!buttonWt) return showToast('Shrija AUTO: Button Weight field nahi mila')
+  if (!MF.setNativeValue(buttonWt, drawn)) return showToast('Shrija AUTO: Button Weight set fail')
+
+  await storageSet({
+    [FLOW_KEY]: { ...flow, step: 'assay', at: Date.now() },
+  })
+  showToast('Shrija AUTO: Button Weight → Save…')
+  const btn = MF.findSaveBeside(buttonWt)
+  if (btn) btn.click()
+  else showToast('Shrija AUTO: Button Weight Save nahi mila')
+
+  await MF.delay(1500)
+  const still = (await storageGet([FLOW_KEY]))[FLOW_KEY]
+  if (still?.step === 'assay') await stepAssay(sheet, still)
+}
+
+async function stepAssay(sheet, flow) {
+  const resolved = resolveFromSheet(sheet, flow.selectText, flow.lot)
+  if (!resolved.rows.length) return showToast('Shrija AUTO: assay lot match nahi')
+
+  const { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
+  const sd = Number(sampleDrawn?.value || 0)
+  const bw = Number(buttonWt?.value || 0)
+  const drawn = Number(flow.drawn || 0)
+  if (sd <= 0 && drawn) MF.setNativeValue(sampleDrawn, drawn)
+  if (bw <= 0 && drawn) MF.setNativeValue(buttonWt, drawn)
+
+  // Re-check — Manak blocks initial save if sampling empty
+  const sd2 = Number(MF.findSamplingInputs(document).sampleDrawn?.value || 0)
+  const bw2 = Number(MF.findSamplingInputs(document).buttonWt?.value || 0)
+  if (sd2 <= 0 && bw2 <= 0) {
+    showToast('Shrija AUTO: Sampling abhi 0 — pehle Sample/Button Save hona chahiye')
+    await storageSet({ [FLOW_KEY]: { ...flow, step: 'sample', at: Date.now() } })
+    return
+  }
+
+  const stripRows = resolved.rows
   const cg = sheet.cg || {}
   const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
   const silvers = [stripRows[0]?.silver, stripRows[1]?.silver, cg.silverCg1, cg.silverCg2]
-  const coppers = [0, 0, cg.copperCg1, cg.copperCg2]
+  const coppers = [0, 0, cg.copperCg1 ?? 0, cg.copperCg2 ?? 0]
   const leads = [
     stripRows[0]?.lead || 4,
     stripRows[1]?.lead || 4,
@@ -483,415 +181,132 @@ async function fillAssayInitialWeights(sheet, stripRows) {
   ]
   const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
 
-  const cols = collectAssayInputs()
+  const cols = MF.collectAssayInputs(document)
   let filledM1 = 0
   for (let i = 0; i < 4; i++) {
-    if (setNativeValue(cols.m1[i], m1s[i])) filledM1 += 1
-    setNativeValue(cols.silver[i], silvers[i])
-    setNativeValue(cols.copper[i], coppers[i])
-    setNativeValue(cols.lead[i], leads[i])
+    if (MF.setNativeValue(cols.m1[i], m1s[i])) filledM1 += 1
+    MF.setNativeValue(cols.silver[i], silvers[i])
+    MF.setNativeValue(cols.copper[i], coppers[i])
+    MF.setNativeValue(cols.lead[i], leads[i])
   }
 
-  // Do NOT fill Avg Delta / Declared Purity via label search — wrong targets on Manak.
+  await storageRemove(FLOW_KEY)
+  await MF.delay(400)
+  const saved =
+    MF.clickByText(/Save\s*\(?\s*Initial\s*Weight\s*\)?/i, document) ||
+    MF.clickByText(/Initial\s*Weight/i, document)
 
-  await delay(500)
-  const savedInit =
-    clickByText(/Save\s*\(?\s*Initial\s*Weight\s*\)?/i) ||
-    clickByText(/Initial\s*Weight/i)
-
-  showToast(
-    savedInit
-      ? `Shrija: M1 filled (${filledM1}/4) + Save Initial. Wait Manak timing — M2 auto-fill.`
-      : `Shrija: assay fields filled (M1 ${filledM1}/4). Click Save (Initial Weight).`,
-    8000,
-  )
-
-  if (isM2Unlocked(cols.m2)) await fillM2AndSave(m2s)
-  else watchM2Unlock(m2s)
-  return true
-}
-
-async function fillInitialPhase(sheet, preferredLot, selectText) {
-  const resolved = resolveStripRows(sheet, preferredLot, selectText)
-  if (!resolved.rows.length) {
-    showToast('Shrija: no matching Job/Lot in Create Sheet payload')
-    return false
-  }
-
-  const stripRows = resolved.rows
-  const first = stripRows[0]
-  const drawn = first?.sampleDrawn
-  if (!(Number(drawn) > 0)) {
-    showToast('Shrija: Sample Drawn weight sheet mein 0 hai')
-    return false
-  }
-
-  const { sampleDrawn, buttonWt } = findSamplingInputs()
-  if (!sampleDrawn || !buttonWt) {
+  const m2Open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
+  if (m2Open) {
+    cols.m2.forEach((el, i) => MF.setNativeValue(el, m2s[i]))
+    await MF.delay(300)
+    MF.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
+    showToast(`Shrija AUTO: complete · M1 ${filledM1}/4 + M2`)
+  } else {
+    watchM2Unlock(m2s)
     showToast(
-      !sampleDrawn
-        ? 'Shrija: Sample Drawn Weight field nahi mila (Declared Purity pe nahi likhenge)'
-        : 'Shrija: Button Weight field nahi mila',
+      saved
+        ? `Shrija AUTO: M1 ${filledM1}/4 saved · timing wait → M2 auto`
+        : `Shrija AUTO: M1 ${filledM1}/4 filled · Initial Save check karo`,
+      9000,
     )
-    return false
   }
-
-  // ——— Step 1: Sample Drawn → Save ———
-  const okDrawn = setNativeValue(sampleDrawn, drawn)
-  if (!okDrawn || isUnsafeTarget(sampleDrawn)) {
-    showToast('Shrija: Sample Drawn galat field pe jaa raha tha — fill rok diya')
-    return false
-  }
-  await delay(350)
-  const saveDrawn = findSaveBeside(sampleDrawn)
-  if (saveDrawn) saveDrawn.click()
-  else showToast('Shrija: Sample Drawn ke paas Save button nahi mila — manually Save dabao')
-
-  // Persist flow — ASP.NET Save often reloads page
-  chrome.storage.local.set({
-    [FLOW_KEY]: {
-      step: 'button',
-      drawn: Number(drawn),
-      lot: resolved.lotNum,
-      selectText: selectText || `Lot ${resolved.lotNum}:${resolved.jobCard || ''}`,
-      jobCard: resolved.jobCard || '',
-      at: Date.now(),
-    },
-  })
-
-  await delay(1200)
-
-  // If page did not reload, continue Button Weight
-  return continueAfterSampleDrawn(sheet, stripRows, drawn, resolved)
+  ensureStatusBadge()
 }
 
-async function continueAfterSampleDrawn(sheet, stripRows, drawn, resolved) {
-  const { sampleDrawn, buttonWt } = findSamplingInputs()
-  // Confirm Sample Drawn stuck (or accept if postback cleared verification)
-  if (sampleDrawn && Number(sampleDrawn.value) === 0) {
-    setNativeValue(sampleDrawn, drawn)
-    await delay(300)
-  }
+async function runAutoFill(selectText, preferredLot) {
+  if (window.__shrijaFilling) return
+  window.__shrijaFilling = true
+  try {
+    const sheet = (await storageGet([KEY]))[KEY]
+    if (!sheet) {
+      showToast('Shrija AUTO: pehle Create Sheet (Shrija app)')
+      ensureStatusBadge()
+      return
+    }
+    const parsed = MF.parseLotOptionText(selectText || '')
+    if (parsed.lot == null && !parsed.jobCard) return
 
-  if (!buttonWt || isUnsafeTarget(buttonWt)) {
-    showToast('Shrija: Button Weight field nahi mila')
-    return false
-  }
-
-  const okBtn = setNativeValue(buttonWt, drawn)
-  if (!okBtn) {
-    showToast('Shrija: Button Weight set nahi hua')
-    return false
-  }
-  await delay(350)
-  const saveBtn = findSaveBeside(buttonWt)
-  if (saveBtn) saveBtn.click()
-  else showToast('Shrija: Button Weight Save manually dabao')
-
-  chrome.storage.local.set({
-    [FLOW_KEY]: {
-      step: 'assay',
-      drawn: Number(drawn),
-      lot: resolved?.lotNum,
-      selectText: resolved ? `Lot ${resolved.lotNum}:${resolved.jobCard || ''}` : '',
-      jobCard: resolved?.jobCard || '',
+    const flow = {
+      step: 'sample',
+      selectText,
+      lot: preferredLot ?? parsed.lot,
+      jobCard: parsed.jobCard,
       at: Date.now(),
-    },
-  })
-
-  await delay(1200)
-
-  // Gate: do not touch Fire Assaying until sampling fields look filled
-  const again = findSamplingInputs()
-  const sd = Number(again.sampleDrawn?.value || 0)
-  const bw = Number(again.buttonWt?.value || 0)
-  if (sd <= 0 && bw <= 0) {
-    showToast('Shrija: pehle Sample Drawn + Button Weight Save karo (Manak alert). Phir Fill dubara.')
-    return false
+    }
+    await stepSampleDrawn(sheet, flow)
+  } finally {
+    window.__shrijaFilling = false
   }
-
-  chrome.storage.local.remove(FLOW_KEY)
-  return fillAssayInitialWeights(sheet, stripRows)
 }
 
-async function resumeFillFlow() {
-  const data = await new Promise((resolve) => {
-    chrome.storage.local.get([FLOW_KEY, KEY], (d) => resolve(d))
-  })
+async function resumeFlow() {
+  const data = await storageGet([FLOW_KEY, KEY, M2_PENDING_KEY])
+  if (data[M2_PENDING_KEY]?.m2Values) watchM2Unlock(data[M2_PENDING_KEY].m2Values)
+
   const flow = data[FLOW_KEY]
   const sheet = data[KEY]
   if (!flow || !sheet) return
-  if (Date.now() - (flow.at || 0) > 5 * 60 * 1000) {
-    chrome.storage.local.remove(FLOW_KEY)
+  if (Date.now() - (flow.at || 0) > 8 * 60 * 1000) {
+    await storageRemove(FLOW_KEY)
     return
   }
-  if (!/Fire Assaying|Sampling|Sample Drawn/i.test(document.body?.innerText || '')) return
 
-  const resolved = resolveStripRows(sheet, flow.lot, flow.selectText || '')
-  if (!resolved.rows.length) return
-
-  showToast(`Shrija: resume ${flow.step}…`)
-  if (flow.step === 'button') {
-    await continueAfterSampleDrawn(sheet, resolved.rows, flow.drawn, resolved)
-  } else if (flow.step === 'assay') {
-    const { sampleDrawn, buttonWt } = findSamplingInputs()
-    if (Number(sampleDrawn?.value || 0) <= 0 && flow.drawn) setNativeValue(sampleDrawn, flow.drawn)
-    if (Number(buttonWt?.value || 0) <= 0 && flow.drawn) setNativeValue(buttonWt, flow.drawn)
-    await delay(400)
-    chrome.storage.local.remove(FLOW_KEY)
-    await fillAssayInitialWeights(sheet, resolved.rows)
-  }
-}
-
-function currentLotContext() {
-  const lotSel = findLotSelect()
-  const pageJob = readPageJobCard()
-
-  if (lotSel && lotSel.tagName === 'SELECT') {
-    const idx = lotSel.selectedIndex
-    const opt = idx >= 0 ? lotSel.options[idx] : null
-    const text = (opt?.text || opt?.label || lotSel.value || '').trim()
-    let parsed = parseLotOptionText(text)
-    if (parsed.lot == null && !parsed.jobCard) {
-      parsed = parseLotOptionText(String(lotSel.value || ''))
-    }
-    // Selected placeholder ("--Select--") but page already shows Job Card Number
-    if (parsed.lot == null && !parsed.jobCard && pageJob) {
-      const matchOpt = Array.from(lotSel.options).find((o) =>
-        String(o.text || o.value || '').includes(pageJob),
-      )
-      if (matchOpt) {
-        parsed = parseLotOptionText(matchOpt.text || matchOpt.value || '')
-        return { text: matchOpt.text || `Lot 1:${pageJob}`, ...parsed, pageJob }
-      }
-      return { text: `Lot 1:${pageJob}`, lot: 1, jobCard: pageJob, pageJob }
-    }
-    if (!parsed.jobCard && pageJob) parsed.jobCard = pageJob
-    return { text, ...parsed, pageJob }
+  // Re-bind lot text if dropdown still has selection
+  const sel = MF.findLotSelect(document)
+  if (sel && sel.selectedIndex > 0) {
+    flow.selectText = sel.options[sel.selectedIndex]?.text || flow.selectText
   }
 
-  if (pageJob) return { text: `Lot 1:${pageJob}`, lot: 1, jobCard: pageJob, pageJob }
-  return { text: '', lot: null, jobCard: '', pageJob: '' }
+  showToast(`Shrija AUTO resume: ${flow.step}`)
+  if (flow.step === 'button') await stepButtonWeight(sheet, flow)
+  else if (flow.step === 'assay') await stepAssay(sheet, flow)
+  else if (flow.step === 'sample') await stepSampleDrawn(sheet, flow)
 }
 
-function getStoredSheet() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([KEY], (data) => resolve(data[KEY] || null))
+function bindLotAuto() {
+  const sel = MF.findLotSelect(document)
+  if (!sel || sel.dataset.shrijaAutoBound) return
+  sel.dataset.shrijaAutoBound = '1'
+  sel.addEventListener('change', () => {
+    const opt = sel.options[sel.selectedIndex]
+    const text = (opt?.text || '').trim()
+    const parsed = MF.parseLotOptionText(text)
+    if (parsed.lot == null && !parsed.jobCard) return
+    runAutoFill(text, parsed.lot)
   })
-}
-
-function parseSheetJson(raw) {
-  if (!raw || typeof raw !== 'string') return null
-  let t = raw.trim()
-  // Strip accidental markdown / toast wrappers
-  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(t)
-  if (fence) t = fence[1].trim()
-  const start = t.indexOf('{')
-  const end = t.lastIndexOf('}')
-  if (start >= 0 && end > start) t = t.slice(start, end + 1)
-  try {
-    const sheet = JSON.parse(t)
-    if (!sheet || typeof sheet !== 'object') return null
-    if (!sheet.rows && !sheet.viewRows && !sheet.cg) return null
-    return sheet
-  } catch {
-    return null
-  }
-}
-
-async function askPasteSheet() {
-  let raw = ''
-  try {
-    raw = (await navigator.clipboard.readText()) || ''
-  } catch {
-    raw = ''
-  }
-  if (!raw.trim()) {
-    raw =
-      window.prompt(
-        'Clipboard empty. Shrija Create Sheet ke baad JSON paste karo (Ctrl+V):',
-      ) || ''
-  }
-  const sheet = parseSheetJson(raw)
-  if (!sheet) {
-    showToast('Shrija: JSON paste galat hai — Create Sheet phir se dabao (clipboard sync)')
-    return null
-  }
-  chrome.storage.local.set({ [KEY]: sheet, [`${KEY}-at`]: Date.now(), [`${KEY}-src`]: 'paste' })
-  showToast(`Sheet FS-${sheet.sheetNo || '?'} loaded from clipboard`)
-  return sheet
-}
-
-async function resolveSheet(allowPaste) {
-  let sheet = await getStoredSheet()
-  if (!sheet && allowPaste) sheet = await askPasteSheet()
-  return sheet
-}
-
-async function runFill(preferredLot, selectText) {
-  // Prefer chrome.storage — do not force paste prompt every time
-  const sheet = await resolveSheet(false)
-  if (!sheet) {
-    showToast('No Shrija sheet — Create Sheet (green badge) ya Load Sheet (clipboard)')
-    return
-  }
-  if (!/Fire Assaying|Sampling|Sample Drawn|cornet|M1|Assaying Sheet/i.test(document.body?.innerText || '')) {
-    showToast('Shrija: Fire Assaying Sheet page pe nahi ho')
-    return
-  }
-  const ctx = currentLotContext()
-  let text = selectText || ctx.text
-  const parsed = parseLotOptionText(text)
-  let lot = preferredLot != null ? Number(preferredLot) : parsed.lot ?? ctx.lot
-  let jobCard = parsed.jobCard || ctx.jobCard || ctx.pageJob || ''
-
-  if ((lot == null || Number.isNaN(lot)) && !jobCard) {
-    // Last resort: first filled lot from Create Sheet (page already opened for a job)
-    const filled = (sheet.rows || []).filter((r) => r.jobCardNo || r.manakJobCard)
-    const row = filled[0] || (sheet.viewRows || []).find((r) => r.jobCardNo || r.manakJobCard)
-    if (row) {
-      const p = parseShrijaJob(row.jobCardNo)
-      lot = Number(row.lotNo) || p.lot || 1
-      jobCard = row.manakJobCard || p.card || ''
-      text = `Lot ${lot}:${jobCard}`
-      showToast(`Shrija: Lot dropdown miss — using sheet ${text}`)
-    } else {
-      showToast('Shrija: pehle Lot No select karo (dropdown: Lot 1:1047…)')
-      return
-    }
-  }
-
-  if (!text) text = lot != null ? `Lot ${lot}:${jobCard}` : jobCard
-  await fillInitialPhase(sheet, lot, text)
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'SHRIJA_FILL_MANAK_NOW') runFill()
+  if (msg?.type === 'SHRIJA_FILL_MANAK_NOW') {
+    const sel = MF.findLotSelect(document)
+    const text = sel?.options?.[sel.selectedIndex]?.text || ''
+    runAutoFill(text)
+  }
 })
 
-function bindLotChange() {
-  const sel = findLotSelect()
-  if (!sel || sel.dataset.shrijaBound) return
-  sel.dataset.shrijaBound = '1'
-  sel.addEventListener('change', () => {
-    const opt = sel.options[sel.selectedIndex]
-    const parsed = parseLotOptionText(opt?.text || opt?.value || '')
-    runFill(parsed.lot, opt?.text || '')
-  })
-}
-
-function resumePendingM2() {
-  chrome.storage.local.get([M2_PENDING_KEY], async (data) => {
-    const pending = data[M2_PENDING_KEY]
-    if (!pending?.m2Values) return
-    if (Date.now() - (pending.at || 0) > 30 * 60 * 1000) {
-      chrome.storage.local.remove(M2_PENDING_KEY)
-      return
-    }
-    const ok = await fillM2AndSave(pending.m2Values)
-    if (!ok) watchM2Unlock(pending.m2Values)
-    else chrome.storage.local.remove(M2_PENDING_KEY)
-  })
-}
-
-const onAssayPage = /Fire Assaying|Samplingweighting|Sample Drawn|Assaying Sheet/i.test(
+const onAssayPage = /Samplingweighting|Fire Assaying|Sample Drawn|Assaying Sheet/i.test(
   `${location.href} ${document.body?.innerText || ''}`,
 )
 
-if (onAssayPage) {
-  setTimeout(bindLotChange, 600)
-  setTimeout(bindLotChange, 2000)
-  setTimeout(resumeFillFlow, 800)
-  setTimeout(resumePendingM2, 1500)
-  setTimeout(ensureFillButton, 1000)
+if (onAssayPage && MF) {
+  setTimeout(bindLotAuto, 400)
+  setTimeout(bindLotAuto, 1500)
+  setTimeout(bindLotAuto, 4000)
+  setTimeout(ensureStatusBadge, 500)
+  setInterval(ensureStatusBadge, 2500)
+  // Resume after ASP.NET Save postback BEFORE auto-firing on existing lot
+  setTimeout(resumeFlow, 900)
+
+  setTimeout(() => {
+    // Only auto-start from existing lot if no pending flow
+    chrome.storage.local.get([FLOW_KEY], (d) => {
+      if (d[FLOW_KEY]) return
+      const sel = MF.findLotSelect(document)
+      if (!sel || sel.selectedIndex <= 0) return
+      const text = sel.options[sel.selectedIndex]?.text || ''
+      const parsed = MF.parseLotOptionText(text)
+      if (parsed.lot != null || parsed.jobCard) runAutoFill(text, parsed.lot)
+    })
+  }, 2200)
 }
-
-function refreshHint(hint) {
-  chrome.storage.local.get([KEY], (data) => {
-    const sheet = data[KEY]
-    const n = sheet?.rows?.length || sheet?.viewRows?.length || 0
-    if (n) {
-      hint.textContent = `Sheet FS-${sheet.sheetNo || '?'} · ${n} rows · Lot select + Fill`
-      hint.style.background = 'rgba(21,128,61,.95)'
-    } else {
-      hint.textContent = 'No sheet — Create Sheet (green badge) ya Load Sheet paste'
-      hint.style.background = 'rgba(15,39,68,.92)'
-    }
-  })
-}
-
-function ensureFillButton() {
-  if (document.getElementById('shrija-manak-fill-btn')) return
-  const wrap = document.createElement('div')
-  wrap.id = 'shrija-manak-fill-btn'
-  Object.assign(wrap.style, {
-    position: 'fixed',
-    bottom: '24px',
-    right: '24px',
-    zIndex: 999999,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    alignItems: 'flex-end',
-  })
-  const hint = document.createElement('div')
-  hint.textContent = 'Create Sheet ke baad Lot select karke yahan click'
-  Object.assign(hint.style, {
-    background: 'rgba(15,39,68,.92)',
-    color: '#fff',
-    font: '600 11px/1.3 system-ui,sans-serif',
-    padding: '6px 10px',
-    borderRadius: '8px',
-    maxWidth: '240px',
-  })
-  const btn = document.createElement('button')
-  btn.type = 'button'
-  btn.textContent = 'Shrija: Fill Fire Assay'
-  Object.assign(btn.style, {
-    background: '#0f2744',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '10px',
-    padding: '12px 16px',
-    font: '700 13px/1.2 system-ui,sans-serif',
-    cursor: 'pointer',
-    boxShadow: '0 8px 24px rgba(0,0,0,.28)',
-  })
-  btn.addEventListener('click', () => runFill())
-  const loadBtn = document.createElement('button')
-  loadBtn.type = 'button'
-  loadBtn.textContent = 'Load Sheet (paste JSON)'
-  Object.assign(loadBtn.style, {
-    background: '#1d4ed8',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '10px',
-    padding: '8px 12px',
-    font: '700 11px/1.2 system-ui,sans-serif',
-    cursor: 'pointer',
-  })
-  loadBtn.addEventListener('click', async () => {
-    const sheet = await askPasteSheet()
-    if (sheet) {
-      showToast(`Sheet loaded · FS-${sheet.sheetNo || '?'} — ab Lot select + Fill`)
-      refreshHint(hint)
-    }
-  })
-  wrap.appendChild(hint)
-  wrap.appendChild(btn)
-  wrap.appendChild(loadBtn)
-  document.body.appendChild(wrap)
-
-  refreshHint(hint)
-  setInterval(() => refreshHint(hint), 2000)
-}
-
-document.addEventListener('change', (e) => {
-  const t = e.target
-  if (!t || t.tagName !== 'SELECT') return
-  const lotSel = findLotSelect()
-  if (!lotSel || t !== lotSel) return
-  const opt = t.options[t.selectedIndex]
-  const parsed = parseLotOptionText(opt?.text || opt?.value || '')
-  if (parsed.lot != null || parsed.jobCard) runFill(parsed.lot, opt?.text || '')
-})
