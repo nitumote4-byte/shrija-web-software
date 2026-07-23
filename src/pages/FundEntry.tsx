@@ -58,6 +58,108 @@ function buildReceiptView(f: FundEntry): ReceiptView {
   }
 }
 
+function escapeHtml(s: string) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/** Dedicated print window — avoids blank preview from app @media print CSS */
+function openFundReceiptPrint(
+  receipt: ReceiptView,
+  header: { centreName: string; centreAddress: string; centreGstin: string },
+) {
+  const balanceDue = Math.max(0, receipt.currentBalance - receipt.amount)
+  const modeCash = receipt.mode === 'Cash'
+  const modeCheque = receipt.mode === 'Cheque'
+  const modeBank = receipt.mode === 'Bank' || receipt.mode === 'UPI'
+  const w = window.open('', '_blank', 'width=800,height=900')
+  if (!w) return false
+  w.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Receipt Voucher #${escapeHtml(String(receipt.voucherNo || ''))}</title>
+  <style>
+    @page { size: A5; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #0f172a;
+      background: #fff;
+    }
+    .sheet { max-width: 148mm; margin: 0 auto; }
+    .head { display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px solid #cbd5e1; padding-bottom: 12px; margin-bottom: 14px; }
+    .firm strong { display: block; font-size: 15px; margin-bottom: 4px; }
+    .firm div { font-size: 12px; color: #475569; line-height: 1.35; }
+    .meta { text-align: right; flex-shrink: 0; }
+    .meta h1 { margin: 0 0 6px; font-size: 18px; letter-spacing: 0.02em; }
+    .meta div { font-size: 13px; }
+    .row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; margin: 8px 0; font-size: 14px; }
+    .row .lbl { color: #64748b; font-weight: 600; font-size: 11px; letter-spacing: 0.04em; }
+    .foot { display: flex; justify-content: space-between; gap: 16px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed #cbd5e1; }
+    .bal { font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+    .modes { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; font-size: 13px; min-width: 140px; }
+    .modes label { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+    .sign { margin-top: 36px; text-align: center; font-size: 13px; color: #334155; }
+    @media print {
+      body { padding: 0; }
+      .sheet { max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="head">
+      <div class="firm">
+        <strong>${escapeHtml(header.centreName)}</strong>
+        <div>${escapeHtml(header.centreAddress || '—')}</div>
+        ${
+          header.centreGstin && header.centreGstin !== '—'
+            ? `<div>GSTIN: ${escapeHtml(header.centreGstin)}</div>`
+            : ''
+        }
+      </div>
+      <div class="meta">
+        <h1>RECEIPT VOUCHER</h1>
+        <div>Receipt No: <strong>${escapeHtml(String(receipt.voucherNo || '—'))}</strong></div>
+        <div>Date: ${escapeHtml(formatReceiptDate(receipt.date))}</div>
+      </div>
+    </div>
+    <div class="row"><span class="lbl">RECEIVED FROM:</span><strong>${escapeHtml(receipt.partyName)}</strong></div>
+    <div class="row"><span class="lbl">THE AMOUNT OF:</span><strong>${money(receipt.amount)}</strong></div>
+    <div class="row"><span class="lbl">FOR (INVOICE / REMARKS):</span><span>${escapeHtml(receipt.remarks || '—')}</span></div>
+    <div class="row"><span class="lbl">CHEQUE NO:</span><span>${escapeHtml(receipt.chequeNo || '—')}</span></div>
+    <div class="row"><span class="lbl">BANK NAME:</span><span>${escapeHtml(receipt.bankName || '—')}</span></div>
+    <div class="foot">
+      <div class="bal">
+        <div>Current Balance: <strong>${money(receipt.currentBalance)}</strong></div>
+        <div>Payment Amount: <strong>${money(receipt.amount)}</strong></div>
+        <div>Balance Due: <strong>${money(balanceDue)}</strong></div>
+      </div>
+      <div class="modes">
+        <label><input type="checkbox" ${modeCash ? 'checked' : ''} onclick="return false" /> Cash</label>
+        <label><input type="checkbox" ${modeCheque ? 'checked' : ''} onclick="return false" /> Cheque</label>
+        <label><input type="checkbox" ${modeBank ? 'checked' : ''} onclick="return false" /> Bank Transfer</label>
+      </div>
+    </div>
+    <div class="sign">Received by: ____________________</div>
+  </div>
+  <script>
+    window.onload = function () {
+      setTimeout(function () { window.focus(); window.print(); }, 250);
+    };
+  </script>
+</body>
+</html>`)
+  w.document.close()
+  return true
+}
+
 export function FundEntry() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
@@ -101,7 +203,13 @@ export function FundEntry() {
   }
 
   const printReceiptSheet = () => {
-    window.print()
+    if (!receipt) return
+    const ok = openFundReceiptPrint(receipt, {
+      centreName: header.centreName,
+      centreAddress: header.centreAddress,
+      centreGstin: header.centreGstin,
+    })
+    if (!ok) toast('Allow pop-ups to print the receipt')
   }
 
   const reset = () => {

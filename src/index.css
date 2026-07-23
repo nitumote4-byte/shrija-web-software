@@ -4873,36 +4873,9 @@ button {
 }
 
 @media print {
-  body * {
-    visibility: hidden !important;
-  }
-  .fund-receipt-backdrop,
-  .fund-receipt-backdrop * {
-    visibility: visible !important;
-  }
+  /* Fund receipt prints via dedicated window — do not blank the page here */
   .fund-receipt-backdrop {
-    position: static !important;
-    background: none !important;
-    padding: 0 !important;
-    display: block !important;
-  }
-  .fund-receipt-modal {
-    box-shadow: none !important;
-    max-height: none !important;
-    width: 100% !important;
-    padding: 0 !important;
-    border-radius: 0 !important;
-  }
-  .no-print {
     display: none !important;
-  }
-  .fund-receipt-sheet {
-    border: none !important;
-    padding: 0 !important;
-  }
-  @page {
-    size: A5;
-    margin: 10mm;
   }
 }
 
