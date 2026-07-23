@@ -26,7 +26,9 @@
     const v = String(value)
     try {
       el.removeAttribute('readonly')
+      el.removeAttribute('disabled')
       if (el.disabled) el.disabled = false
+      el.readOnly = false
     } catch {
       /* ignore */
     }
@@ -37,7 +39,6 @@
     } catch {
       /* ignore */
     }
-    // Select-all then type-style set (ASP.NET validators often listen to this)
     try {
       el.select?.()
     } catch {
@@ -62,22 +63,99 @@
     return Math.abs(Number(el.value) - Number(v)) < 0.001 || String(el.value) === v
   }
 
-  /** Retry set until field shows the number (Manak often resets once). */
-  ManakFill.forceSetWeight = async function forceSetWeight(el, value, attempts = 4) {
+  /**
+   * Manak Fire Assaying Details: manual typing often blocked — balance sends
+   * keyboard-wedge scan. Simulate char-by-char key events into the focused field.
+   */
+  ManakFill.setByScanWeight = async function setByScanWeight(el, value) {
+    if (!el || value == null || value === '') return false
+    if (ManakFill.isUnsafeTarget(el)) return false
+    const num = Number(value)
+    if (!(num > 0) && num !== 0) return false
+    const text = Number.isInteger(num) ? String(num) : Number(num).toFixed(3)
+
+    try {
+      el.removeAttribute('readonly')
+      el.removeAttribute('disabled')
+      el.readOnly = false
+      if (el.disabled) el.disabled = false
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      el.focus()
+      el.click?.()
+    } catch {
+      /* ignore */
+    }
+    await ManakFill.delay(60)
+
+    // Clear existing (Ctrl+A / select + delete)
+    try {
+      el.select?.()
+    } catch {
+      /* ignore */
+    }
+    const proto = el.tagName === 'TEXTAREA' ? root.HTMLTextAreaElement.prototype : root.HTMLInputElement.prototype
+    const desc = Object.getOwnPropertyDescriptor(proto, 'value')
+    if (desc && desc.set) desc.set.call(el, '')
+    else el.value = ''
+    el.dispatchEvent(new root.Event('input', { bubbles: true }))
+
+    let built = ''
+    for (const ch of text) {
+      const code = ch.charCodeAt(0)
+      const keyOpts = {
+        key: ch,
+        code: ch === '.' ? 'Period' : `Digit${ch}`,
+        keyCode: code,
+        which: code,
+        bubbles: true,
+        cancelable: true,
+      }
+      el.dispatchEvent(new root.KeyboardEvent('keydown', keyOpts))
+      el.dispatchEvent(new root.KeyboardEvent('keypress', keyOpts))
+      built += ch
+      if (desc && desc.set) desc.set.call(el, built)
+      else el.value = built
+      el.dispatchEvent(new root.Event('input', { bubbles: true }))
+      el.dispatchEvent(new root.KeyboardEvent('keyup', keyOpts))
+      await ManakFill.delay(25)
+    }
+
+    // Many scale wedges end with Enter
+    const enterOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }
+    el.dispatchEvent(new root.KeyboardEvent('keydown', enterOpts))
+    el.dispatchEvent(new root.KeyboardEvent('keypress', enterOpts))
+    el.dispatchEvent(new root.KeyboardEvent('keyup', enterOpts))
+    el.dispatchEvent(new root.Event('change', { bubbles: true }))
+    el.dispatchEvent(new root.Event('blur', { bubbles: true }))
+
+    try {
+      if (root.jQuery) root.jQuery(el).val(el.value).trigger('input').trigger('change')
+    } catch {
+      /* ignore */
+    }
+
+    await ManakFill.delay(80)
+    return Math.abs(Number(el.value) - num) < 0.05 || String(el.value).includes(String(Math.floor(num)))
+  }
+
+  /** Prefer scan simulation (Fire Assaying); fall back to native set. */
+  ManakFill.forceSetWeight = async function forceSetWeight(el, value, attempts = 3) {
     if (!el) return false
     const v = Number(value)
     if (!(v > 0)) return false
-    // Prefer 3 decimals like Manak UI (333.070)
-    const formatted = Number.isInteger(v) ? String(v) : v.toFixed(3)
     for (let i = 0; i < attempts; i++) {
+      const okScan = await ManakFill.setByScanWeight(el, v)
+      if (okScan) return true
+      const formatted = Number.isInteger(v) ? String(v) : v.toFixed(3)
       ManakFill.setNativeValue(el, formatted)
-      await ManakFill.delay(180)
-      if (Math.abs(Number(el.value) - v) < 0.02) return true
-      ManakFill.setNativeValue(el, String(v))
-      await ManakFill.delay(180)
-      if (Math.abs(Number(el.value) - v) < 0.02) return true
+      await ManakFill.delay(150)
+      if (Math.abs(Number(el.value) - v) < 0.05) return true
     }
-    return Math.abs(Number(el.value) - v) < 0.02
+    return Math.abs(Number(el.value) - v) < 0.05
   }
 
   ManakFill.shortText = function shortText(el) {

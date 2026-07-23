@@ -239,10 +239,13 @@ function watchM2Unlock(m2Values) {
       const cols = MF.collectAssayInputs(document)
       const open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
       if (open) {
-        cols.m2.forEach((el, i) => MF.setNativeValue(el, m2Values[i]))
+        for (let i = 0; i < m2Values.length; i++) {
+          await MF.forceSetWeight(cols.m2[i], m2Values[i])
+          await MF.delay(100)
+        }
         await MF.delay(300)
         MF.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
-        showToast('Shrija AUTO: M2 + Cornet Save')
+        showToast('Shrija AUTO: M2 scan-fill + Cornet Save')
         clearInterval(window.__shrijaM2Timer)
         window.__shrijaM2Timer = null
         await storageRemove(M2_PENDING_KEY)
@@ -379,8 +382,8 @@ async function stepAssay(sheet, flow) {
 
   const { sampleDrawn, buttonWt } = MF.findSamplingInputs(document)
   const drawn = Number(flow.drawn || 0)
-  if (Number(sampleDrawn?.value || 0) <= 0 && drawn) MF.setNativeValue(sampleDrawn, drawn)
-  if (Number(buttonWt?.value || 0) <= 0 && drawn) MF.setNativeValue(buttonWt, drawn)
+  if (Number(sampleDrawn?.value || 0) <= 0 && drawn) await MF.forceSetWeight(sampleDrawn, drawn)
+  if (Number(buttonWt?.value || 0) <= 0 && drawn) await MF.forceSetWeight(buttonWt, drawn)
 
   const again = MF.findSamplingInputs(document)
   const sd2 = Number(again.sampleDrawn?.value || 0)
@@ -404,13 +407,22 @@ async function stepAssay(sheet, flow) {
   ]
   const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
 
+  showToast('Shrija AUTO: Fire Assaying — scan-style weight fill (M1/Ag/Cu/Pb)…')
+
   const cols = MF.collectAssayInputs(document)
   let filledM1 = 0
+  // Sequential like balance scan: focus field → wedge keys → next
   for (let i = 0; i < 4; i++) {
-    if (MF.setNativeValue(cols.m1[i], m1s[i])) filledM1 += 1
-    MF.setNativeValue(cols.silver[i], silvers[i])
-    MF.setNativeValue(cols.copper[i], coppers[i])
-    MF.setNativeValue(cols.lead[i], leads[i])
+    if (await MF.forceSetWeight(cols.m1[i], m1s[i])) filledM1 += 1
+    await MF.delay(120)
+    await MF.forceSetWeight(cols.silver[i], silvers[i])
+    await MF.delay(80)
+    if (Number(coppers[i]) > 0) {
+      await MF.forceSetWeight(cols.copper[i], coppers[i])
+      await MF.delay(80)
+    }
+    await MF.forceSetWeight(cols.lead[i], leads[i])
+    await MF.delay(100)
   }
 
   await storageRemove(FLOW_KEY)
@@ -421,16 +433,20 @@ async function stepAssay(sheet, flow) {
 
   const m2Open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
   if (m2Open) {
-    cols.m2.forEach((el, i) => MF.setNativeValue(el, m2s[i]))
+    showToast('Shrija AUTO: M2 scan-fill…')
+    for (let i = 0; i < 4; i++) {
+      await MF.forceSetWeight(cols.m2[i], m2s[i])
+      await MF.delay(120)
+    }
     await MF.delay(300)
     MF.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
-    showToast(`Shrija AUTO: complete · M1 ${filledM1}/4 + M2`)
+    showToast(`Shrija AUTO: complete · M1 ${filledM1}/4 + M2 (scan mode)`)
   } else {
     watchM2Unlock(m2s)
     showToast(
       saved
-        ? `Shrija AUTO: M1 ${filledM1}/4 saved · timing wait → M2 auto`
-        : `Shrija AUTO: M1 ${filledM1}/4 filled · Initial Save check karo`,
+        ? `Shrija AUTO: M1 ${filledM1}/4 scan-filled + Initial Save · timing → M2 auto`
+        : `Shrija AUTO: M1 ${filledM1}/4 scan-filled · Initial Save check karo`,
       9000,
     )
   }

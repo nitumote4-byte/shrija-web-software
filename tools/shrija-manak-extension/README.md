@@ -14,10 +14,9 @@
 1. `chrome://extensions` → **Reload** (must show **2.0.0**)
 2. Site access: `*.vercel.app` + `huid.manakonline.in`
 
-## Test (local mock — no live Manak)
+## Fire Assaying Details = scan weights
 
-```bash
-node tools/shrija-manak-extension/test/run-fill-test.mjs
-```
+Manak often **blocks manual typing** on M1 / Silver / Copper / Lead / M2 — balance sends **keyboard-wedge** digits.
+Extension v2.0.4+ fills those fields with **scan simulation** (focus → digit key events → Enter), not only `.value =`.
 
-Asserts Sample Drawn / Button / M1 / Silver and that Declared Purity stays `916`.
+Sampling (Sample Drawn / Button Weight) also uses the same scan-style set.
