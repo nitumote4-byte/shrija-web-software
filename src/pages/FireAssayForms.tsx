@@ -12,7 +12,6 @@ import {
   splitSampleWeights,
 } from '../data/fireAssayBis'
 import {
-  MANAK_FIRE_ASSAY_URL,
   publishManakFireAssaySheet,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
@@ -83,6 +82,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
   const isCornet = mode === 'cornet-auto' || mode === 'cornet-ms-m2'
   const isManual = mode === 'manual'
+  /** CG Auto / Cornet: Gold Shark sheet — no separate job pick; N rows from No. of Rows */
+  const isSheetMode = mode === 'cg-auto' || isCornet
+  const noJobPick = mode === 'cg-auto' || mode === 'cornet-auto'
 
   const unusedCg = useMemo(() => {
     void cgTick
@@ -305,9 +307,76 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     if (cg2Val) setCopperCg2(String(copperForCg(cg2Val, purity)))
   }, [purity, cg1Val, cg2Val])
 
+  const buildBlankLotPair = (
+    lotNo: number,
+    avg: number,
+    silverStrip: number,
+    lead: number,
+    pur: string,
+  ): SheetRow[] => {
+    const bis = getBisDefaults(pur)
+    // Slight per-lot variation like Gold Shark (~330 mg band)
+    const drawn = Number((bis.sampleDrawnSeed + ((lotNo * 17) % 9) * 0.37 + lotNo * 0.11).toFixed(3))
+    const [sw1, sw2] = splitSampleWeights(drawn)
+    const w1 = expectedWotgcaa(sw1, pur, avg, 0.02 + (lotNo % 3) * 0.01)
+    const w2 = expectedWotgcaa(sw2, pur, avg, -0.01 - (lotNo % 2) * 0.01)
+    const f1 = finenessPpt(sw1, w1)
+    const f2 = finenessPpt(sw2, w2)
+    const mean = Number(((f1 + f2) / 2).toFixed(3))
+    const stamp = Date.now()
+    const base = {
+      partyName: '',
+      requestNo: '',
+      lotNo,
+      jobCardNo: '',
+      silver: silverStrip.toFixed(1),
+      lead: lead.toFixed(1),
+      sampleDrawn: drawn.toFixed(3),
+    }
+    return [
+      {
+        key: `blank-${stamp}-${lotNo}-a`,
+        sampleWeight: sw1.toFixed(3),
+        wotgcaa: w1.toFixed(3),
+        fineness: f1.toFixed(3),
+        meanFineness: '0.0',
+        ...base,
+      },
+      {
+        key: `blank-${stamp}-${lotNo}-b`,
+        sampleWeight: sw2.toFixed(3),
+        wotgcaa: w2.toFixed(3),
+        fineness: f2.toFixed(3),
+        meanFineness: mean.toFixed(3),
+        ...base,
+      },
+    ]
+  }
+
+  /** Gold Shark: create exactly No. of Rows (default 22) — no job selection required. */
+  const generateSheetRows = (count?: number): SheetRow[] => {
+    const pur = purity || '916'
+    const bis = getBisDefaults(pur)
+    const avg = Number(avgDelta) || 0
+    const target = Math.max(2, Math.min(50, count ?? (Number(noOfRows) || 22)))
+    const pairCount = Math.ceil(target / 2)
+    const next: SheetRow[] = []
+    for (let i = 0; i < pairCount; i++) {
+      next.push(...buildBlankLotPair(i + 1, avg, bis.silverStrip, bis.lead, pur))
+    }
+    return next.slice(0, target)
+  }
+
   const fillJobs = () => {
     if (!purity) {
       toast('Select Purity first (BIS auto-fill)')
+      return
+    }
+    // CG Auto / Cornet: no separate jobs — fill N blank BIS rows
+    if (noJobPick) {
+      const next = generateSheetRows()
+      setRows(next)
+      toast(`${next.length} rows ready — paste Job Card No (1_8080132061 …) then Create Sheet`)
       return
     }
     if (selectedJobs.length === 0) {
@@ -316,16 +385,20 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     }
     const bis = getBisDefaults(purity)
     const avg = Number(avgDelta) || 0
-    const maxPairs = Math.max(1, Math.floor((Number(noOfRows) || 22) / 2))
+    const target = Math.max(2, Number(noOfRows) || 22)
+    const maxPairs = Math.ceil(target / 2)
     const picked = selectedJobs.slice(0, maxPairs)
     const next: SheetRow[] = []
     picked.forEach((id, i) => {
       next.push(...buildPairRows(id, i + 1, avg, bis.silverStrip, bis.lead, purity))
     })
-    setRows(next)
-    toast(
-      `Filled ${picked.length} job(s) · ${next.length} strip rows — enter Job Card No (lot_jobcard)`,
-    )
+    // Pad to No. of Rows if fewer jobs selected (Gold Shark always shows full row count)
+    while (next.length < target) {
+      const lot = Math.floor(next.length / 2) + 1
+      next.push(...buildBlankLotPair(lot, avg, bis.silverStrip, bis.lead, purity))
+    }
+    setRows(next.slice(0, target))
+    toast(`${target} rows filled — enter Job Card No (lot_jobcard)`)
   }
 
   const createSheet = () => {
@@ -333,18 +406,17 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       toast('Select Purity first')
       return
     }
-    if (rows.length === 0) {
-      toast('Fill Jobs first, then enter Job Card numbers')
-      return
-    }
-    const missingJc = rows.filter((r) => !r.jobCardNo.trim())
-    if (missingJc.length) {
-      toast('Enter Job Card No for all rows (e.g. 1_8080132061 for Lot 1)')
-      return
+
+    // Gold Shark: Create Sheet builds N rows if table empty (no job pick needed)
+    let sheetRows = rows
+    if (sheetRows.length === 0) {
+      sheetRows = generateSheetRows()
+      setRows(sheetRows)
     }
 
     const avg = Number(avgDelta) || 0
-    for (const row of rows) {
+    for (const row of sheetRows) {
+      if (!row.requestNo) continue
       const req = data.requests.find((r) => r.requestNo === row.requestNo)
       if (!req) continue
       store.addFireAssay({
@@ -359,6 +431,21 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         assayNo: `FS-${sheetNo}`,
       })
       store.updateRequestStatus(req.id, 'Assayed')
+    }
+
+    // Persist sheet assay even without linked requests (CG Auto blank lots)
+    if (!sheetRows.some((r) => r.requestNo)) {
+      store.addFireAssay({
+        requestNo: `SHEET-${sheetNo}`,
+        partyName: 'Fire Assay Sheet',
+        sampleWeight: Number(sheetRows[0]?.sampleWeight) || 0,
+        purityFound: Number(sheetRows[1]?.meanFineness) || Number(sheetRows[0]?.fineness) || 0,
+        declaredPurity: purity,
+        status: 'Completed',
+        analyst: 'Lab',
+        assayType: meta.assayType,
+        assayNo: `FS-${sheetNo}`,
+      })
     }
 
     const ids = [Number(cg1Id), Number(cg2Id)].filter((n) => n > 0)
@@ -390,11 +477,12 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         delta2: Number(delta2) || 0,
         avgDelta: avg,
       },
-      rows: rows.map((r) => {
-        const { lotNo, jobCard } = parseLotJobCard(r.jobCardNo)
+      rows: sheetRows.map((r, i) => {
+        const { lotNo } = parseLotJobCard(r.jobCardNo)
+        const lot = r.lotNo || lotNo || Math.floor(i / 2) + 1
         return {
-          lotNo: r.lotNo || lotNo,
-          jobCardNo: r.jobCardNo.trim() || `${lotNo}_${jobCard}`,
+          lotNo: lot,
+          jobCardNo: r.jobCardNo.trim() || `${lot}_`,
           sampleDrawn: Number(r.sampleDrawn) || 0,
           sampleWeight: Number(r.sampleWeight) || 0,
           silver: Number(r.silver) || 0,
@@ -416,8 +504,10 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       /* ignore */
     }
 
-    toast('Sheet created — Manak fill payload ready (extension / clipboard)')
-    window.open(MANAK_FIRE_ASSAY_URL, '_blank', 'noopener,noreferrer')
+    // Gold Shark: do NOT open Chrome — open Manak yourself, select Lot No; extension fills
+    toast(
+      `Sheet FS-${sheetNo} ready (${sheetRows.length} rows). Open Manak → select Lot No — extension fills.`,
+    )
   }
 
   const updateRow = (key: string, patch: Partial<SheetRow>) => {
@@ -540,13 +630,23 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   return (
     <div className="cg-assay-page">
       <div className="cg-tabs">
-        <button
-          type="button"
-          className={`cg-tab ${isCornet || mode === 'cg-auto' ? 'active' : ''}`}
-          onClick={() => navigate('/create-fire-assay/cornet-auto')}
-        >
-          Cornet Fire Assay
-        </button>
+        {mode === 'cg-auto' ? (
+          <button
+            type="button"
+            className="cg-tab active"
+            onClick={() => navigate('/create-fire-assay/cg-auto')}
+          >
+            Cg Auto Fire Assay
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`cg-tab ${isSheetMode && !isManual ? 'active' : ''}`}
+            onClick={() => navigate('/create-fire-assay/cornet-auto')}
+          >
+            Cornet Fire Assay
+          </button>
+        )}
         <button
           type="button"
           className={`cg-tab ${isManual ? 'active' : ''}`}
@@ -558,8 +658,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
       <div className="panel cg-form-panel">
         <p className="cg-flow-hint">
-          Flow: QM Stock → CG WEIGHT add → select Purity (BIS auto-fill) → Fill Jobs → paste Job
-          Card as 1_8080132061 (Lot_JobCard) → Create Sheet → Manak (extension).
+          {noJobPick
+            ? 'Flow: CG WEIGHT add → Select Purity (BIS auto-fill) → Create Sheet makes 22 rows → paste Job Card (1_8080132061) → open Manak yourself → select Lot No (extension fills). Chrome does not open.'
+            : 'Flow: Select Purity → Fill Jobs → Job Card → Create Sheet → Manak extension.'}
         </p>
         <div className="cg-form-grid">
           <div className="field">
@@ -710,70 +811,85 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           </div>
         </div>
 
-        <div className="field cg-job-field">
-          <label>Search and select jobs</label>
-          <div className="party-search">
-            <textarea
-              className="cg-job-search"
-              placeholder="Search and select jobs"
-              value={jobQuery}
-              onChange={(e) => {
-                setJobQuery(e.target.value)
-                setJobOpen(true)
-              }}
-              onFocus={() => setJobOpen(true)}
-              onBlur={() => setTimeout(() => setJobOpen(false), 150)}
-              rows={2}
-            />
-            {jobOpen && jobOptions.length > 0 && (
-              <div className="party-dropdown">
-                {jobOptions.slice(0, 10).map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className="party-option"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      toggleJob(r.id)
-                      setJobQuery('')
-                      setJobOpen(false)
-                    }}
-                  >
-                    <strong>
-                      {r.requestNo} — {r.partyName}
-                    </strong>
-                    <span>
-                      {r.categoryName} · {r.weight}g · {r.purity}
-                      {r.jobCardNo ? ` · JC ${r.jobCardNo}` : ''}
+        {!noJobPick && (
+          <div className="field cg-job-field">
+            <label>Search and select jobs</label>
+            <div className="party-search">
+              <textarea
+                className="cg-job-search"
+                placeholder="Search and select jobs"
+                value={jobQuery}
+                onChange={(e) => {
+                  setJobQuery(e.target.value)
+                  setJobOpen(true)
+                }}
+                onFocus={() => setJobOpen(true)}
+                onBlur={() => setTimeout(() => setJobOpen(false), 150)}
+                rows={2}
+              />
+              {jobOpen && jobOptions.length > 0 && (
+                <div className="party-dropdown">
+                  {jobOptions.slice(0, 10).map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className="party-option"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        toggleJob(r.id)
+                        setJobQuery('')
+                        setJobOpen(false)
+                      }}
+                    >
+                      <strong>
+                        {r.requestNo} — {r.partyName}
+                      </strong>
+                      <span>
+                        {r.categoryName} · {r.weight}g · {r.purity}
+                        {r.jobCardNo ? ` · JC ${r.jobCardNo}` : ''}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selectedJobs.length > 0 && (
+              <div className="cg-selected-jobs">
+                {selectedJobs.map((id) => {
+                  const req = data.requests.find((r) => r.id === id)
+                  if (!req) return null
+                  return (
+                    <span key={id} className="cg-job-chip">
+                      {req.requestNo} · {req.partyName}
+                      <button type="button" onClick={() => toggleJob(id)}>
+                        ×
+                      </button>
                     </span>
-                  </button>
-                ))}
+                  )
+                })}
               </div>
             )}
+            <div className="cg-count">Count: {selectedJobs.length || ''}</div>
           </div>
-          {selectedJobs.length > 0 && (
-            <div className="cg-selected-jobs">
-              {selectedJobs.map((id) => {
-                const req = data.requests.find((r) => r.id === id)
-                if (!req) return null
-                return (
-                  <span key={id} className="cg-job-chip">
-                    {req.requestNo} · {req.partyName}
-                    <button type="button" onClick={() => toggleJob(id)}>
-                      ×
-                    </button>
-                  </span>
-                )
-              })}
-            </div>
-          )}
-          <div className="cg-count">Count: {selectedJobs.length || ''}</div>
-        </div>
+        )}
+
+        {noJobPick && (
+          <div className="cg-count" style={{ marginTop: '0.85rem' }}>
+            Rows: {rows.length || Number(noOfRows) || 22} (No. of Rows)
+          </div>
+        )}
 
         <div className="form-actions">
-          <button type="button" className="btn btn-navy" onClick={fillJobs}>
-            Fill Jobs
-          </button>
+          {!noJobPick && (
+            <button type="button" className="btn btn-navy" onClick={fillJobs}>
+              Fill Jobs
+            </button>
+          )}
+          {noJobPick && (
+            <button type="button" className="btn btn-navy" onClick={fillJobs}>
+              Fill Rows
+            </button>
+          )}
           <button type="button" className="btn btn-navy" onClick={createSheet}>
             Create Sheet
           </button>
@@ -820,7 +936,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="empty-state">
-                    Select purity → Fill Jobs. Job Card stays empty until you paste Manak lot nos.
+                    {noJobPick
+                      ? 'Select Purity → Create Sheet (or Fill Rows) for 22 BIS rows. Job Card paste later; open Manak yourself + select Lot.'
+                      : 'Select purity → Fill Jobs. Job Card stays empty until you paste Manak lot nos.'}
                   </td>
                 </tr>
               ) : (
@@ -890,7 +1008,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 }
 
 export function CgAutoFireAssay() {
-  return <FireAssaySheet mode="cornet-auto" />
+  return <FireAssaySheet mode="cg-auto" />
 }
 
 export function CornetAutoFireAssay() {

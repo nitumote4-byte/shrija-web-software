@@ -31,20 +31,27 @@ function findByLabel(textRe) {
   return null
 }
 
-function parseLot(jobCardNo) {
-  const m = /^(\d+)\s*[_\-/]\s*(\d+)$/.exec(String(jobCardNo || '').trim())
-  if (m) return { lot: Number(m[1]), card: m[2] }
-  return { lot: 1, card: String(jobCardNo || '').trim() }
-}
-
-function fillSheet(sheet) {
+function fillSheet(sheet, preferredLot) {
   if (!sheet) {
     alert('No Shrija fire assay sheet found. Create Sheet in Shrija first.')
     return false
   }
 
-  // Sampling details (first job pair)
-  const first = sheet.rows?.[0]
+  const lotSel = findByLabel(/Lot No/i)
+  let lotNum = preferredLot
+  if (lotSel && lotSel.tagName === 'SELECT') {
+    const opt = lotSel.options[lotSel.selectedIndex]
+    const m = /Lot\s*(\d+)/i.exec(opt?.text || '')
+    if (m) lotNum = Number(m[1])
+  }
+
+  const allRows = sheet.rows || []
+  const lotRows = lotNum
+    ? allRows.filter((r) => Number(r.lotNo) === Number(lotNum))
+    : allRows.slice(0, 2)
+  const stripRows = lotRows.length >= 2 ? lotRows.slice(0, 2) : allRows.slice(0, 2)
+  const first = stripRows[0]
+
   if (first) {
     const drawn = findByLabel(/Sample Drawn Weight/i)
     const button = findByLabel(/Button Weight/i)
@@ -52,22 +59,9 @@ function fillSheet(sheet) {
     setInput(button, first.sampleDrawn)
   }
 
-  // CG / strip grid — best-effort by column order on Manak table
   const cg = sheet.cg || {}
-  const stripRows = sheet.rows || []
-  // Use first two strip rows + CG from header
-  const m1s = [
-    stripRows[0]?.sampleWeight,
-    stripRows[1]?.sampleWeight,
-    cg.cg1,
-    cg.cg2,
-  ]
-  const silvers = [
-    stripRows[0]?.silver,
-    stripRows[1]?.silver,
-    cg.silverCg1,
-    cg.silverCg2,
-  ]
+  const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
+  const silvers = [stripRows[0]?.silver, stripRows[1]?.silver, cg.silverCg1, cg.silverCg2]
   const coppers = [0, 0, cg.copperCg1, cg.copperCg2]
   const leads = [
     stripRows[0]?.lead || 4,
@@ -75,14 +69,8 @@ function fillSheet(sheet) {
     cg.leadCg1 || 4,
     cg.leadCg2 || 4,
   ]
-  const m2s = [
-    stripRows[0]?.wotgcaa,
-    stripRows[1]?.wotgcaa,
-    cg.wotgcaa1,
-    cg.wotgcaa2,
-  ]
+  const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
 
-  // Fill by placeholder / nearby headers when possible
   const m1Inputs = Array.from(document.querySelectorAll('input')).filter((el) =>
     /m1|initial weight|sample/i.test(
       `${el.name || ''} ${el.id || ''} ${el.placeholder || ''} ${el.getAttribute('aria-label') || ''}`,
@@ -90,13 +78,11 @@ function fillSheet(sheet) {
   )
   m1Inputs.slice(0, 4).forEach((el, i) => setInput(el, m1s[i]))
 
-  // Fallback: sequential numeric inputs under fire assay table
   const table = document.querySelector('table')
   if (table) {
     const inputs = Array.from(table.querySelectorAll('input')).filter(
       (el) => !el.disabled && el.type !== 'hidden',
     )
-    // Heuristic layout: each of 4 rows has M1, Ag, Cu, Pb, M2
     let idx = 0
     for (let row = 0; row < 4; row++) {
       if (inputs[idx]) setInput(inputs[idx++], m1s[row])
@@ -112,35 +98,21 @@ function fillSheet(sheet) {
   setInput(findByLabel(/Delta\s*2/i), cg.delta2)
   setInput(findByLabel(/Strip1\s*\(W1\)|Strip\s*1/i), stripRows[0]?.fineness)
   setInput(findByLabel(/Strip2\s*\(W2\)|Strip\s*2/i), stripRows[1]?.fineness)
-  setInput(findByLabel(/Mean Fineness/i), stripRows[1]?.meanFineness || stripRows[0]?.meanFineness)
+  setInput(
+    findByLabel(/Mean Fineness/i),
+    stripRows[1]?.meanFineness || stripRows[0]?.meanFineness,
+  )
 
-  // Try select lot dropdown if job card present
-  if (first?.jobCardNo) {
-    const { lot, card } = parseLot(first.jobCardNo)
-    const sel = findByLabel(/Lot No/i)
-    if (sel && sel.tagName === 'SELECT') {
-      const opts = Array.from(sel.options)
-      const match =
-        opts.find((o) => o.text.includes(`Lot ${lot}`) && o.text.includes(card)) ||
-        opts.find((o) => o.text.includes(card)) ||
-        opts.find((o) => o.text.includes(`Lot ${lot}`))
-      if (match) {
-        sel.value = match.value
-        sel.dispatchEvent(new Event('change', { bubbles: true }))
-      }
-    }
-  }
-
-  console.info('[Shrija] Manak fire assay fill attempted', sheet.sheetNo, sheet.purity)
+  console.info('[Shrija] Manak fill lot', lotNum, sheet.sheetNo, sheet.purity)
   return true
 }
 
-function runFill() {
+function runFill(preferredLot) {
   chrome.storage.local.get([KEY], (data) => {
-    const ok = fillSheet(data[KEY])
+    const ok = fillSheet(data[KEY], preferredLot)
     if (ok) {
       const n = document.createElement('div')
-      n.textContent = 'Shrija: Fire assay fields filled (review & Save on Manak)'
+      n.textContent = 'Shrija: Fire assay fields filled for selected Lot (review & Save)'
       Object.assign(n.style, {
         position: 'fixed',
         top: '12px',
@@ -163,7 +135,31 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === 'SHRIJA_FILL_MANAK_NOW') runFill()
 })
 
-// Auto-run when Fire Assaying Sheet page is detected
-if (/Fire Assaying|assaying|cornet|HUID/i.test(document.body?.innerText || '')) {
-  setTimeout(runFill, 1200)
+function bindLotChange() {
+  const sel = findByLabel(/Lot No/i)
+  if (!sel || sel.dataset.shrijaBound) return
+  sel.dataset.shrijaBound = '1'
+  sel.addEventListener('change', () => {
+    const opt = sel.options[sel.selectedIndex]
+    const m = /Lot\s*(\d+)/i.exec(opt?.text || '')
+    runFill(m ? Number(m[1]) : undefined)
+  })
 }
+
+if (/Fire Assaying|assaying|cornet|HUID|Lot No/i.test(document.body?.innerText || '')) {
+  setTimeout(() => {
+    bindLotChange()
+    runFill()
+  }, 1200)
+}
+
+document.addEventListener('change', (e) => {
+  const t = e.target
+  if (!t || t.tagName !== 'SELECT') return
+  const label = (t.closest('td,div,label')?.textContent || '') + (t.parentElement?.textContent || '')
+  if (/Lot\s*No/i.test(label) || /Lot\s*\d+/i.test(t.options?.[t.selectedIndex]?.text || '')) {
+    const opt = t.options[t.selectedIndex]
+    const m = /Lot\s*(\d+)/i.exec(opt?.text || '')
+    runFill(m ? Number(m[1]) : undefined)
+  }
+})

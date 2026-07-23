@@ -3,16 +3,16 @@ import { ArrowLeft, ArrowRight, Eye, Flame, FlaskConical, Hand } from 'lucide-re
 
 const options = [
   {
-    title: 'Cornet Fire Assay',
-    description: 'CG weight + purity BIS auto-fill, Fill Jobs, Create Sheet → Manak.',
-    path: '/create-fire-assay/cornet-auto',
-    icon: Flame,
-  },
-  {
     title: 'Cg Auto Fire Assay',
-    description: 'Same cornet sheet flow (CG stock + Manak bridge).',
+    description: '22-row BIS sheet, no job pick; Create Sheet → Manak lot fill (no Chrome open).',
     path: '/create-fire-assay/cg-auto',
     icon: FlaskConical,
+  },
+  {
+    title: 'Cornet Fire Assay',
+    description: 'CG weight + purity BIS auto-fill, Fill Rows, Create Sheet → Manak.',
+    path: '/create-fire-assay/cornet-auto',
+    icon: Flame,
   },
   {
     title: 'Cornet Fire Assay MS M2',
