@@ -1,5 +1,5 @@
 import { getActiveTenantId } from './tenant'
-import { getStoreCache, setStoreCache } from './tenantCache'
+import { getStoreCache, getStoreVersion, setStoreCache } from './tenantCache'
 import { getSession } from './auth'
 
 export type Party = {
@@ -291,6 +291,24 @@ export type XrayEntry = {
   centreKind?: 'main' | 'osc'
 }
 
+/** Daily XRF machine standard / CRM verification check */
+export type XrfStandardCheck = {
+  id: string
+  checkNo: string
+  date: string
+  machineId: string
+  standardName: string
+  expectedValue: number
+  measuredValue: number
+  tolerance: number
+  deviation: number
+  result: 'Pass' | 'Fail'
+  checkedBy: string
+  remarks: string
+  centreId?: string
+  centreKind?: 'main' | 'osc'
+}
+
 export type PendingRoughRequest = {
   id: string
   partyId: string
@@ -328,6 +346,7 @@ type StoreShape = {
   stock: StockItem[]
   touches: TouchRecord[]
   xray: XrayEntry[]
+  xrfStandardChecks: XrfStandardCheck[]
 }
 
 function emptyStore(): StoreShape {
@@ -347,6 +366,7 @@ function emptyStore(): StoreShape {
     stock: [],
     touches: [],
     xray: [],
+    xrfStandardChecks: [],
   }
 }
 
@@ -492,6 +512,7 @@ function scopeStoreForSession(data: StoreShape): StoreShape {
       if (x.requestNo && requestNos.has(x.requestNo)) return true
       return false
     })
+    const xrfStandardChecks = (data.xrfStandardChecks || []).filter((c) => match(c))
     const fireAssays = data.fireAssays.filter(
       (fa) => fa.requestNo && requestNos.has(fa.requestNo),
     )
@@ -510,6 +531,7 @@ function scopeStoreForSession(data: StoreShape): StoreShape {
       purchaseParties,
       touches,
       xray,
+      xrfStandardChecks,
       fireAssays,
       jewelleryCategories,
     }
@@ -908,6 +930,7 @@ function seed(): StoreShape {
         date: today(),
       },
     ],
+    xrfStandardChecks: [],
   }
 }
 
@@ -969,6 +992,7 @@ function normalizeLoaded(parsed: StoreShape): StoreShape {
   if (!parsed.monthlyInvoices) parsed.monthlyInvoices = []
   if (!parsed.jewelleryCategories) parsed.jewelleryCategories = []
   if (!parsed.purchaseParties) parsed.purchaseParties = []
+  if (!parsed.xrfStandardChecks) parsed.xrfStandardChecks = []
   parsed.parties = (parsed.parties ?? []).map((p) => normalizeParty(p))
   parsed.purchaseParties = (parsed.purchaseParties ?? [])
     .filter((p) => p && String(p.name || '').trim())
@@ -1129,9 +1153,23 @@ export function calcPartyBalance(
   return Number((billed - paid).toFixed(2))
 }
 
+let scopedCache: StoreShape | null = null
+let scopedCacheKey = ''
+
+function scopedCacheToken() {
+  const s = getSession()
+  return `${getStoreVersion()}|${s?.tenantId || ''}|${s?.centreId || ''}|${s?.centreKind || ''}`
+}
+
 export const store = {
   /** UI lists — OSC sessions are centre-scoped; Main excludes OSC operational data */
-  getAll: () => scopeStoreForSession(load()),
+  getAll: () => {
+    const key = scopedCacheToken()
+    if (scopedCache && scopedCacheKey === key) return scopedCache
+    scopedCache = scopeStoreForSession(load())
+    scopedCacheKey = key
+    return scopedCache
+  },
 
   /** Unscoped — mutations / Main lab handoff */
   getAllRaw: () => load(),
@@ -1992,6 +2030,54 @@ export const store = {
     data.xray.unshift(entry)
     save(data)
     return entry
+  },
+
+  addXrfStandardCheck(
+    input: Omit<XrfStandardCheck, 'id' | 'checkNo' | 'deviation' | 'result'> & {
+      date?: string
+    },
+  ) {
+    const data = load()
+    if (!data.xrfStandardChecks) data.xrfStandardChecks = []
+    const stamp = sessionCentreStamp()
+    const centreRows = data.xrfStandardChecks.filter((c) =>
+      stamp.centreKind === 'osc' ? c.centreId === stamp.centreId : !isOscRecord(c),
+    )
+    const n = centreRows.length + 1
+    const expected = Number(input.expectedValue) || 0
+    const measured = Number(input.measuredValue) || 0
+    const tolerance = Number(input.tolerance) || 0
+    const deviation = Number((measured - expected).toFixed(3))
+    const result: 'Pass' | 'Fail' = Math.abs(deviation) <= tolerance ? 'Pass' : 'Fail'
+    const entry: XrfStandardCheck = {
+      ...stamp,
+      ...input,
+      id: uid('xstd'),
+      checkNo: `XRF-STD-${String(n).padStart(3, '0')}`,
+      date: input.date || today(),
+      expectedValue: expected,
+      measuredValue: measured,
+      tolerance,
+      deviation,
+      result,
+      machineId: String(input.machineId || 'XRF-1').trim() || 'XRF-1',
+      standardName: String(input.standardName || '').trim(),
+      checkedBy: String(input.checkedBy || '').trim(),
+      remarks: String(input.remarks || '').trim(),
+    }
+    data.xrfStandardChecks.unshift(entry)
+    save(data)
+    return entry
+  },
+
+  deleteXrfStandardCheck(id: string) {
+    const data = load()
+    if (!data.xrfStandardChecks) data.xrfStandardChecks = []
+    const before = data.xrfStandardChecks.length
+    data.xrfStandardChecks = data.xrfStandardChecks.filter((c) => c.id !== id)
+    if (data.xrfStandardChecks.length === before) return false
+    save(data)
+    return true
   },
 
   nextRequestNo() {

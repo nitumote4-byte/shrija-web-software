@@ -64,6 +64,15 @@ button {
   flex-direction: column;
 }
 
+.page-loading {
+  display: grid;
+  place-items: center;
+  min-height: 40vh;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 /* Free PWA install banner */
 .pwa-install-banner {
   position: fixed;
@@ -8529,5 +8538,99 @@ table.data-table tr:hover td {
 @media (max-width: 640px) {
   .expreg-filter-grid {
     grid-template-columns: 1fr !important;
+  }
+}
+
+/* XRF Daily Standard Check */
+.xrfstd-page {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.xrfstd-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.xrfstd-kpi {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+}
+
+.xrfstd-kpi span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.xrfstd-kpi strong {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.25rem;
+  color: var(--navy);
+}
+
+.xrfstd-kpi.pass strong {
+  color: #15803d;
+}
+
+.xrfstd-kpi.fail strong {
+  color: #b91c1c;
+}
+
+.xrfstd-card {
+  margin-bottom: 1rem;
+}
+
+.xrfstd-form {
+  padding: 0 1.15rem 1.15rem;
+}
+
+.xrfstd-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.75rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.xrfstd-preview.pass {
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.xrfstd-preview.fail {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.xrfstd-filter {
+  min-width: 160px;
+}
+
+.xrfstd-status {
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.xrfstd-status.pass {
+  color: #15803d;
+}
+
+.xrfstd-status.fail {
+  color: #b91c1c;
+}
+
+@media (max-width: 720px) {
+  .xrfstd-kpi-row {
+    grid-template-columns: 1fr;
   }
 }

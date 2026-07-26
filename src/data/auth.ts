@@ -7,7 +7,7 @@ import {
   setAuth,
   type ApiSession,
 } from '../api/client'
-import { hydrateTenantData, resetTenantCache } from './tenantCache'
+import { flushStoreNow, hydrateTenantData, resetTenantCache } from './tenantCache'
 import { setCachedLicense, type LicenseStatus } from './license'
 
 export type AuthSession = ApiSession
@@ -21,6 +21,7 @@ export function isAuthenticated(): boolean {
 }
 
 export function clearSession() {
+  void flushStoreNow()
   clearAuth()
   resetTenantCache()
   setCachedLicense(null)

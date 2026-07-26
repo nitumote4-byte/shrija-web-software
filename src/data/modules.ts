@@ -17,6 +17,7 @@ import {
   Eye,
   Package,
   FlaskConical,
+  Gauge,
   File,
   BarChart3,
   MoreHorizontal,
@@ -112,6 +113,13 @@ export const modules: ModuleDef[] = [
     description: 'Track X-ray / extra hallmarking lots and pieces.',
     path: '/xray-hallmark',
     icon: List,
+  },
+  {
+    id: 'xrf-daily-standard',
+    title: 'XRF Daily Standard Check',
+    description: 'Daily XRF machine standard / CRM verification log.',
+    path: '/xrf-daily-standard',
+    icon: Gauge,
   },
   {
     id: 'fund-entry',

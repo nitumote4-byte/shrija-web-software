@@ -11,13 +11,26 @@ const kvCache = new Map<string, string>()
 let firmCache: Record<string, unknown> | null = null
 let hydrated = false
 let hydratePromise: Promise<void> | null = null
+/** Bumps on every store mutation — used to invalidate scoped UI caches. */
+let storeVersion = 0
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+const FLUSH_DEBOUNCE_MS = 450
+
+export function getStoreVersion() {
+  return storeVersion
+}
 
 export function resetTenantCache() {
+  if (flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
   storeCache = null
   kvCache.clear()
   firmCache = null
   hydrated = false
   hydratePromise = null
+  storeVersion += 1
 }
 
 export function isTenantHydrated() {
@@ -38,6 +51,7 @@ export async function hydrateTenantData() {
       api<{ profile: Record<string, unknown> }>('/api/data/firm-profile'),
     ])
     storeCache = storeRes.data
+    storeVersion += 1
     kvCache.clear()
     for (const [key, value] of Object.entries(kvRes.docs || {})) {
       kvCache.set(key, typeof value === 'string' ? value : JSON.stringify(value))
@@ -61,16 +75,47 @@ export function getStoreCache<T extends StoreShape>(): T | null {
 
 export function setStoreCache(data: StoreShape) {
   storeCache = data
-  void flushStore()
+  storeVersion += 1
+  scheduleFlush()
+}
+
+function scheduleFlush() {
+  if (!getToken()) return
+  if (flushTimer) clearTimeout(flushTimer)
+  flushTimer = setTimeout(() => {
+    flushTimer = null
+    void flushStore()
+  }, FLUSH_DEBOUNCE_MS)
+}
+
+/** Flush pending store writes immediately (logout / backup / unload). */
+export async function flushStoreNow() {
+  if (flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  await flushStore()
 }
 
 async function flushStore() {
-  if (!storeCache || !getToken()) return
+  const snapshot = storeCache
+  const token = getToken()
+  if (!snapshot || !token) return
   try {
-    await api('/api/data/store', { method: 'PUT', json: { data: storeCache } })
+    await api('/api/data/store', { method: 'PUT', json: { data: snapshot } })
   } catch (e) {
     console.error('Failed to persist store', e)
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+      void flushStore()
+    }
+  })
 }
 
 /** Logical key like shrija-staff → stored as staff on server */

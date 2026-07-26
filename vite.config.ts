@@ -43,6 +43,8 @@ export default defineConfig({
       workbox: {
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globIgnores: ['**/pdf.worker*.mjs'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -72,6 +74,20 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8787',
         changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('react-dom') || id.includes('react-router') || id.includes('/react/')) {
+            return 'react-vendor'
+          }
+          if (id.includes('lucide-react')) return 'icons'
+          if (id.includes('pdfjs-dist')) return 'pdf'
+        },
       },
     },
   },

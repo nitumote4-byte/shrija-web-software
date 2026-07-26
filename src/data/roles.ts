@@ -23,6 +23,7 @@ export const RECEPTION_MODULES = [
   'print-job-card',
   'extra-hallmark',
   'xray-hallmark',
+  'xrf-daily-standard',
   'fund-entry',
   'expense-entry',
   'add-party',

@@ -1,8 +1,3 @@
-import * as pdfjs from 'pdfjs-dist'
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker
-
 export type VoucherLine = {
   item: string
   pic: string
@@ -61,6 +56,12 @@ function digitsFromFilename(name: string): { requestNo: string; receiptNo: strin
 }
 
 async function extractPdfText(file: File): Promise<string> {
+  // Lazy-load pdf.js only when a PDF voucher is opened (keeps initial bundle small).
+  const [pdfjs, workerMod] = await Promise.all([
+    import('pdfjs-dist'),
+    import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+  ])
+  pdfjs.GlobalWorkerOptions.workerSrc = workerMod.default
   const data = new Uint8Array(await file.arrayBuffer())
   const doc = await pdfjs.getDocument({ data }).promise
   const parts: string[] = []
