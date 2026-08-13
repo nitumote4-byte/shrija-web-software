@@ -117,7 +117,7 @@ export const modules: ModuleDef[] = [
   {
     id: 'xrf-daily-standard',
     title: 'XRF Daily Standard Check',
-    description: 'Daily XRF machine standard / CRM verification log.',
+    description: 'Daily XRF machine standard check — readings, average, and standard master.',
     path: '/xrf-daily-standard',
     icon: Gauge,
   },

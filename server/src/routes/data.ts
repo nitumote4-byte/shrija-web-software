@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { assertTenantId, emptyStorePayload, nowIso, pool } from '../db.js'
 import { enforceTenantBody, requireAuth, requireValidLicense } from '../middleware/auth.js'
+import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
 
 export const dataRouter = Router()
 
@@ -53,11 +54,14 @@ dataRouter.put('/store', async (req, res) => {
     return
   }
 
+  const payload = req.body.data as Record<string, unknown>
+  sanitizeXrfStorePayload(payload)
+
   const updatedAt = nowIso()
   await pool.query(
     `INSERT INTO store_docs (tenant_id, payload, updated_at) VALUES ($1, $2::jsonb, $3)
      ON CONFLICT (tenant_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
-    [tenantId, JSON.stringify(req.body.data), updatedAt],
+    [tenantId, JSON.stringify(payload), updatedAt],
   )
 
   // Normalize requests into job_docs for reporting / future queries

@@ -50,11 +50,29 @@ type ScrapHealth = {
 export function AutoRequest() {
   const { toast, Toast } = useToast()
   const [night, setNight] = useState('Night')
-  const [rows, setRows] = useState<PendingRoughRequest[]>(() =>
-    store.getPendingRough().filter((r) => r.status === 'Pending'),
-  )
+  const [rows, setRows] = useState<PendingRoughRequest[]>(() => {
+    store.pruneIncompletePendingRough()
+    return store.getPendingRough().filter(
+      (r) =>
+        r.status === 'Pending' &&
+        ((Number(r.pic) || 0) > 0 || (Number(r.weight) || 0) > 0),
+    )
+  })
   const [selected, setSelected] = useState<string[]>([])
   const [fetching, setFetching] = useState(false)
+
+  const refreshPendingRows = () => {
+    store.pruneIncompletePendingRough()
+    const pending = store.getPendingRough().filter(
+      (r) =>
+        r.status === 'Pending' &&
+        ((Number(r.pic) || 0) > 0 || (Number(r.weight) || 0) > 0) &&
+        !/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(String(r.requestNo || '')),
+    )
+    setRows(pending)
+    setSelected((prev) => prev.filter((id) => pending.some((r) => r.id === id)))
+    return pending
+  }
   const [showSettings, setShowSettings] = useState(false)
 
   const [username, setUsername] = useState('')
@@ -108,8 +126,7 @@ export function AutoRequest() {
 
   const applyFetched = (list: NonNullable<ManakFetchResponse['requests']>) => {
     const created = store.importManakRequests(night, list)
-    const pending = store.getPendingRough()
-    setRows(pending)
+    refreshPendingRows()
     setSelected((prev) => [...new Set([...prev, ...created.map((r) => r.id)])])
     return created.length
   }
@@ -269,13 +286,17 @@ export function AutoRequest() {
       setCaptchaText('')
 
       const list = res.requests || []
+      refreshPendingRows()
       if (list.length) {
         const n = applyFetched(list)
         setStatusMsg(res.message || `Loaded ${n} new request(s)`)
         toast(n ? `${n} new request(s)` : 'No new requests (already loaded)')
       } else {
-        setStatusMsg(res.message || 'No pending requests')
-        toast(res.message || 'No pending requests from Manak')
+        setStatusMsg(
+          res.message ||
+            'No complete requests (need Item/PIC/Weight from Manak detail). Open one request in Chrome, then Fetch again.',
+        )
+        toast(res.message || 'Could not parse Item/PIC/Weight — open request in Chrome and Fetch again')
       }
     } catch (e) {
       setStatusMsg('')

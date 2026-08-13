@@ -67,6 +67,7 @@ export function PwaInstallBanner() {
 
   return (
     <div className="pwa-install-banner" role="dialog" aria-label="Install app">
+      <img src="/pwa-192.png" alt="" className="pwa-install-icon" width={40} height={40} />
       <div className="pwa-install-copy">
         <strong>Install Shrija</strong>
         {showIos ? (

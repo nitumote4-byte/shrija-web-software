@@ -1,6 +1,34 @@
 import { getActiveTenantId } from './tenant'
 import { getStoreCache, getStoreVersion, setStoreCache } from './tenantCache'
 import { getSession } from './auth'
+import {
+  calcXrfAverage,
+  DEFAULT_XRF_STANDARD_SETTINGS,
+  DEFAULT_XRF_TYPE,
+  defaultXrfStandards,
+  isDuplicateXrfStandard,
+  normalizeXrfStandard,
+  normalizeXrfStandardCheck,
+  normalizeXrfStandardSettings,
+  normalizeXrfTime,
+  parseXrfNumber,
+  roundXrfValue,
+  sortXrfStandards,
+  validateXrfCheckInput,
+  xrfDuplicateError,
+  type XrfCheckSaveResult,
+  type XrfStandard,
+  type XrfStandardCheck,
+  type XrfStandardSettings,
+} from './xrfStandards'
+
+export type {
+  XrfCheckSaveResult,
+  XrfDuplicateMode,
+  XrfStandard,
+  XrfStandardCheck,
+  XrfStandardSettings,
+} from './xrfStandards'
 
 export type Party = {
   id: string
@@ -291,24 +319,6 @@ export type XrayEntry = {
   centreKind?: 'main' | 'osc'
 }
 
-/** Daily XRF machine standard / CRM verification check */
-export type XrfStandardCheck = {
-  id: string
-  checkNo: string
-  date: string
-  machineId: string
-  standardName: string
-  expectedValue: number
-  measuredValue: number
-  tolerance: number
-  deviation: number
-  result: 'Pass' | 'Fail'
-  checkedBy: string
-  remarks: string
-  centreId?: string
-  centreKind?: 'main' | 'osc'
-}
-
 export type PendingRoughRequest = {
   id: string
   partyId: string
@@ -347,6 +357,8 @@ type StoreShape = {
   touches: TouchRecord[]
   xray: XrayEntry[]
   xrfStandardChecks: XrfStandardCheck[]
+  xrfStandards: XrfStandard[]
+  xrfStandardSettings: XrfStandardSettings
 }
 
 function emptyStore(): StoreShape {
@@ -367,6 +379,8 @@ function emptyStore(): StoreShape {
     touches: [],
     xray: [],
     xrfStandardChecks: [],
+    xrfStandards: [],
+    xrfStandardSettings: { ...DEFAULT_XRF_STANDARD_SETTINGS },
   }
 }
 
@@ -931,6 +945,8 @@ function seed(): StoreShape {
       },
     ],
     xrfStandardChecks: [],
+    xrfStandards: defaultXrfStandards(),
+    xrfStandardSettings: { ...DEFAULT_XRF_STANDARD_SETTINGS, standardsInitialized: true },
   }
 }
 
@@ -993,6 +1009,27 @@ function normalizeLoaded(parsed: StoreShape): StoreShape {
   if (!parsed.jewelleryCategories) parsed.jewelleryCategories = []
   if (!parsed.purchaseParties) parsed.purchaseParties = []
   if (!parsed.xrfStandardChecks) parsed.xrfStandardChecks = []
+  const hadXrfStandardsKey = Array.isArray(parsed.xrfStandards)
+  if (!parsed.xrfStandards) parsed.xrfStandards = []
+  parsed.xrfStandardSettings = normalizeXrfStandardSettings(parsed.xrfStandardSettings)
+  parsed.xrfStandards = sortXrfStandards(
+    (parsed.xrfStandards || [])
+      .map((s, i) => normalizeXrfStandard(s, i))
+      .filter((s): s is XrfStandard => Boolean(s)),
+  )
+  if (
+    !parsed.xrfStandardSettings.standardsInitialized &&
+    (!hadXrfStandardsKey || !parsed.xrfStandards.length)
+  ) {
+    parsed.xrfStandards = defaultXrfStandards()
+    parsed.xrfStandardSettings.standardsInitialized = true
+  } else if (parsed.xrfStandards.length) {
+    parsed.xrfStandardSettings.standardsInitialized = true
+  }
+  const xrfDecimals = parsed.xrfStandardSettings.valueDecimals
+  parsed.xrfStandardChecks = (parsed.xrfStandardChecks || [])
+    .filter((c) => c && c.id)
+    .map((c) => normalizeXrfStandardCheck(c, xrfDecimals))
   parsed.parties = (parsed.parties ?? []).map((p) => normalizeParty(p))
   parsed.purchaseParties = (parsed.purchaseParties ?? [])
     .filter((p) => p && String(p.name || '').trim())
@@ -2032,42 +2069,294 @@ export const store = {
     return entry
   },
 
-  addXrfStandardCheck(
-    input: Omit<XrfStandardCheck, 'id' | 'checkNo' | 'deviation' | 'result'> & {
-      date?: string
-    },
+  getXrfStandardSettings(): XrfStandardSettings {
+    const data = load()
+    return normalizeXrfStandardSettings(data.xrfStandardSettings)
+  },
+
+  updateXrfStandardSettings(patch: Partial<XrfStandardSettings>): XrfStandardSettings {
+    const data = load()
+    data.xrfStandardSettings = normalizeXrfStandardSettings({
+      ...data.xrfStandardSettings,
+      ...patch,
+    })
+    save(data)
+    return data.xrfStandardSettings
+  },
+
+  addXrfStandard(input: { name: string; purity: number | string; carat: number | string }) {
+    const data = load()
+    if (!data.xrfStandards) data.xrfStandards = []
+    const settings = normalizeXrfStandardSettings(data.xrfStandardSettings)
+    const decimals = settings.valueDecimals
+    const name = String(input.name || '').trim()
+    const purity = parseXrfNumber(input.purity)
+    const carat = parseXrfNumber(input.carat)
+    if (!name) return { ok: false as const, error: 'Enter standard name' }
+    if (purity == null || purity <= 0 || purity > 1000) {
+      return { ok: false as const, error: 'Enter a valid purity / reference value' }
+    }
+    if (carat == null || carat <= 0 || carat > 24.9) {
+      return { ok: false as const, error: 'Enter a valid carat' }
+    }
+    const clash = data.xrfStandards.some((s) => s.name.toLowerCase() === name.toLowerCase())
+    if (clash) return { ok: false as const, error: 'Standard name already exists' }
+    const maxSort = data.xrfStandards.reduce((m, s) => Math.max(m, Number(s.sortOrder) || 0), 0)
+    const row: XrfStandard = {
+      id: uid('xstdm'),
+      name,
+      purity: roundXrfValue(purity, decimals),
+      carat: roundXrfValue(carat, decimals),
+      sortOrder: maxSort + 1,
+    }
+    data.xrfStandards.push(row)
+    data.xrfStandards = sortXrfStandards(data.xrfStandards)
+    data.xrfStandardSettings = { ...settings, standardsInitialized: true }
+    save(data)
+    return { ok: true as const, entry: row }
+  },
+
+  updateXrfStandard(
+    id: string,
+    input: { name: string; purity: number | string; carat: number | string },
   ) {
     const data = load()
+    if (!data.xrfStandards) data.xrfStandards = []
+    const settings = normalizeXrfStandardSettings(data.xrfStandardSettings)
+    const decimals = settings.valueDecimals
+    const row = data.xrfStandards.find((s) => s.id === id)
+    if (!row) return { ok: false as const, error: 'Standard not found' }
+    const name = String(input.name || '').trim()
+    const purity = parseXrfNumber(input.purity)
+    const carat = parseXrfNumber(input.carat)
+    if (!name) return { ok: false as const, error: 'Enter standard name' }
+    if (purity == null || purity <= 0 || purity > 1000) {
+      return { ok: false as const, error: 'Enter a valid purity / reference value' }
+    }
+    if (carat == null || carat <= 0 || carat > 24.9) {
+      return { ok: false as const, error: 'Enter a valid carat' }
+    }
+    const clash = data.xrfStandards.some(
+      (s) => s.id !== id && s.name.toLowerCase() === name.toLowerCase(),
+    )
+    if (clash) return { ok: false as const, error: 'Standard name already exists' }
+    row.name = name
+    row.purity = roundXrfValue(purity, decimals)
+    row.carat = roundXrfValue(carat, decimals)
+    data.xrfStandards = sortXrfStandards(data.xrfStandards)
+    data.xrfStandardSettings = { ...settings, standardsInitialized: true }
+    save(data)
+    return { ok: true as const, entry: row }
+  },
+
+  deleteXrfStandard(id: string) {
+    const data = load()
+    if (!data.xrfStandards) data.xrfStandards = []
+    const before = data.xrfStandards.length
+    data.xrfStandards = data.xrfStandards.filter((s) => s.id !== id)
+    if (data.xrfStandards.length === before) return false
+    data.xrfStandardSettings = {
+      ...normalizeXrfStandardSettings(data.xrfStandardSettings),
+      standardsInitialized: true,
+    }
+    save(data)
+    return true
+  },
+
+  restoreDefaultXrfStandards() {
+    const data = load()
+    if (!data.xrfStandards) data.xrfStandards = []
+    let added = 0
+    const existingNames = new Set(data.xrfStandards.map((s) => s.name.toLowerCase()))
+    const existingIds = new Set(data.xrfStandards.map((s) => s.id))
+    for (const row of defaultXrfStandards()) {
+      if (existingIds.has(row.id) || existingNames.has(row.name.toLowerCase())) continue
+      data.xrfStandards.push(row)
+      existingNames.add(row.name.toLowerCase())
+      existingIds.add(row.id)
+      added += 1
+    }
+    data.xrfStandardSettings = {
+      ...normalizeXrfStandardSettings(data.xrfStandardSettings),
+      standardsInitialized: true,
+    }
+    if (added > 0) {
+      data.xrfStandards = sortXrfStandards(data.xrfStandards)
+    }
+    save(data)
+    return added
+  },
+
+  addXrfStandardCheck(input: {
+    date: string
+    time: string
+    type?: string
+    standardId: string
+    purity?: number | string
+    reading1: number | string
+    reading2: number | string
+    average?: number | string
+  }): XrfCheckSaveResult {
+    const data = load()
     if (!data.xrfStandardChecks) data.xrfStandardChecks = []
+    if (!data.xrfStandards) data.xrfStandards = []
+    const settings = normalizeXrfStandardSettings(data.xrfStandardSettings)
+    const decimals = settings.valueDecimals
+    const standard = data.xrfStandards.find((s) => s.id === String(input.standardId || '').trim())
+    if (!standard) {
+      return { ok: false, error: 'Select a standard', field: 'standardId' }
+    }
+    const purity = settings.allowManualPurity
+      ? (parseXrfNumber(input.purity) ?? standard.purity)
+      : standard.purity
+    const validated = validateXrfCheckInput({
+      date: input.date,
+      time: input.time,
+      type: input.type || DEFAULT_XRF_TYPE,
+      standardId: standard.id,
+      standardName: standard.name,
+      purity,
+      reading1: input.reading1,
+      reading2: input.reading2,
+    })
+    if (!validated.ok) {
+      const field = (Object.keys(validated.errors)[0] || 'standardId') as keyof typeof validated.errors
+      return { ok: false, error: validated.errors[field] || 'Invalid standard check', field }
+    }
+    const reading1 = roundXrfValue(parseXrfNumber(input.reading1)!, decimals)
+    const reading2 = roundXrfValue(parseXrfNumber(input.reading2)!, decimals)
+    const date = String(input.date).trim()
+    const time = normalizeXrfTime(input.time)
+    const type = String(input.type || DEFAULT_XRF_TYPE).trim() || DEFAULT_XRF_TYPE
+    if (settings.duplicateMode !== 'none') {
+      const stampPreview = sessionCentreStamp()
+      const centreRows = data.xrfStandardChecks.filter((c) =>
+        stampPreview.centreKind === 'osc' ? c.centreId === stampPreview.centreId : !isOscRecord(c),
+      )
+      if (
+        isDuplicateXrfStandard(
+          centreRows,
+          {
+            date,
+            time,
+            standardId: standard.id,
+            standardName: standard.name,
+          },
+          settings.duplicateMode,
+        )
+      ) {
+        return {
+          ok: false,
+          error: xrfDuplicateError(standard.name, settings.duplicateMode),
+          field: 'standardId',
+        }
+      }
+    }
     const stamp = sessionCentreStamp()
     const centreRows = data.xrfStandardChecks.filter((c) =>
       stamp.centreKind === 'osc' ? c.centreId === stamp.centreId : !isOscRecord(c),
     )
     const n = centreRows.length + 1
-    const expected = Number(input.expectedValue) || 0
-    const measured = Number(input.measuredValue) || 0
-    const tolerance = Number(input.tolerance) || 0
-    const deviation = Number((measured - expected).toFixed(3))
-    const result: 'Pass' | 'Fail' = Math.abs(deviation) <= tolerance ? 'Pass' : 'Fail'
     const entry: XrfStandardCheck = {
       ...stamp,
-      ...input,
       id: uid('xstd'),
       checkNo: `XRF-STD-${String(n).padStart(3, '0')}`,
-      date: input.date || today(),
-      expectedValue: expected,
-      measuredValue: measured,
-      tolerance,
-      deviation,
-      result,
-      machineId: String(input.machineId || 'XRF-1').trim() || 'XRF-1',
-      standardName: String(input.standardName || '').trim(),
-      checkedBy: String(input.checkedBy || '').trim(),
-      remarks: String(input.remarks || '').trim(),
+      date,
+      time,
+      type,
+      standardId: standard.id,
+      standardName: standard.name,
+      purity: roundXrfValue(purity, decimals),
+      carat: roundXrfValue(standard.carat, decimals),
+      reading1,
+      reading2,
+      average: calcXrfAverage(reading1, reading2, decimals),
     }
     data.xrfStandardChecks.unshift(entry)
     save(data)
-    return entry
+    return { ok: true, entry }
+  },
+
+  updateXrfStandardCheck(
+    id: string,
+    input: {
+      date: string
+      time: string
+      type?: string
+      standardId?: string
+      purity?: number | string
+      reading1: number | string
+      reading2: number | string
+      average?: number | string
+    },
+  ): XrfCheckSaveResult {
+    const data = load()
+    if (!data.xrfStandardChecks) data.xrfStandardChecks = []
+    const row = data.xrfStandardChecks.find((c) => c.id === id)
+    if (!row) return { ok: false, error: 'Record not found' }
+    const settings = normalizeXrfStandardSettings(data.xrfStandardSettings)
+    const decimals = settings.valueDecimals
+    const standard = (data.xrfStandards || []).find(
+      (s) => s.id === String(input.standardId || row.standardId || '').trim(),
+    )
+    const standardId = standard?.id || row.standardId
+    const standardName = standard?.name || row.standardName
+    const carat = standard ? roundXrfValue(standard.carat, decimals) : row.carat
+    const purity = settings.allowManualPurity
+      ? (parseXrfNumber(input.purity) ?? (standard ? standard.purity : row.purity))
+      : standard
+        ? standard.purity
+        : row.purity
+    const validated = validateXrfCheckInput({
+      date: input.date,
+      time: input.time,
+      type: input.type || row.type || DEFAULT_XRF_TYPE,
+      standardId,
+      standardName,
+      purity,
+      reading1: input.reading1,
+      reading2: input.reading2,
+    })
+    if (!validated.ok) {
+      const field = (Object.keys(validated.errors)[0] || 'standardId') as keyof typeof validated.errors
+      return { ok: false, error: validated.errors[field] || 'Invalid standard check', field }
+    }
+    const reading1 = roundXrfValue(parseXrfNumber(input.reading1)!, decimals)
+    const reading2 = roundXrfValue(parseXrfNumber(input.reading2)!, decimals)
+    const date = String(input.date).trim()
+    const time = normalizeXrfTime(input.time)
+    const type = String(input.type || row.type || DEFAULT_XRF_TYPE).trim() || DEFAULT_XRF_TYPE
+    if (settings.duplicateMode !== 'none') {
+      const centreRows = data.xrfStandardChecks.filter((c) =>
+        row.centreKind === 'osc' ? c.centreId === row.centreId : !isOscRecord(c),
+      )
+      if (
+        isDuplicateXrfStandard(
+          centreRows,
+          { date, time, standardId, standardName },
+          settings.duplicateMode,
+          row.id,
+        )
+      ) {
+        return {
+          ok: false,
+          error: xrfDuplicateError(standardName, settings.duplicateMode),
+          field: 'standardId',
+        }
+      }
+    }
+    row.date = date
+    row.time = time
+    row.type = type
+    row.standardId = standardId
+    row.standardName = standardName
+    row.purity = roundXrfValue(purity, decimals)
+    row.carat = carat
+    row.reading1 = reading1
+    row.reading2 = reading2
+    row.average = calcXrfAverage(reading1, reading2, decimals)
+    save(data)
+    return { ok: true, entry: row }
   },
 
   deleteXrfStandardCheck(id: string) {
@@ -2089,6 +2378,27 @@ export const store = {
     const rows = store.getAll().pendingRough.filter((r) => r.status === 'Pending')
     if (!partyId) return rows
     return rows.filter((r) => r.partyId === partyId)
+  },
+
+  /** Remove incomplete Manak stubs (PIC/weight 0, date-as-request, metal-dropdown junk). */
+  pruneIncompletePendingRough() {
+    const data = load()
+    const before = data.pendingRough.length
+    data.pendingRough = data.pendingRough.filter((r) => {
+      if (r.status !== 'Pending') return true
+      const req = String(r.requestNo || '')
+      if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(req)) return false
+      if (/^\d{1,4}$/.test(String(r.partyName || '').trim())) return false
+      if ((Number(r.pic) || 0) <= 0 && (Number(r.weight) || 0) <= 0) return false
+      if (r.purity === '100' || r.purity === '10' || r.purity === '0') return false
+      if (/^gold$/i.test(String(r.item || '')) && (Number(r.pic) || 0) <= 0) return false
+      const reqDigits = req.replace(/\D/g, '')
+      if (reqDigits.length > 0 && reqDigits.length < 6) return false
+      return true
+    })
+    const removed = before - data.pendingRough.length
+    if (removed) save(data)
+    return removed
   },
 
   saveManualRequest(input: {
@@ -2332,13 +2642,16 @@ export const store = {
       const weight = Number(row.weight) || 0
       const purity = normalizePurityCode(row.purity)
 
-      // Drop junk parses (list stubs / metal dropdown noise)
+      // Drop junk parses (list stubs / metal dropdown / date-as-request)
       if (!requestNo && !partyName) continue
       if (/^\d{1,4}$/.test(partyName)) continue
-      if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(requestNo) && pic <= 0 && weight <= 0) continue
-      if (purity === '100' || purity === '10') continue
+      if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(requestNo)) continue
+      if (purity === '100' || purity === '10' || purity === '0') continue
+      if (/^gold$/i.test(String(row.item || '')) && pic <= 0 && weight <= 0) continue
+      // Must have real PIC or weight — request-only rows are incomplete Manak list stubs
+      if (pic <= 0 && weight <= 0) continue
       const reqDigits = requestNo.replace(/\D/g, '')
-      if (reqDigits.length < 6 && pic <= 0 && weight <= 0) continue
+      if (reqDigits.length < 6) continue
       if (!requestNo || existingNos.has(requestNo)) continue
       existingNos.add(requestNo)
 

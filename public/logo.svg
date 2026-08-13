@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Shrija">
+  <rect width="512" height="512" rx="96" fill="#1a365d"/>
+  <circle cx="256" cy="248" r="148" fill="none" stroke="#c9a227" stroke-width="28"/>
+  <circle cx="256" cy="248" r="118" fill="none" stroke="#c9a227" stroke-width="6"/>
+  <text
+    x="256"
+    y="278"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="168"
+    font-weight="700"
+    fill="#c9a227"
+  >S</text>
+  <rect x="176" y="318" width="160" height="14" rx="4" fill="#c9a227"/>
+</svg>

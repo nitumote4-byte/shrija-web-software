@@ -137,7 +137,11 @@ function parseHtmlTables(html: string): ManakRequestRow[] {
     const iPic = col(['pic', 'pcs', 'piece', 'qty', 'quantity', 'no of'])
     const iWeight = col(['weight', 'wt', 'gross'])
     const iPurity = col(['purity', 'fineness', 'karat', 'touch'])
-    const iReq = col(['request', 'req no', 'req. no', 'hallmark request'])
+    const iReqStrict = col(['request no', 'request number', 'req no', 'req. no', 'hallmark request', 'request id'])
+    const iReq =
+      iReqStrict >= 0
+        ? iReqStrict
+        : headerCells.findIndex((h) => h.includes('request') && !h.includes('date'))
     const iReceipt = col(['receipt', 'ack', 'voucher'])
     const iJob = col(['job', 'job card', 'jc'])
     const iCml = col(['cml', 'licence', 'license'])

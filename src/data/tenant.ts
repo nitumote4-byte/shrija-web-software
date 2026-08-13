@@ -103,6 +103,14 @@ export function emptyStorePayload() {
     stock: [],
     touches: [],
     xray: [],
+    xrfStandardChecks: [],
+    xrfStandards: [],
+    xrfStandardSettings: {
+      allowManualPurity: false,
+      duplicateMode: 'same-date',
+      valueDecimals: 1,
+      standardsInitialized: false,
+    },
   }
 }
 

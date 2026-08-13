@@ -13,6 +13,7 @@ import {
 import { isAuthenticated, login } from '../data/auth'
 import { setAuth } from '../api/client'
 import { hydrateTenantData } from '../data/tenantCache'
+import { BrandLogo } from '../components/BrandLogo'
 import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_VERSION } from '../data/modules'
 import { createTenant, listTenants, type Tenant } from '../data/tenant'
 
@@ -113,16 +114,7 @@ export function Login() {
         <div className="login-brand-inner">
           <p className="login-product">{PRODUCT_NAME}</p>
           <div className="login-logo" aria-hidden>
-            <svg viewBox="0 0 120 120" width="108" height="108">
-              <circle cx="60" cy="60" r="56" fill="#c9a227" opacity="0.2" />
-              <circle cx="60" cy="60" r="48" fill="none" stroke="#c9a227" strokeWidth="3" />
-              <path
-                d="M28 62c8-18 22-28 36-28 18 0 30 12 34 28-6 4-14 8-22 8-4 0-8-1-12-3-6 8-16 14-28 14-4 0-6-1-8-2z"
-                fill="#c9a227"
-              />
-              <circle cx="48" cy="52" r="3" fill="#1a1208" />
-              <path d="M72 70c6 2 14 2 22-2" stroke="#1a1208" strokeWidth="2" fill="none" />
-            </svg>
+            <BrandLogo size={112} />
           </div>
           <h1>Multi-centre</h1>
           <p className="login-tagline">{PRODUCT_TAGLINE}</p>

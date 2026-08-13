@@ -7,7 +7,7 @@ const DEFAULT_BASE = 'https://huid.manakonline.in'
 const LOGIN_PATHS = ['/MANAK/eBISLogin', '/MANAK/login', '/MANAK/HallmarkingLogin']
 const CDP_URL = process.env.SHRIJA_CDP_URL || 'http://127.0.0.1:9222'
 
-export const SCRAP_TOOL_VERSION = '2.0.0'
+export const SCRAP_TOOL_VERSION = '2.0.1'
 
 export type ScrapFetchInput = {
   username?: string
@@ -157,7 +157,7 @@ async function fetchViaCdp(base: string): Promise<ScrapFetchResult | null> {
       version: SCRAP_TOOL_VERSION,
       message: requests.length
         ? `FAST: ${requests.length} request(s) via Chrome attach (v${SCRAP_TOOL_VERSION})`
-        : `Chrome attach OK, list had ${listRowCount} rows but item/PIC/weight not parsed. Click one request in Chrome then Fetch again.`,
+        : `Chrome attach OK, list had ${listRowCount} rows but Item/PIC/Weight missing. Open one received request detail in Chrome (see pieces & weight), keep that tab open, then Fetch again.`,
     }
   } finally {
     // Disconnect only — does not close user's Chrome
