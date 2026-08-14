@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom'
 import { Loader2, Plus, Trash2, X } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { store } from '../data/store'
+import {
+  matchItemMasterName,
+  unmatchedItemCategoryMessage,
+} from '../utils/itemCategoryMatch'
 import { readVoucherFile } from '../utils/voucherReader'
 
 const PURITY_OPTIONS = ['22K916', '18K750', '14K585', '24K999', 'Silver925']
@@ -16,6 +20,7 @@ const FALLBACK_ITEMS = [
   'Earrings',
   'Ring',
   'Chain',
+  'Pendent',
   'Pendant',
   'Bracelet',
   'Coin',
@@ -33,6 +38,7 @@ type ItemEntry = {
   receiptNo: string
   jobCardNo: string
   selected: boolean
+  itemMatchWarning?: string
 }
 
 function toInputDate(d = new Date()) {
@@ -85,6 +91,7 @@ export function ManualRequest() {
   const [rows, setRows] = useState<ItemEntry[]>([])
   const [entry, setEntry] = useState<ItemEntry>(() => emptyEntry(defaultNos()))
   const [itemOpen, setItemOpen] = useState(false)
+  const [rowItemOpen, setRowItemOpen] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
   const [voucherLoaded, setVoucherLoaded] = useState(false)
 
@@ -133,6 +140,7 @@ export function ManualRequest() {
     setRows([])
     resetEntry(nos)
     setVoucherLoaded(false)
+    setRowItemOpen(null)
   }
 
   const fillFromVoucher = async (file: File, selectedPartyName: string) => {
@@ -143,12 +151,17 @@ export function ManualRequest() {
         requestNo: lines[0]?.requestNo || defaultNos().requestNo,
         receiptNo: lines[0]?.receiptNo || defaultNos().receiptNo,
       }
+      const masterNames = store.getAll().jewelleryCategories.map((c) => c.name)
+      const options = masterNames.length > 0 ? masterNames : FALLBACK_ITEMS
       setBatchNos(nos)
-      // Gold Shark: ALL voucher lines go into the main editable grid
-      setRows(
-        lines.map((line, i) => ({
+      // Gold Shark: ALL voucher lines go into the main editable grid.
+      // Match each voucher Item Category independently against Item Master.
+      const mapped: ItemEntry[] = lines.map((line, i) => {
+        const voucherItem = line.item.trim()
+        const matched = voucherItem ? matchItemMasterName(voucherItem, options) : null
+        return {
           key: `v-${Date.now()}-${i}`,
-          item: line.item,
+          item: matched ?? voucherItem,
           pic: line.pic,
           weight: line.weight,
           purity: line.purity || '22K916',
@@ -156,11 +169,18 @@ export function ManualRequest() {
           receiptNo: line.receiptNo || nos.receiptNo,
           jobCardNo: line.jobCardNo || '',
           selected: true,
-        })),
-      )
+          itemMatchWarning: matched ? undefined : unmatchedItemCategoryMessage(voucherItem),
+        }
+      })
+      setRows(mapped)
       resetEntry(nos)
       setVoucherLoaded(true)
-      toast(`Voucher loaded · ${lines.length} item(s)`)
+      const unmatchedCount = mapped.filter((r) => r.itemMatchWarning).length
+      toast(
+        unmatchedCount
+          ? `Voucher loaded · ${mapped.length} item(s). ${unmatchedCount} item categor${unmatchedCount === 1 ? 'y' : 'ies'} could not be matched.`
+          : `Voucher loaded · ${mapped.length} item(s)`,
+      )
     } catch (err) {
       console.error(err)
       toast('Failed to read voucher file')
@@ -334,6 +354,7 @@ export function ManualRequest() {
   }
 
   const allSelected = hasRows && rows.every((r) => r.selected)
+  const unmatchedRows = rows.filter((r) => r.itemMatchWarning)
 
   return (
     <div className="manual-request-page">
@@ -488,6 +509,13 @@ export function ManualRequest() {
       {(voucherLoaded || hasRows) && (
         <>
           <div className="panel pending-table-panel manual-entry-panel">
+            {unmatchedRows.length > 0 && (
+              <div className="voucher-item-warning" role="alert">
+                {unmatchedRows.length === 1
+                  ? unmatchedRows[0].itemMatchWarning
+                  : `${unmatchedRows.length} voucher item categories could not be matched with Item Master. Please select the correct item(s) manually.`}
+              </div>
+            )}
             <div className="table-wrap">
               <table className="data-table navy-head-table manual-entry-table">
                 <thead>
@@ -521,11 +549,54 @@ export function ManualRequest() {
                         />
                       </td>
                       <td>
-                        <input
-                          className="table-input"
-                          value={row.item}
-                          onChange={(e) => updateRow(row.key, { item: e.target.value })}
-                        />
+                        <div className="party-search">
+                          <input
+                            className={`table-input${row.itemMatchWarning ? ' has-item-warning' : ''}`}
+                            value={row.item}
+                            onChange={(e) => {
+                              updateRow(row.key, {
+                                item: e.target.value,
+                                itemMatchWarning: undefined,
+                              })
+                              setRowItemOpen(row.key)
+                            }}
+                            onFocus={() => setRowItemOpen(row.key)}
+                            onBlur={() =>
+                              setTimeout(
+                                () => setRowItemOpen((open) => (open === row.key ? null : open)),
+                                150,
+                              )
+                            }
+                          />
+                          {rowItemOpen === row.key && (
+                            <div className="party-dropdown">
+                              {(row.item.trim()
+                                ? itemOptions.filter((item) =>
+                                    item.toLowerCase().includes(row.item.trim().toLowerCase()),
+                                  )
+                                : itemOptions
+                              ).map((item) => (
+                                <button
+                                  key={item}
+                                  type="button"
+                                  className="party-option"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    updateRow(row.key, { item, itemMatchWarning: undefined })
+                                    setRowItemOpen(null)
+                                  }}
+                                >
+                                  <strong>{item}</strong>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {row.itemMatchWarning && (
+                            <span className="field-error voucher-item-hint">
+                              {row.itemMatchWarning}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <input

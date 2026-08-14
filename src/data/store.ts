@@ -1,6 +1,7 @@
 import { getActiveTenantId } from './tenant'
 import { getStoreCache, getStoreVersion, setStoreCache } from './tenantCache'
 import { getSession } from './auth'
+import { matchItemMasterName } from '../utils/itemCategoryMatch'
 import {
   calcXrfAverage,
   DEFAULT_XRF_STANDARD_SETTINGS,
@@ -1331,6 +1332,15 @@ export const store = {
     return true
   },
 
+  /**
+   * Exact (normalized) Item Master match for an AHC voucher category.
+   * Returns the Item Master name, or null — never a silent default like Locket.
+   */
+  matchJewelleryCategory(voucherItem: string): string | null {
+    const names = load().jewelleryCategories.map((c) => c.name)
+    return matchItemMasterName(voucherItem, names)
+  },
+
   /** GoldShark “Sync from Database” — common jewellery types */
   syncJewelleryCategoriesFromDefaults() {
     const defaults = [
@@ -2458,12 +2468,13 @@ export const store = {
         data.requests.unshift(req)
       }
 
-      // One day-sheet line per item (same Request No can have many Job Cards)
+      // One day-sheet line per item (same Request No can have many Job Cards).
+      // Keep the imported/selected item name; never substitute Locket or another category.
       data.roughSheets.unshift({
         id: uid('rs'),
         partyId: input.partyId,
         partyName: input.partyName,
-        item: row.item || 'Jewellery',
+        item: String(row.item || '').trim() || 'Jewellery',
         pic: row.pic,
         weight: row.weight,
         purity,
@@ -2708,9 +2719,13 @@ export const store = {
 
   addPendingRough(input: Omit<PendingRoughRequest, 'id' | 'status'>) {
     const data = load()
+    const item = String(input.item || '').trim()
+    // Persist the provided item as-is. Unmatched voucher categories must not be
+    // rewritten to another Item Master value (e.g. Locket).
     const entry: PendingRoughRequest = {
       ...sessionCentreStamp(),
       ...input,
+      item,
       id: uid('pr'),
       status: 'Pending',
     }

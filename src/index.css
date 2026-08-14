@@ -7143,6 +7143,29 @@ table.data-table tr:hover td {
   padding-bottom: 1rem;
 }
 
+.voucher-item-warning {
+  margin: 0.85rem 0.85rem 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #f1c4c0;
+  background: #fef2f2;
+  color: #9f1c16;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.table-input.has-item-warning {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+
+.voucher-item-hint {
+  display: block;
+  margin-top: 0.3rem;
+  max-width: 240px;
+}
+
 .manual-entry-table td {
   vertical-align: top;
   padding: 0.55rem 0.45rem;
