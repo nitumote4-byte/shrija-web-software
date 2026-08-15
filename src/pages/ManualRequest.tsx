@@ -151,14 +151,14 @@ export function ManualRequest() {
         requestNo: lines[0]?.requestNo || defaultNos().requestNo,
         receiptNo: lines[0]?.receiptNo || defaultNos().receiptNo,
       }
+      // Voucher matching uses the real Item Master only — never FALLBACK_ITEMS.
       const masterNames = store.getAll().jewelleryCategories.map((c) => c.name)
-      const options = masterNames.length > 0 ? masterNames : FALLBACK_ITEMS
       setBatchNos(nos)
       // Gold Shark: ALL voucher lines go into the main editable grid.
       // Match each voucher Item Category independently against Item Master.
       const mapped: ItemEntry[] = lines.map((line, i) => {
         const voucherItem = line.item.trim()
-        const matched = voucherItem ? matchItemMasterName(voucherItem, options) : null
+        const matched = voucherItem ? matchItemMasterName(voucherItem, masterNames) : null
         return {
           key: `v-${Date.now()}-${i}`,
           item: matched ?? voucherItem,

@@ -13,6 +13,26 @@ export type VoucherLine = {
 const LABEL_ONLY_ITEM =
   /^(item|items|category|categories|quantity|weight|purity|declared|received|observed|total|request|receipt|pic|pcs|qty|article|jewellery)$/i
 
+/** Leading AHC column-header words that must never be part of the item category. */
+const LABEL_PREFIX_WORD =
+  /^(?:item|items|category|categories|quantity|qty|pic|pcs|pieces?|weight|wt|purity|declared|received|observed|total|tot|gross|net|request|receipt|job|card|no|number|of|by|ahc|uid|voucher|gms)\b[\s:.-]*/i
+
+/**
+ * Table-style AHC vouchers put the header row next to the value row, so a raw
+ * capture can arrive as "Category Weight Mix Ornaments". Strip leading header
+ * words so the real category ("Mix Ornaments") survives.
+ */
+function cleanItemCategory(raw: string): string {
+  let out = raw.replace(/\s+/g, ' ').trim()
+  for (let i = 0; i < 12; i++) {
+    const next = out.replace(LABEL_PREFIX_WORD, '').trim()
+    if (next === out) break
+    out = next
+  }
+  if (!out || LABEL_ONLY_ITEM.test(out)) return ''
+  return out
+}
+
 function normalizePurity(raw: string): string {
   const t = raw.replace(/\s+/g, '').toUpperCase()
   if (/22.?K|916/.test(t)) return '22K916'
@@ -53,7 +73,9 @@ function extractLabeledText(text: string, labels: string[]): string {
       'i',
     )
     const m = re.exec(text)
-    if (m?.[1]?.trim()) return m[1].trim().replace(/\s+/g, ' ')
+    const value = m?.[1]?.trim().replace(/\s+/g, ' ') ?? ''
+    // A bare column header ("Received", "Observed") is the next label, not a value.
+    if (value && !LABEL_ONLY_ITEM.test(value)) return value
   }
   return ''
 }
@@ -63,9 +85,7 @@ function extractItemCategory(text: string): string {
     /Item\s*Categor(?:y|ies)(?!\s+Weight)\s*[:-]?\s*([A-Za-z][A-Za-z .'-]*?)(?=\s+(?:Quantity|Qty|PIC|Pcs|Weight|Declared|Received|Observed|Total|Request|Receipt|Purity|Job|No\.?\s*of)\b|\s+\d|$)/i.exec(
       text,
     )
-  const item = m?.[1]?.trim().replace(/\s+/g, ' ') ?? ''
-  if (!item || LABEL_ONLY_ITEM.test(item)) return ''
-  return item
+  return cleanItemCategory(m?.[1] ?? '')
 }
 
 function extractRequestReceipt(
@@ -91,6 +111,50 @@ function emptyLine(nos: { requestNo: string; receiptNo: string }): VoucherLine {
   }
 }
 
+/**
+ * Real BIS AHC Receipt Voucher: the item table is emitted as one header block
+ * followed by the value columns, e.g.
+ *   "Item Category Quantity Tot. Item Category Weight Declared Purity
+ *    Received Quantity by AHC Observed Item Category Weight(Gms)
+ *    pendent 61 270.23 22K916 61 270.23"
+ */
+const AHC_TABLE_HEADER =
+  /Item\s*Categor(?:y|ies)\s+Quantity\b[\s\S]*?Observed\s+Item\s*Categor(?:y|ies)\s+Weight\s*(?:\([^)]*\))?/i
+
+/** item · quantity · total weight · declared purity · received qty · observed weight */
+const AHC_TABLE_ROW =
+  /([A-Za-z][A-Za-z .,'&/()-]*?)\s+(\d{1,6})\s+(\d+(?:\.\d+)?)\s+((?:\d{2}\s*K\s*\d{3})|916|750|585|999|925)\s+(\d{1,6})\s+(\d+(?:\.\d+)?)/g
+
+function parseAhcTableRows(
+  text: string,
+  nos: { requestNo: string; receiptNo: string },
+): VoucherLine[] {
+  const header = AHC_TABLE_HEADER.exec(text)
+  if (!header) return []
+
+  const body = text
+    .slice(header.index + header[0].length)
+    .split(/AHC\s+Receiving\s+Remarks/i)[0]
+
+  const lines: VoucherLine[] = []
+  AHC_TABLE_ROW.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = AHC_TABLE_ROW.exec(body)) !== null) {
+    const item = cleanItemCategory(m[1])
+    if (!item) continue
+    lines.push({
+      item,
+      pic: m[2],
+      weight: m[3],
+      purity: normalizePurity(m[4]),
+      requestNo: nos.requestNo,
+      receiptNo: nos.receiptNo,
+      jobCardNo: '',
+    })
+  }
+  return lines
+}
+
 function parseAhcLabeledItems(
   text: string,
   nos: { requestNo: string; receiptNo: string },
@@ -114,6 +178,7 @@ function parseAhcLabeledItems(
     ])
     const weight = extractLabeledNumber(part, [
       'Total Item Category Weight',
+      'Tot. Item Category Weight',
       'Observed Item Category Weight',
       'Total Weight',
       'Gross Weight',
@@ -145,13 +210,14 @@ function parseStructuredLines(
   const lines: VoucherLine[] = []
   const cleaned = text.replace(/\r/g, '\n')
 
+  // Item stays on one line — otherwise a table header row leaks into the category.
   const rowRe =
-    /([A-Za-z][A-Za-z\s]{2,30}?)\s+[|:,-]?\s*(\d{1,5})\s+[|:,-]?\s*(\d+(?:\.\d+)?)\s+[|:,-]?\s*((?:22|18|14|24)\s*K?\s*\d{3}|916|750|585|999|925)/gi
+    /([A-Za-z][A-Za-z \t]{2,30}?)[ \t]+[|:,-]?[ \t]*(\d{1,5})[ \t]+[|:,-]?[ \t]*(\d+(?:\.\d+)?)[ \t]+[|:,-]?[ \t]*((?:22|18|14|24)\s*K?\s*\d{3}|916|750|585|999|925)/gi
 
   let m: RegExpExecArray | null
   while ((m = rowRe.exec(cleaned)) !== null) {
-    const item = m[1].trim().replace(/\s+/g, ' ')
-    if (!item || LABEL_ONLY_ITEM.test(item)) continue
+    const item = cleanItemCategory(m[1])
+    if (!item) continue
     lines.push({
       item,
       pic: m[2],
@@ -252,6 +318,11 @@ export function parseVoucherText(
 ): { lines: VoucherLine[]; source: string } {
   const fileNos = digitsFromFilename(fileName)
   const nos = extractRequestReceipt(text, fileNos)
+
+  const ahcTable = parseAhcTableRows(text, nos)
+  if (ahcTable.length > 0) {
+    return { lines: ahcTable, source: 'voucher AHC table' }
+  }
 
   const labeled = parseAhcLabeledItems(text, nos)
   if (labeled.length === 1) {

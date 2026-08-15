@@ -13,11 +13,33 @@ export function normalizeItemCategoryName(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
+/**
+ * Deterministic comparison key — ignores punctuation and a trailing plural "s"
+ * on words longer than three letters. Applied to both sides, so it can only
+ * match spelling/plural variants of the same words (never a different item).
+ */
+function categoryKey(name: string): string {
+  return normalizeItemCategoryName(name)
+    .replace(/[.'-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((word) => (word.length > 3 && word.endsWith('s') ? word.slice(0, -1) : word))
+    .join(' ')
+}
+
 /** Known equivalent spellings of the same jewellery article (not aliases for other items). */
-const SPELLING_VARIANTS: ReadonlyMap<string, readonly string[]> = new Map([
-  ['pendent', ['pendent', 'pendant']],
-  ['pendant', ['pendent', 'pendant']],
-])
+const ALIAS_GROUPS: readonly (readonly string[])[] = [
+  ['pendent', 'pendant'],
+  ['mix ornaments', 'mixed ornaments', 'assorted ornaments'],
+]
+
+const ALIAS_BY_KEY: ReadonlyMap<string, readonly string[]> = new Map(
+  ALIAS_GROUPS.flatMap((group) => {
+    const keys = group.map(categoryKey)
+    return keys.map((key) => [key, keys] as const)
+  }),
+)
 
 export function matchItemMasterName(
   voucherItem: string,
@@ -29,13 +51,15 @@ export function matchItemMasterName(
   const exact = itemMasterNames.find((name) => normalizeItemCategoryName(name) === needle)
   if (exact) return exact
 
-  const variants = SPELLING_VARIANTS.get(needle)
-  if (!variants) return null
+  const needleKey = categoryKey(voucherItem)
+  const sameKey = itemMasterNames.find((name) => categoryKey(name) === needleKey)
+  if (sameKey) return sameKey
 
-  const variantHit = itemMasterNames.find((name) =>
-    variants.includes(normalizeItemCategoryName(name)),
-  )
-  return variantHit ?? null
+  const aliasKeys = ALIAS_BY_KEY.get(needleKey)
+  if (!aliasKeys) return null
+
+  const aliasHit = itemMasterNames.find((name) => aliasKeys.includes(categoryKey(name)))
+  return aliasHit ?? null
 }
 
 export function unmatchedItemCategoryMessage(voucherItem: string): string {
