@@ -150,7 +150,8 @@ export function invoiceToChallan(
       data.roughSheets?.filter(
         (r) =>
           r.requestNo === inv.requestNo ||
-          (req && r.partyId === req.partyId && r.date === req.date),
+          // Legacy day-sheet lines saved before Request No was stamped on them
+          (!r.requestNo && req && r.partyId === req.partyId && r.date === req.date),
       ) || []
     const party =
       data.parties?.find((p) => p.id === inv.partyId) ||

@@ -55,7 +55,8 @@ function buildLines(
   const related = rough.filter(
     (r) =>
       r.requestNo === request.requestNo ||
-      (r.partyId === request.partyId && r.date === request.date),
+      // Legacy day-sheet lines saved before Request No was stamped on them
+      (!r.requestNo && r.partyId === request.partyId && r.date === request.date),
   )
   if (related.length > 0) {
     return related.map((r) => {
@@ -206,7 +207,7 @@ export function Billing() {
       const related = data.roughSheets.filter(
         (r) =>
           r.requestNo === request.requestNo ||
-          (r.partyId === request.partyId && r.date === request.date),
+          (!r.requestNo && r.partyId === request.partyId && r.date === request.date),
       )
       const weightReceived =
         related.reduce((s, r) => s + r.weight, 0) || request.weight

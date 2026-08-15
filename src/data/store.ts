@@ -2384,6 +2384,31 @@ export const store = {
     return `HM-2026-${String(data.requests.length + 1).padStart(3, '0')}`
   },
 
+  /**
+   * Which of `candidates` are already used by a saved request.
+   * Compared case-insensitively and trimmed. Multi-item vouchers legitimately
+   * share one Request No inside a single save batch, so this only reports
+   * numbers that existed before the current save.
+   */
+  findExistingRequestNos(candidates: string[]) {
+    const data = load()
+    const existing = new Set(
+      data.requests
+        .map((r) => String(r.requestNo || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
+    const seen = new Set<string>()
+    const hits: string[] = []
+    for (const candidate of candidates) {
+      const value = String(candidate || '').trim()
+      const key = value.toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      if (existing.has(key)) hits.push(value)
+    }
+    return hits
+  },
+
   getPendingRough(partyId?: string) {
     const rows = store.getAll().pendingRough.filter((r) => r.status === 'Pending')
     if (!partyId) return rows
@@ -2426,9 +2451,21 @@ export const store = {
     )
     if (selected.length === 0) return []
 
+    // A Request No already saved before this batch must not be reused; rows
+    // inside one batch may share a number (multi-item AHC voucher).
+    const requestNosBeforeSave = new Set(
+      data.requests
+        .map((r) => String(r.requestNo || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
+    const usable = selected.filter(
+      (row) => !requestNosBeforeSave.has(String(row.requestNo || '').trim().toLowerCase()),
+    )
+    if (usable.length === 0) return []
+
     const partyAddr = data.parties.find((p) => p.id === input.partyId)?.address || ''
 
-    const created = selected.map((row) => {
+    const created = usable.map((row) => {
       row.status = 'Saved'
       row.night = input.night
       row.date = input.date

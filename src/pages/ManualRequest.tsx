@@ -309,6 +309,14 @@ export function ManualRequest() {
       return
     }
 
+    const duplicateNos = store.findExistingRequestNos(selected.map((r) => r.requestNo))
+    if (duplicateNos.length > 0) {
+      const message = `This request number already exists in the system.\n\n${duplicateNos.join(', ')}`
+      window.alert(message)
+      toast('This request number already exists in the system.')
+      return
+    }
+
     const ids: string[] = []
     for (const row of selected) {
       const purity = row.purity.replace(/^[^\d]*/, '').replace(/\D/g, '') || row.purity
