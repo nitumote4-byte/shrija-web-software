@@ -112,21 +112,21 @@ export function Dashboard() {
       <div className="home-kpi-row">
         {!labOnly && (
           <>
-            <div className="home-kpi">
+            <div className="home-kpi" data-accent="blue">
               <ClipboardList size={18} />
               <div>
                 <span>Open requests</span>
                 <strong>{stats.pending}</strong>
               </div>
             </div>
-            <div className="home-kpi">
+            <div className="home-kpi" data-accent="cyan">
               <FileSpreadsheet size={18} />
               <div>
                 <span>Invoices today</span>
                 <strong>{stats.todayBills}</strong>
               </div>
             </div>
-            <div className="home-kpi">
+            <div className="home-kpi" data-accent="emerald">
               <IndianRupee size={18} />
               <div>
                 <span>Funds today</span>
@@ -135,7 +135,7 @@ export function Dashboard() {
                 </strong>
               </div>
             </div>
-            <div className="home-kpi">
+            <div className="home-kpi" data-accent="violet">
               <Users size={18} />
               <div>
                 <span>Parties</span>
@@ -144,14 +144,14 @@ export function Dashboard() {
             </div>
           </>
         )}
-        <div className="home-kpi">
+        <div className="home-kpi" data-accent="rose">
           <Flame size={18} />
           <div>
             <span>Assays in lab</span>
             <strong>{stats.assays}</strong>
           </div>
         </div>
-        <div className="home-kpi">
+        <div className="home-kpi" data-accent="amber">
           <Package size={18} />
           <div>
             <span>Modules</span>

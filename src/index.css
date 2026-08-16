@@ -8911,3 +8911,542 @@ textarea:focus {
   border: 1px solid #fecaca;
 }
 
+/* ==========================================================================
+   PREMIUM SURFACE LAYER
+   Presentation only — glass surfaces, accent identities, hover and focus
+   micro-interactions. Appended last so nothing above needs to be rewritten:
+   no grid, spacing, order or markup structure is changed here.
+   ========================================================================== */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --speed: 0.26s;
+  --shadow-soft: 0 1px 2px rgba(15, 39, 68, 0.04), 0 6px 18px -10px rgba(15, 39, 68, 0.18);
+  --shadow-lift: 0 2px 6px rgba(15, 39, 68, 0.06), 0 18px 38px -18px rgba(15, 39, 68, 0.3);
+  --glass-top: rgba(255, 255, 255, 0.97);
+  --glass-bottom: rgba(255, 255, 255, 0.88);
+  --glass-inner: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  /* House navy is the fallback accent for any surface without data-accent */
+  --a1: #1a365d;
+  --a2: #2a4a7a;
+  --a-text: #1a365d;
+  --a-tint: rgba(26, 54, 93, 0.09);
+  --a-edge: rgba(26, 54, 93, 0.3);
+  --a-glow: rgba(26, 54, 93, 0.22);
+}
+
+/* --- Accent identities ---------------------------------------------------
+   --a1/--a2 gradient · --a-text readable text (>= 4.5:1 on white)
+   --a-tint wash · --a-edge gradient border · --a-glow hover glow            */
+
+[data-accent='blue'] {
+  --a1: #2563eb;
+  --a2: #06b6d4;
+  --a-text: #1d4ed8;
+  --a-tint: rgba(37, 99, 235, 0.1);
+  --a-edge: rgba(37, 99, 235, 0.36);
+  --a-glow: rgba(37, 99, 235, 0.26);
+}
+
+[data-accent='cyan'] {
+  --a1: #0891b2;
+  --a2: #3b82f6;
+  --a-text: #0e7490;
+  --a-tint: rgba(8, 145, 178, 0.1);
+  --a-edge: rgba(8, 145, 178, 0.36);
+  --a-glow: rgba(8, 145, 178, 0.26);
+}
+
+[data-accent='teal'] {
+  --a1: #0d9488;
+  --a2: #22d3ee;
+  --a-text: #0f766e;
+  --a-tint: rgba(13, 148, 136, 0.1);
+  --a-edge: rgba(13, 148, 136, 0.36);
+  --a-glow: rgba(13, 148, 136, 0.26);
+}
+
+[data-accent='green'] {
+  --a1: #16a34a;
+  --a2: #4ade80;
+  --a-text: #15803d;
+  --a-tint: rgba(22, 163, 74, 0.1);
+  --a-edge: rgba(22, 163, 74, 0.36);
+  --a-glow: rgba(22, 163, 74, 0.26);
+}
+
+[data-accent='emerald'] {
+  --a1: #059669;
+  --a2: #34d399;
+  --a-text: #047857;
+  --a-tint: rgba(5, 150, 105, 0.1);
+  --a-edge: rgba(5, 150, 105, 0.36);
+  --a-glow: rgba(5, 150, 105, 0.26);
+}
+
+[data-accent='indigo'] {
+  --a1: #4f46e5;
+  --a2: #818cf8;
+  --a-text: #4338ca;
+  --a-tint: rgba(79, 70, 229, 0.1);
+  --a-edge: rgba(79, 70, 229, 0.36);
+  --a-glow: rgba(79, 70, 229, 0.26);
+}
+
+[data-accent='violet'] {
+  --a1: #7c3aed;
+  --a2: #c084fc;
+  --a-text: #6d28d9;
+  --a-tint: rgba(124, 58, 237, 0.1);
+  --a-edge: rgba(124, 58, 237, 0.36);
+  --a-glow: rgba(124, 58, 237, 0.26);
+}
+
+[data-accent='purple'] {
+  --a1: #9333ea;
+  --a2: #e879f9;
+  --a-text: #7e22ce;
+  --a-tint: rgba(147, 51, 234, 0.1);
+  --a-edge: rgba(147, 51, 234, 0.36);
+  --a-glow: rgba(147, 51, 234, 0.26);
+}
+
+[data-accent='orange'] {
+  --a1: #ea580c;
+  --a2: #fbbf24;
+  --a-text: #c2410c;
+  --a-tint: rgba(234, 88, 12, 0.1);
+  --a-edge: rgba(234, 88, 12, 0.36);
+  --a-glow: rgba(234, 88, 12, 0.26);
+}
+
+[data-accent='amber'] {
+  --a1: #d97706;
+  --a2: #fcd34d;
+  --a-text: #b45309;
+  --a-tint: rgba(217, 119, 6, 0.1);
+  --a-edge: rgba(217, 119, 6, 0.36);
+  --a-glow: rgba(217, 119, 6, 0.26);
+}
+
+[data-accent='pink'] {
+  --a1: #db2777;
+  --a2: #fb7185;
+  --a-text: #be185d;
+  --a-tint: rgba(219, 39, 119, 0.1);
+  --a-edge: rgba(219, 39, 119, 0.36);
+  --a-glow: rgba(219, 39, 119, 0.26);
+}
+
+[data-accent='rose'] {
+  --a1: #e11d48;
+  --a2: #fb923c;
+  --a-text: #be123c;
+  --a-tint: rgba(225, 29, 72, 0.1);
+  --a-edge: rgba(225, 29, 72, 0.36);
+  --a-glow: rgba(225, 29, 72, 0.26);
+}
+
+[data-accent='slate'] {
+  --a1: #475569;
+  --a2: #94a3b8;
+  --a-text: #334155;
+  --a-tint: rgba(71, 85, 105, 0.1);
+  --a-edge: rgba(71, 85, 105, 0.36);
+  --a-glow: rgba(71, 85, 105, 0.22);
+}
+
+/* --- Ambient background (content stays the focus) ------------------------ */
+
+body {
+  background:
+    radial-gradient(ellipse 70% 45% at 100% -10%, rgba(184, 146, 58, 0.13), transparent 70%),
+    radial-gradient(ellipse 55% 40% at -5% 100%, rgba(37, 99, 235, 0.07), transparent 70%),
+    radial-gradient(ellipse 95% 55% at 50% -25%, rgba(26, 54, 93, 0.05), transparent 70%),
+    var(--bg);
+}
+
+/* --- Module cards -------------------------------------------------------- */
+
+.module-card {
+  /* card-in fills forwards with transform:none, which outranks the :hover
+     lift — hold only the entry state so hover transforms apply again */
+  animation-fill-mode: backwards;
+  border: 1px solid transparent;
+  background:
+    radial-gradient(120% 95% at 100% 0%, var(--a-tint), transparent 62%) padding-box,
+    linear-gradient(158deg, var(--glass-top), var(--glass-bottom)) padding-box,
+    linear-gradient(150deg, var(--a-edge), rgba(255, 255, 255, 0) 52%, var(--a-tint)) border-box;
+  backdrop-filter: blur(10px) saturate(115%);
+  box-shadow: var(--shadow-soft), var(--glass-inner);
+  transition:
+    transform var(--speed) var(--ease-out),
+    box-shadow var(--speed) var(--ease-out),
+    background var(--speed) var(--ease-out);
+}
+
+.module-card:hover,
+.module-card:focus-visible {
+  transform: translateY(-4px);
+  background:
+    radial-gradient(120% 95% at 100% 0%, var(--a-tint), transparent 70%) padding-box,
+    linear-gradient(158deg, #fff, var(--glass-top)) padding-box,
+    linear-gradient(150deg, var(--a-edge), var(--a-tint) 55%, var(--a-edge)) border-box;
+  box-shadow: var(--shadow-lift), 0 20px 42px -24px var(--a-glow), var(--glass-inner);
+}
+
+.module-card .module-icon {
+  background: linear-gradient(140deg, var(--a1), var(--a2));
+  color: #fff;
+  box-shadow:
+    0 8px 18px -10px var(--a-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition:
+    transform var(--speed) var(--ease-out),
+    box-shadow var(--speed) var(--ease-out);
+}
+
+.module-card:hover .module-icon,
+.module-card:focus-visible .module-icon {
+  transform: scale(1.06) rotate(-3deg);
+  box-shadow:
+    0 12px 24px -10px var(--a-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.module-card .launch-link {
+  color: var(--a-text);
+  transition: color var(--speed) var(--ease-out);
+}
+
+.module-card .launch-link span {
+  display: inline-block;
+  transition: transform var(--speed) var(--ease-out);
+}
+
+.module-card:hover .launch-link,
+.module-card:focus-visible .launch-link {
+  color: var(--a-text);
+}
+
+.module-card:hover .launch-link span,
+.module-card:focus-visible .launch-link span {
+  transform: translateX(4px);
+}
+
+/* --- KPI cards ----------------------------------------------------------- */
+
+.home-kpi {
+  border-color: transparent;
+  background:
+    radial-gradient(130% 120% at 0% 0%, var(--a-tint), transparent 62%) padding-box,
+    linear-gradient(160deg, var(--glass-top), var(--glass-bottom)) padding-box,
+    linear-gradient(140deg, var(--a-edge), rgba(255, 255, 255, 0) 58%, var(--a-tint)) border-box;
+  border-style: solid;
+  backdrop-filter: blur(10px) saturate(115%);
+  box-shadow: var(--shadow-soft), var(--glass-inner);
+  transition:
+    transform var(--speed) var(--ease-out),
+    box-shadow var(--speed) var(--ease-out);
+}
+
+.home-kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift), 0 16px 32px -22px var(--a-glow), var(--glass-inner);
+}
+
+.home-kpi > svg {
+  width: 34px;
+  height: 34px;
+  padding: 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: linear-gradient(140deg, var(--a1), var(--a2));
+  color: #fff;
+  box-shadow:
+    0 8px 16px -10px var(--a-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: transform var(--speed) var(--ease-out);
+}
+
+.home-kpi:hover > svg {
+  transform: scale(1.06);
+}
+
+.home-kpi strong {
+  color: var(--navy);
+  letter-spacing: -0.01em;
+}
+
+/* --- Shared panels & stat surfaces --------------------------------------- */
+
+.panel,
+.stat-card,
+.gb-card,
+.fund-card,
+.dash-card,
+.exp-card,
+.qmgold-card,
+.firm-card {
+  background: linear-gradient(168deg, var(--glass-top), var(--glass-bottom));
+  border-color: rgba(221, 227, 234, 0.85);
+  box-shadow: var(--shadow-soft), var(--glass-inner);
+}
+
+.stat-card,
+.labgold-stat,
+.xrfstd-kpi {
+  transition:
+    transform var(--speed) var(--ease-out),
+    box-shadow var(--speed) var(--ease-out);
+}
+
+.stat-card:hover,
+.labgold-stat:hover,
+.xrfstd-kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift), var(--glass-inner);
+}
+
+/* --- Link cards (Others / Reports / Fire Assay hubs) --------------------- */
+
+.others-link-card,
+.fire-assay-card,
+.jewcat-start-card {
+  background: linear-gradient(160deg, var(--glass-top), var(--glass-bottom));
+  box-shadow: var(--shadow-soft), var(--glass-inner);
+  transition:
+    transform var(--speed) var(--ease-out),
+    box-shadow var(--speed) var(--ease-out),
+    border-color var(--speed) var(--ease-out);
+}
+
+.others-link-card:hover,
+.fire-assay-card:hover,
+.jewcat-start-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(26, 54, 93, 0.18);
+  box-shadow: var(--shadow-lift), var(--glass-inner);
+}
+
+.others-link-icon,
+.fire-assay-card-icon {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: transform var(--speed) var(--ease-out);
+}
+
+.others-link-card:hover .others-link-icon,
+.fire-assay-card:hover .fire-assay-card-icon {
+  transform: scale(1.06);
+}
+
+.others-link-arrow {
+  transition:
+    transform var(--speed) var(--ease-out),
+    color var(--speed) var(--ease-out);
+}
+
+.others-link-card:hover .others-link-arrow {
+  transform: translateX(4px);
+  color: var(--navy-soft);
+}
+
+/* --- Header -------------------------------------------------------------- */
+
+.top-header {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.86));
+  backdrop-filter: blur(14px) saturate(125%);
+  box-shadow: 0 10px 26px -26px rgba(15, 39, 68, 0.7);
+}
+
+.brand-mark {
+  box-shadow:
+    0 2px 8px rgba(26, 54, 93, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform var(--speed) var(--ease-out), box-shadow var(--speed) var(--ease-out);
+}
+
+.brand:hover .brand-mark {
+  transform: translateY(-1px);
+  box-shadow:
+    0 6px 16px rgba(26, 54, 93, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.search-box input {
+  transition:
+    border-color 0.2s var(--ease-out),
+    box-shadow 0.2s var(--ease-out),
+    background 0.2s var(--ease-out);
+}
+
+.search-box input:hover {
+  background: #fff;
+  border-color: rgba(26, 54, 93, 0.28);
+}
+
+.search-box input:focus {
+  box-shadow:
+    0 0 0 3px rgba(37, 99, 235, 0.14),
+    0 6px 16px -12px rgba(15, 39, 68, 0.6);
+}
+
+.header-icon-btn,
+.user-chip {
+  transition:
+    transform 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out),
+    box-shadow 0.2s var(--ease-out),
+    background 0.2s var(--ease-out);
+}
+
+.header-icon-btn:hover,
+.user-chip-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(26, 54, 93, 0.24);
+  box-shadow: 0 8px 18px -14px rgba(15, 39, 68, 0.8);
+}
+
+.all-modules-fab {
+  box-shadow:
+    0 10px 26px -12px rgba(26, 54, 93, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.all-modules-fab:hover {
+  transform: translateY(-2px) scale(1.03);
+}
+
+/* --- Buttons ------------------------------------------------------------- */
+
+.btn {
+  transition:
+    transform 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out),
+    background 0.18s var(--ease-out),
+    border-color 0.18s var(--ease-out);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px -12px rgba(26, 54, 93, 0.65);
+}
+
+.btn-gold:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(145deg, var(--gold-light), var(--gold));
+  box-shadow: 0 12px 24px -12px rgba(166, 124, 45, 0.7);
+}
+
+.btn-secondary:hover {
+  border-color: rgba(26, 54, 93, 0.26);
+  box-shadow: 0 8px 18px -14px rgba(15, 39, 68, 0.8);
+}
+
+.home-hero-secondary:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Press feedback must still win over the hover lift */
+.btn:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: none;
+}
+
+/* --- Tabs ---------------------------------------------------------------- */
+
+.cg-tab,
+.login-mode-tabs button {
+  transition: color 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
+}
+
+.cg-tab:hover {
+  color: var(--navy-soft);
+}
+
+.cg-tab.active {
+  border-bottom-color: transparent;
+  background-image: linear-gradient(90deg, var(--navy), var(--gold));
+  background-repeat: no-repeat;
+  background-origin: border-box;
+  background-size: 100% 3px;
+  background-position: 0 100%;
+  text-shadow: 0 0 18px rgba(26, 54, 93, 0.15);
+}
+
+/* --- Page entrance ------------------------------------------------------- */
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.main-content > * {
+  animation: page-in 0.28s var(--ease-out) backwards;
+}
+
+/* --- Loading & empty states --------------------------------------------- */
+
+.page-loading {
+  animation: pulse-soft 1.6s var(--ease-out) infinite;
+}
+
+.empty-state {
+  border-radius: var(--radius);
+  background: linear-gradient(168deg, rgba(255, 255, 255, 0.7), rgba(247, 249, 251, 0.7));
+}
+
+/* --- Focus visibility (specificity 0 — page-level focus styles still win) - */
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.55);
+  outline-offset: 2px;
+}
+
+/* --- Motion & print ------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .module-card:hover,
+  .home-kpi:hover,
+  .stat-card:hover,
+  .others-link-card:hover,
+  .fire-assay-card:hover,
+  .btn-primary:hover,
+  .btn-gold:hover {
+    transform: none;
+  }
+}
+
+@media print {
+  .main-content > *,
+  .module-card {
+    animation: none !important;
+  }
+
+  .module-card,
+  .home-kpi,
+  .panel,
+  .stat-card,
+  .gb-card,
+  .top-header {
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+}
+

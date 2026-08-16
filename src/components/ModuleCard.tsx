@@ -7,6 +7,7 @@ export function ModuleCard({ module, delay = 0 }: { module: ModuleDef; delay?: n
     <Link
       to={module.path}
       className="module-card"
+      data-accent={module.accent}
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="module-icon">
