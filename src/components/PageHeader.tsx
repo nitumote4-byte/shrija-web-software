@@ -11,17 +11,18 @@ export function PageHeader({
   actions?: React.ReactNode
 }) {
   return (
-    <>
+    <div className="page-header-wrapper">
       <Link to="/" className="back-link">
-        <ArrowLeft size={16} /> Back to Dashboard
+        <ArrowLeft size={14} /> Back to Dashboard
       </Link>
       <div className="page-header">
-        <div>
-          <h1>{title}</h1>
-          <p>{subtitle}</p>
+        <div className="page-header-title-box">
+          <h1 className="page-title">{title}</h1>
+          <p className="page-subtitle">{subtitle}</p>
         </div>
-        {actions}
+        {actions && <div className="page-header-actions">{actions}</div>}
       </div>
-    </>
+    </div>
   )
 }
+
