@@ -25,6 +25,13 @@ type ViewRow = {
   lotNo?: number
 }
 
+/** Sheets store "1_127506513"; the Manak/day-sheet key is the job card alone. */
+function manakJobCardOf(raw: string) {
+  return String(raw || '')
+    .replace(/^\d+[_\-/]/, '')
+    .trim()
+}
+
 function emptyRow(key: string, patch: Partial<ViewRow> = {}): ViewRow {
   return {
     key,
@@ -264,19 +271,29 @@ export function ViewFireAssay() {
   const persistViewToArchive = () => {
     if (!loadedSheet && !(purityFilter && sheetNo)) return
     const dataRows = rows.filter((r) => !r.locked)
-    const viewRows = dataRows.map((r, i) => ({
-      lotNo: r.lotNo || Math.floor(i / 2) + 1,
-      jobCardNo: r.jobCardNo,
-      manakJobCard: r.jobCardNo.replace(/^\d+[_\-/]/, '').trim(),
-      sampleDrawn: Number(r.sampleDrawn) || 0,
-      sampleWeight: Number(r.sampleWeight) || 0,
-      silver: Number(r.silver) || 0,
-      copper: 0,
-      lead: Number(r.lead) || 4,
-      wotgcaa: Number(r.wotgcaa) || 0,
-      fineness: Number(r.fineness) || 0,
-      meanFineness: Number(r.meanFineness) || 0,
-    }))
+    const sheetRows = loadedSheet?.viewRows?.length ? loadedSheet.viewRows : loadedSheet?.rows || []
+    const byJobCard = new Map(
+      sheetRows.filter((r) => r.jobCardNo).map((r) => [manakJobCardOf(r.jobCardNo), r]),
+    )
+    const viewRows = dataRows.map((r, i) => {
+      const card = manakJobCardOf(r.jobCardNo)
+      const from = byJobCard.get(card)
+      return {
+        lotNo: r.lotNo || Math.floor(i / 2) + 1,
+        jobCardNo: r.jobCardNo,
+        manakJobCard: card,
+        sampleDrawn: Number(r.sampleDrawn) || 0,
+        sampleWeight: Number(r.sampleWeight) || 0,
+        silver: Number(r.silver) || 0,
+        copper: 0,
+        lead: Number(r.lead) || 4,
+        wotgcaa: Number(r.wotgcaa) || 0,
+        fineness: Number(r.fineness) || 0,
+        meanFineness: Number(r.meanFineness) || 0,
+        partyName: from?.partyName,
+        requestNo: from?.requestNo,
+      }
+    })
     const base: ManakFireAssaySheet = loadedSheet || {
       version: 1,
       source: 'shrija-hallmark-suite',
@@ -317,6 +334,15 @@ export function ViewFireAssay() {
       rows: viewRows.filter((r) => r.jobCardNo.trim()),
     }
     saveFireAssaySheetArchive(next)
+    // Assay finished here → carry each job card's cornet (WOTGCAA, mg) onto its
+    // day-sheet row, so QM Request List and Billing read it without re-entry
+    store.applyFireAssayCornet(
+      next.rows.map((r) => ({
+        jobCardNo: r.manakJobCard || r.jobCardNo,
+        requestNo: r.requestNo,
+        cornet: r.wotgcaa,
+      })),
+    )
     setLoadedSheet(next)
     setTick((t) => t + 1)
   }

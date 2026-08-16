@@ -206,20 +206,31 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     silverStrip: number,
     lead: number,
   ): SheetRow[] {
-    const byReq = new Map<string, SheetRow[]>()
+    // Group by strip pair, not by Request No: one voucher may carry several
+    // items, and each Job Card No must keep its own lot.
+    const byLot = new Map<string, SheetRow[]>()
     for (const r of prev) {
-      const k = r.requestNo || r.key
-      const list = byReq.get(k) || []
+      const card = (parseLotJobCard(r.jobCardNo).jobCard || r.jobCardNo).trim()
+      const k = card ? `job:${card}` : r.lotNo ? `lot:${r.lotNo}` : `row:${r.key}`
+      const list = byLot.get(k) || []
       list.push(r)
-      byReq.set(k, list)
+      byLot.set(k, list)
     }
     const out: SheetRow[] = []
     let lot = 1
-    for (const [, group] of byReq) {
+    for (const [, group] of byLot) {
       const jobCards = group.map((g) => g.jobCardNo)
       const reqId = data.requests.find((x) => x.requestNo === group[0].requestNo)?.id || ''
       if (reqId) {
-        const built = buildPairRows(reqId, group[0].lotNo || lot, avg, silverStrip, lead, pur)
+        const built = buildPairRows(
+          reqId,
+          group[0].lotNo || lot,
+          avg,
+          silverStrip,
+          lead,
+          pur,
+          jobCards[0],
+        )
         built[0].jobCardNo = jobCards[0] || ''
         built[1].jobCardNo = jobCards[1] || jobCards[0] || ''
         out.push(...built)
@@ -244,9 +255,17 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     silverStrip: number,
     lead: number,
     pur: string,
+    jobCardNo?: string,
   ): SheetRow[] => {
     const req = data.requests.find((r) => r.id === reqId)
+    // Job Card No picks the exact item when one Request No holds several
+    const card = (parseLotJobCard(jobCardNo || '').jobCard || jobCardNo || '').trim()
     const rough =
+      (card
+        ? data.roughSheets.find(
+            (r) => (parseLotJobCard(r.jobCardNo || '').jobCard || r.jobCardNo) === card,
+          )
+        : undefined) ||
       data.roughSheets.find((r) => r.requestNo === req?.requestNo && r.status !== 'Rejected') ||
       data.roughSheets.find((r) => r.jobCardNo && r.jobCardNo === req?.jobCardNo)
     const drawn = sampleDrawnMgFromRequest(Number(rough?.sampleWeight) || 0, pur)

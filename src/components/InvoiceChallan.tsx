@@ -247,7 +247,8 @@ export function invoiceToChallan(
     sampleWeight: sw,
     unusedSample: unused,
     fireboxScrap: firebox,
-    weightReturned: inv.weightReturned ?? Number((wr - sw).toFixed(3)),
+    // A bill saved before the day sheet had weights stores 0 — recompute then
+    weightReturned: inv.weightReturned || Number((wr - sw).toFixed(3)),
     taxable,
     cgst,
     sgst,
