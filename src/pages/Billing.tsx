@@ -212,11 +212,17 @@ export function Billing() {
       const weightReceived =
         related.reduce((s, r) => s + r.weight, 0) || request.weight
       const sampleWeight = related.reduce((s, r) => s + r.sampleWeight, 0)
-      const unusedSample = 0
-      const fireboxScrap = 0
-      const weightReturned = Number(
-        (weightReceived - sampleWeight + unusedSample - fireboxScrap).toFixed(3),
+      // Residue handed back to the party = Fire Assay cornet beads for this
+      // request. Day sheets hold cornet in mg; the challan reports grams.
+      const fireboxScrap = Number(
+        (related.reduce((s, r) => s + (Number(r.cornet) || 0), 0) / 1000).toFixed(3),
       )
+      const unusedSample = Number(
+        related.reduce((s, r) => s + (Number(r.unusedSample) || 0), 0).toFixed(3),
+      )
+      // Jewellery returned = received − sample drawn; the sample-return figures
+      // above are reported separately and must not alter this total
+      const weightReturned = Number((weightReceived - sampleWeight).toFixed(3))
       const invoiceNo = nextInvoiceNo(settings.prefix, settings.startFrom, data.invoices.length)
       const dateOnly = billDate.slice(0, 10)
       const careOf = related.map((r) => r.co).find((c) => c && c.trim()) || ''

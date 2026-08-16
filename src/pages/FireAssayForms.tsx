@@ -662,6 +662,15 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       }),
     }
 
+    // Carry each job card's cornet onto its day-sheet row (QM sheet + billing read it there)
+    store.applyFireAssayCornet(
+      sheet.rows.map((r) => ({
+        jobCardNo: r.manakJobCard || r.jobCardNo,
+        requestNo: r.requestNo,
+        cornet: r.wotgcaa,
+      })),
+    )
+
     publishManakFireAssaySheet(sheet)
     try {
       void navigator.clipboard.writeText(JSON.stringify(sheet))

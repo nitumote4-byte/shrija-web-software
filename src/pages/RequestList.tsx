@@ -19,6 +19,7 @@ function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
     co: r.co || '',
     sampleTagId: r.sampleTagId || '',
     sampleQty: r.sampleQty ?? 1,
+    unusedSample: r.unusedSample ?? 0,
     cornet: r.cornet ?? 0,
     rejectPic: r.rejectPic ?? 0,
     checked: false,
@@ -33,6 +34,7 @@ function persistRow(row: SheetRow, markJobSaved: boolean) {
     jobCardSaved: markJobSaved ? Boolean(jobCardNo) : Boolean(row.jobCardSaved && jobCardNo),
     co: row.co,
     sampleWeight: Number(row.sampleWeight) || 0,
+    unusedSample: Number(row.unusedSample) || 0,
     sampleQty: Number(row.sampleQty) || 0,
     sampleTagId: row.sampleTagId,
     samplingMethod: row.samplingMethod,
@@ -98,12 +100,22 @@ export function RequestList() {
       (acc, r) => {
         acc.pic += r.pic
         acc.weight += r.weight
+        acc.sampleWeight += Number(r.sampleWeight) || 0
+        acc.unusedSample += Number(r.unusedSample) || 0
         acc.sampleQty += r.sampleQty
         acc.cornet += Number(r.cornet) || 0
         acc.rejectPic += Number(r.rejectPic) || 0
         return acc
       },
-      { pic: 0, weight: 0, sampleQty: 0, cornet: 0, rejectPic: 0 },
+      {
+        pic: 0,
+        weight: 0,
+        sampleWeight: 0,
+        unusedSample: 0,
+        sampleQty: 0,
+        cornet: 0,
+        rejectPic: 0,
+      },
     )
   }, [filtered])
 
@@ -321,6 +333,7 @@ export function RequestList() {
                 <th>OSC / Lab</th>
                 <th>Job Card No *</th>
                 <th>Sample Weight</th>
+                <th>Unused Sample Return</th>
                 <th>Sample Qty</th>
                 <th>Sample Tag Id</th>
                 <th>Method</th>
@@ -333,7 +346,7 @@ export function RequestList() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="empty-state">
+                  <td colSpan={19} className="empty-state">
                     No records found — save Manual/Auto Request to populate this day sheet.
                   </td>
                 </tr>
@@ -381,6 +394,18 @@ export function RequestList() {
                         onChange={(e) => patchRow(r.id, { jobCardNo: e.target.value })}
                         placeholder="Job card *"
                         required
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="table-input"
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={Number(r.unusedSample || 0)}
+                        onChange={(e) =>
+                          patchRow(r.id, { unusedSample: Number(e.target.value) || 0 })
+                        }
                       />
                     </td>
                     <td>
@@ -479,7 +504,13 @@ export function RequestList() {
                   <td>
                     <strong>{totals.weight.toFixed(3)}</strong>
                   </td>
-                  <td colSpan={5} />
+                  <td colSpan={4} />
+                  <td>
+                    <strong>{totals.sampleWeight.toFixed(3)}</strong>
+                  </td>
+                  <td>
+                    <strong>{totals.unusedSample.toFixed(3)}</strong>
+                  </td>
                   <td>
                     <strong>{totals.sampleQty}</strong>
                   </td>

@@ -78,12 +78,7 @@ export function ViewGeneratedBills() {
       lines,
       ...editWeights,
       weightReturned: Number(
-        (
-          editWeights.weightReceived -
-          editWeights.sampleWeight +
-          editWeights.unusedSample -
-          editWeights.fireboxScrap
-        ).toFixed(3),
+        (editWeights.weightReceived - editWeights.sampleWeight).toFixed(3),
       ),
       taxable: r.taxable,
       cgst: r.cgst,
@@ -199,12 +194,7 @@ export function ViewGeneratedBills() {
     const useIgst = preview.useIgst
     const { taxable, cgst, sgst, igst, tax, grandTotal } = recalc(lines, useIgst)
     const weightReturned = Number(
-      (
-        editWeights.weightReceived -
-        editWeights.sampleWeight +
-        editWeights.unusedSample -
-        editWeights.fireboxScrap
-      ).toFixed(3),
+      (editWeights.weightReceived - editWeights.sampleWeight).toFixed(3),
     )
     const updated = store.updateInvoice(activeId, {
       lines,
@@ -218,6 +208,7 @@ export function ViewGeneratedBills() {
       weightReceived: editWeights.weightReceived,
       sampleWeight: editWeights.sampleWeight,
       unusedSample: editWeights.unusedSample,
+      unusedSampleEdited: true,
       fireboxScrap: editWeights.fireboxScrap,
       weightReturned,
       sac: '998346',

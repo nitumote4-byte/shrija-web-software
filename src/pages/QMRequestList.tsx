@@ -39,6 +39,7 @@ function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
     sampleTagId: r.sampleTagId || '',
     sampleQty: r.sampleQty ?? 1,
     samplingMethod: r.samplingMethod || '',
+    unusedSample: r.unusedSample ?? 0,
     cornet: r.cornet ?? 0,
     rejectPic: r.rejectPic ?? 0,
     sampleWeightText: formatSampleWeight(Number(r.sampleWeight) || 0),
@@ -55,6 +56,7 @@ function persistRow(row: SheetRow, markSaved: boolean) {
     jobCardSaved: markSaved ? Boolean(jobCardNo) : Boolean(row.jobCardSaved && jobCardNo),
     co: row.co,
     sampleWeight: sw ?? (Number(row.sampleWeight) || 0),
+    unusedSample: Number(row.unusedSample) || 0,
     sampleQty: Number(row.sampleQty) || 0,
     sampleTagId: (row.sampleTagId || '').trim(),
     samplingMethod: row.samplingMethod || '',
@@ -122,11 +124,12 @@ export function QMRequestList() {
         acc.pic += r.pic
         acc.weight += r.weight
         acc.sampleWeight += parseSampleWeight(r.sampleWeightText) ?? 0
+        acc.unusedSample += Number(r.unusedSample) || 0
         acc.sampleQty += r.sampleQty
         acc.cornet += Number(r.cornet) || 0
         return acc
       },
-      { pic: 0, weight: 0, sampleWeight: 0, sampleQty: 0, cornet: 0 },
+      { pic: 0, weight: 0, sampleWeight: 0, unusedSample: 0, sampleQty: 0, cornet: 0 },
     )
   }, [filtered])
 
@@ -417,6 +420,7 @@ export function QMRequestList() {
                 <th>OSC / Lab</th>
                 <th>Job Card No</th>
                 <th>Sample Weight</th>
+                <th>Unused Sample Return</th>
                 <th>sample Qty</th>
                 <th>sample Tag Id</th>
                 <th>Sampling Method</th>
@@ -429,7 +433,7 @@ export function QMRequestList() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="empty-state">
+                  <td colSpan={19} className="empty-state">
                     No records — save Manual/Auto Request first.
                   </td>
                 </tr>
@@ -495,6 +499,19 @@ export function QMRequestList() {
                             })
                           }
                         }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="table-input"
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={Number(r.unusedSample || 0)}
+                        disabled={!editMode}
+                        onChange={(e) =>
+                          patchRow(r.id, { unusedSample: Number(e.target.value) || 0 })
+                        }
                       />
                     </td>
                     <td>{r.sampleQty}</td>
@@ -573,9 +590,12 @@ export function QMRequestList() {
                   <td>
                     <strong>{totals.weight.toFixed(3)}</strong>
                   </td>
-                  <td colSpan={3} />
+                  <td colSpan={4} />
                   <td>
                     <strong>{totals.sampleWeight.toFixed(3)}</strong>
+                  </td>
+                  <td>
+                    <strong>{totals.unusedSample.toFixed(3)}</strong>
                   </td>
                   <td>
                     <strong>{totals.sampleQty}</strong>

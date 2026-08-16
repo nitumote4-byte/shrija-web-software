@@ -110,6 +110,8 @@ export type RoughSheetEntry = {
   weight: number
   purity: string
   sampleWeight: number
+  /** Unused portion of the drawn sample returned to the party (grams). */
+  unusedSample?: number
   sampleQty: number
   samplingMethod: string
   cml: string
@@ -123,7 +125,13 @@ export type RoughSheetEntry = {
   jobCardSaved?: boolean
   co?: string
   sampleTagId?: string
+  /** Cornet / residue bead recovered by Fire Assay, in milligrams. */
   cornet?: number
+  /**
+   * Where `cornet` came from. Fire Assay refreshes its own values but never
+   * overwrites a figure the operator typed on the day sheet.
+   */
+  cornetSource?: 'manual' | 'fire-assay'
   rejectPic?: number
   centreId?: string
   centreKind?: 'main' | 'osc'
@@ -164,6 +172,8 @@ export type Invoice = {
   weightReceived?: number
   sampleWeight?: number
   unusedSample?: number
+  /** Protect an operator-edited invoice value from rough-sheet backfill. */
+  unusedSampleEdited?: boolean
   /** Wt. of Residue / Firebox Sample Returned */
   fireboxScrap?: number
   weightReturned?: number
@@ -588,6 +598,14 @@ function findCategory(data: StoreShape, purityRaw: string) {
   )
 }
 
+/** Assay sheets write job cards as "1_127506513" (lot_job); day sheets store "127506513". */
+function normalizeJobCardKey(raw: string | undefined | null): string {
+  const value = String(raw || '').trim()
+  if (!value) return ''
+  const lotPrefixed = /^\d+\s*[_\-/]\s*(.+)$/.exec(value)
+  return (lotPrefixed ? lotPrefixed[1] : value).trim().toLowerCase()
+}
+
 function findRequestByNo(data: StoreShape, requestNo: string) {
   if (!requestNo) return undefined
   return data.requests.find((r) => r.requestNo === requestNo)
@@ -724,6 +742,7 @@ function seed(): StoreShape {
         weight: 48.25,
         purity: '916',
         sampleWeight: 0.8,
+        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: 'Drill',
         cml: 'CML-77821',
@@ -742,6 +761,7 @@ function seed(): StoreShape {
         weight: 62.1,
         purity: '916',
         sampleWeight: 0.5,
+        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: 'Cut',
         cml: 'CML-77822',
@@ -760,6 +780,7 @@ function seed(): StoreShape {
         weight: 28.4,
         purity: '750',
         sampleWeight: 0.4,
+        unusedSample: 0,
         sampleQty: 2,
         samplingMethod: 'Drill',
         cml: 'CML-77830',
@@ -778,6 +799,7 @@ function seed(): StoreShape {
         weight: 95.6,
         purity: '925',
         sampleWeight: 1.0,
+        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: 'Scrap',
         cml: 'CML-77840',
@@ -961,6 +983,7 @@ function normalizeRough(r: Partial<RoughSheetEntry> & { id: string }): RoughShee
     weight: r.weight ?? (r as { roughWeight?: number }).roughWeight ?? 0,
     purity: r.purity ?? '',
     sampleWeight: r.sampleWeight ?? 0,
+    unusedSample: r.unusedSample ?? 0,
     sampleQty: r.sampleQty ?? 1,
     samplingMethod: r.samplingMethod ?? 'Drill',
     cml: r.cml ?? '',
@@ -974,6 +997,7 @@ function normalizeRough(r: Partial<RoughSheetEntry> & { id: string }): RoughShee
     co: r.co ?? '',
     sampleTagId: r.sampleTagId ?? '',
     cornet: r.cornet,
+    cornetSource: r.cornetSource === 'manual' || r.cornetSource === 'fire-assay' ? r.cornetSource : undefined,
     rejectPic: r.rejectPic ?? 0,
     centreId: r.centreId,
     centreKind: r.centreKind === 'osc' ? 'osc' : r.centreKind === 'main' ? 'main' : undefined,
@@ -1557,6 +1581,7 @@ export const store = {
     const entry: RoughSheetEntry = {
       ...sessionCentreStamp(),
       ...input,
+      unusedSample: input.unusedSample ?? 0,
       id: uid('rs'),
       date: today(),
       status: input.status ?? 'Pending',
@@ -1572,6 +1597,7 @@ export const store = {
       Pick<
         RoughSheetEntry,
         | 'sampleWeight'
+        | 'unusedSample'
         | 'sampleQty'
         | 'samplingMethod'
         | 'weight'
@@ -1589,7 +1615,10 @@ export const store = {
     const data = load()
     const row = data.roughSheets.find((r) => r.id === id)
     if (!row) return
+    const cornetEdited =
+      patch.cornet !== undefined && Number(patch.cornet) !== Number(row.cornet ?? 0)
     Object.assign(row, patch)
+    if (cornetEdited) row.cornetSource = 'manual'
     // Keep HallmarkRequest job card in sync when saved
     if (patch.jobCardNo !== undefined && row.requestNo) {
       const req = findRequestByNo(data, row.requestNo)
@@ -1970,6 +1999,44 @@ export const store = {
     if (data.expenses.length === before) return false
     save(data)
     return true
+  },
+
+  /**
+   * Fire Assay → day sheet: copy each job card's cornet (WOTGCAA, mg) onto its
+   * rough row. Job Card No is the item-level key, so items sharing one Request
+   * No each keep their own bead, and several strips of one job card add up.
+   */
+  applyFireAssayCornet(entries: { jobCardNo?: string; requestNo?: string; cornet: number }[]) {
+    const data = load()
+    const byJobCard = new Map<string, { cornet: number; requestNos: Set<string> }>()
+    for (const entry of entries) {
+      const key = normalizeJobCardKey(entry.jobCardNo)
+      const cornet = Number(entry.cornet) || 0
+      if (!key || cornet <= 0) continue
+      const bucket = byJobCard.get(key) ?? { cornet: 0, requestNos: new Set<string>() }
+      bucket.cornet += cornet
+      if (entry.requestNo) bucket.requestNos.add(entry.requestNo)
+      byJobCard.set(key, bucket)
+    }
+    if (byJobCard.size === 0) return 0
+
+    let updated = 0
+    for (const row of data.roughSheets) {
+      const bucket = byJobCard.get(normalizeJobCardKey(row.jobCardNo))
+      if (!bucket) continue
+      // Never cross a Request No boundary when both sides know it
+      if (row.requestNo && bucket.requestNos.size > 0 && !bucket.requestNos.has(row.requestNo)) {
+        continue
+      }
+      if (row.cornetSource === 'manual' && Number(row.cornet) > 0) continue
+      const next = Number(bucket.cornet.toFixed(3))
+      if (Number(row.cornet ?? 0) === next && row.cornetSource === 'fire-assay') continue
+      row.cornet = next
+      row.cornetSource = 'fire-assay'
+      updated += 1
+    }
+    if (updated) save(data)
+    return updated
   },
 
   addFireAssay(input: Omit<FireAssay, 'id' | 'assayNo' | 'date'> & { assayNo?: string; date?: string }) {
@@ -2516,6 +2583,7 @@ export const store = {
         weight: row.weight,
         purity,
         sampleWeight: 0,
+        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: '',
         cml: row.cml || '',
@@ -2608,6 +2676,7 @@ export const store = {
         weight: row.weight,
         purity,
         sampleWeight: 0,
+        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: '',
         cml: row.cml || '',
