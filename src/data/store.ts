@@ -110,8 +110,6 @@ export type RoughSheetEntry = {
   weight: number
   purity: string
   sampleWeight: number
-  /** Unused portion of the drawn sample returned to the party (grams). */
-  unusedSample?: number
   sampleQty: number
   samplingMethod: string
   cml: string
@@ -742,7 +740,6 @@ function seed(): StoreShape {
         weight: 48.25,
         purity: '916',
         sampleWeight: 0.8,
-        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: 'Drill',
         cml: 'CML-77821',
@@ -761,7 +758,6 @@ function seed(): StoreShape {
         weight: 62.1,
         purity: '916',
         sampleWeight: 0.5,
-        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: 'Cut',
         cml: 'CML-77822',
@@ -780,7 +776,6 @@ function seed(): StoreShape {
         weight: 28.4,
         purity: '750',
         sampleWeight: 0.4,
-        unusedSample: 0,
         sampleQty: 2,
         samplingMethod: 'Drill',
         cml: 'CML-77830',
@@ -799,7 +794,6 @@ function seed(): StoreShape {
         weight: 95.6,
         purity: '925',
         sampleWeight: 1.0,
-        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: 'Scrap',
         cml: 'CML-77840',
@@ -983,7 +977,6 @@ function normalizeRough(r: Partial<RoughSheetEntry> & { id: string }): RoughShee
     weight: r.weight ?? (r as { roughWeight?: number }).roughWeight ?? 0,
     purity: r.purity ?? '',
     sampleWeight: r.sampleWeight ?? 0,
-    unusedSample: r.unusedSample ?? 0,
     sampleQty: r.sampleQty ?? 1,
     samplingMethod: r.samplingMethod ?? 'Drill',
     cml: r.cml ?? '',
@@ -1581,7 +1574,6 @@ export const store = {
     const entry: RoughSheetEntry = {
       ...sessionCentreStamp(),
       ...input,
-      unusedSample: input.unusedSample ?? 0,
       id: uid('rs'),
       date: today(),
       status: input.status ?? 'Pending',
@@ -1597,7 +1589,6 @@ export const store = {
       Pick<
         RoughSheetEntry,
         | 'sampleWeight'
-        | 'unusedSample'
         | 'sampleQty'
         | 'samplingMethod'
         | 'weight'
@@ -2583,7 +2574,6 @@ export const store = {
         weight: row.weight,
         purity,
         sampleWeight: 0,
-        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: '',
         cml: row.cml || '',
@@ -2676,7 +2666,6 @@ export const store = {
         weight: row.weight,
         purity,
         sampleWeight: 0,
-        unusedSample: 0,
         sampleQty: 1,
         samplingMethod: '',
         cml: row.cml || '',

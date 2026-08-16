@@ -217,9 +217,8 @@ export function Billing() {
       const fireboxScrap = Number(
         (related.reduce((s, r) => s + (Number(r.cornet) || 0), 0) / 1000).toFixed(3),
       )
-      const unusedSample = Number(
-        related.reduce((s, r) => s + (Number(r.unusedSample) || 0), 0).toFixed(3),
-      )
+      // Fire Assay currently has no persisted source for unused sample return.
+      const unusedSample = 0
       // Jewellery returned = received − sample drawn; the sample-return figures
       // above are reported separately and must not alter this total
       const weightReturned = Number((weightReceived - sampleWeight).toFixed(3))

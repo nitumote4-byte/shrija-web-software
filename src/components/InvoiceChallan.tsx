@@ -111,7 +111,6 @@ export function invoiceToChallan(
       purity?: string
       weight?: number
       sampleWeight?: number
-      unusedSample?: number
       cornet?: number
       co?: string
     }[]
@@ -133,9 +132,7 @@ export function invoiceToChallan(
   const sgst = inv.sgst ?? (useIgst ? 0 : Number((taxable * 0.09).toFixed(2)))
   const igst = inv.igst ?? (useIgst ? Number((taxable * 0.18).toFixed(2)) : 0)
   let firebox = inv.fireboxScrap ?? 0
-  let unused = inv.unusedSample ?? 0
-  const shouldHydrateUnused =
-    inv.unusedSample === undefined || (inv.unusedSample === 0 && !inv.unusedSampleEdited)
+  const unused = inv.unusedSample ?? 0
   let wr = inv.weightReceived ?? 0
   let sw = inv.sampleWeight ?? 0
 
@@ -148,7 +145,7 @@ export function invoiceToChallan(
   let stateCode = inv.stateCode || ''
   let requestDate = inv.requestDate || inv.date
 
-  if (data && (!lines.length || !(wr > 0) || !(firebox > 0) || shouldHydrateUnused)) {
+  if (data && (!lines.length || !(wr > 0) || !(firebox > 0))) {
     const req = data.requests?.find((r) => r.requestNo === inv.requestNo)
     const related =
       data.roughSheets?.filter(
@@ -220,11 +217,6 @@ export function invoiceToChallan(
       // Day sheets hold cornet in mg; the challan reports grams
       firebox = Number(
         (related.reduce((s, r) => s + (Number(r.cornet) || 0), 0) / 1000).toFixed(3),
-      )
-    }
-    if (shouldHydrateUnused && related.length) {
-      unused = Number(
-        related.reduce((s, r) => s + (Number(r.unusedSample) || 0), 0).toFixed(3),
       )
     }
     if (!careOf) careOf = related.map((r) => r.co).find((c) => c && String(c).trim()) || ''
