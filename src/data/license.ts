@@ -95,6 +95,51 @@ export async function listIssuedKeys(masterSecret: string) {
   })
 }
 
+/** Platform operator — registered centres (includes suspended). Master secret only. */
+export type AdminTenantRow = {
+  id: string
+  slug: string
+  firmName: string
+  gstin: string
+  plan: string
+  status: string
+  licenseKey: string | null
+  licenseExpiresAt: string | null
+  licenseActivatedAt: string | null
+  maxUsers: number
+  createdAt: string
+  daysLeft: number | null
+}
+
+export async function listAdminTenants(masterSecret: string) {
+  return api<{ tenants: AdminTenantRow[] }>('/api/admin/tenants', {
+    method: 'POST',
+    json: { masterSecret },
+  })
+}
+
+export async function suspendAdminTenant(tenantId: string, masterSecret: string) {
+  return api<{
+    ok: true
+    tenant: { id: string; firmName: string; status: string }
+    message: string
+  }>(`/api/admin/tenants/${encodeURIComponent(tenantId)}/suspend`, {
+    method: 'POST',
+    json: { masterSecret },
+  })
+}
+
+export async function activateAdminTenant(tenantId: string, masterSecret: string) {
+  return api<{
+    ok: true
+    tenant: { id: string; firmName: string; status: string }
+    message: string
+  }>(`/api/admin/tenants/${encodeURIComponent(tenantId)}/activate`, {
+    method: 'POST',
+    json: { masterSecret },
+  })
+}
+
 export function formatExpiry(expiresAt: string | null) {
   if (!expiresAt) return 'No expiry (legacy)'
   return new Date(expiresAt).toLocaleDateString('en-IN', {

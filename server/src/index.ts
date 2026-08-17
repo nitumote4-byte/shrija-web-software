@@ -5,6 +5,7 @@ import { authRouter } from './routes/auth.js'
 import { dataRouter } from './routes/data.js'
 import { manakRouter } from './routes/manak.js'
 import { licenseRouter } from './routes/license.js'
+import { adminRouter } from './routes/admin.js'
 import { initDb, isDbReady, getLastDbError, ensureDb, databaseUrlPreview } from './db.js'
 
 const app = express()
@@ -80,6 +81,17 @@ app.use('/api/license', (req, res, next) => {
 app.use('/api/license', licenseRouter)
 // Alias under /api/auth so older proxies / caches that only know auth still reach licence APIs
 app.use('/api/auth/license', licenseRouter)
+
+app.use('/api/admin', (req, res, next) => {
+  if (!isDbReady()) {
+    res.status(503).json({
+      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
+    })
+    return
+  }
+  next()
+})
+app.use('/api/admin', adminRouter)
 
 app.use('/api/data', (req, res, next) => {
   if (!isDbReady()) {
