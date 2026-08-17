@@ -127,6 +127,11 @@ async function main() {
       'WARNING: JWT_SECRET is not set. Set it in Railway Variables for production.',
     )
   }
+  if (!process.env.LICENSE_MASTER_SECRET) {
+    console.warn(
+      'WARNING: LICENSE_MASTER_SECRET is not set. Master-admin licence/centre APIs fall back to JWT_SECRET. Set a separate LICENSE_MASTER_SECRET in production.',
+    )
+  }
 
   // Listen first so Railway healthcheck passes while DB connects
   app.listen(PORT, () => {

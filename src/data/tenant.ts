@@ -58,6 +58,7 @@ export async function listTenants(): Promise<Tenant[]> {
 }
 
 export type CreateTenantInput = {
+  masterSecret: string
   firmName: string
   gstin?: string
   adminUsername: string

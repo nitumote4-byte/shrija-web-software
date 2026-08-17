@@ -11,7 +11,7 @@ import {
   withTransaction,
 } from '../db.js'
 import { requireAuth, signToken, type AuthUser } from '../middleware/auth.js'
-import { evaluateLicense, getTenantLicense, trialExpiryIso } from '../license.js'
+import { assertMaster, evaluateLicense, getTenantLicense, trialExpiryIso } from '../license.js'
 
 export const authRouter = Router()
 
@@ -86,6 +86,7 @@ authRouter.get('/tenants', async (_req, res) => {
 })
 
 const registerSchema = z.object({
+  masterSecret: z.string().min(1),
   firmName: z.string().trim().min(1),
   gstin: z.string().trim().optional().default(''),
   adminUsername: z.string().trim().min(1),
@@ -93,11 +94,15 @@ const registerSchema = z.object({
   adminRole: z.string().optional().default('quality_manager'),
 })
 
-/** Register a new centre + admin user (empty isolated dataset) */
+/** Register a new centre + admin user (empty isolated dataset). Platform operator only. */
 authRouter.post('/register', authLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' })
+    return
+  }
+  if (!assertMaster(parsed.data.masterSecret)) {
+    res.status(403).json({ error: 'Invalid master secret' })
     return
   }
   const { firmName, gstin, adminUsername, adminPassword, adminRole } = parsed.data
@@ -285,6 +290,49 @@ authRouter.post('/login', authLimiter, async (req, res) => {
     },
     license,
   })
+})
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(4).max(200),
+})
+
+/** Logged-in user may change only their own password (JWT user + tenant). */
+authRouter.post('/change-password', authLimiter, requireAuth, async (req, res) => {
+  const parsed = changePasswordSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Current password and a new password (min 4 characters) are required' })
+    return
+  }
+
+  const tenantId = req.user!.tenantId
+  const userId = req.user!.userId
+  const { currentPassword, newPassword } = parsed.data
+
+  const { rows } = await pool.query(
+    `SELECT id, password_hash AS "passwordHash"
+     FROM users
+     WHERE id = $1 AND tenant_id = $2`,
+    [userId, tenantId],
+  )
+  const user = rows[0] as { id: string; passwordHash: string } | undefined
+  if (!user) {
+    res.status(404).json({ error: 'User not found' })
+    return
+  }
+  if (!bcrypt.compareSync(currentPassword, user.passwordHash)) {
+    res.status(401).json({ error: 'Current password is incorrect' })
+    return
+  }
+
+  const hash = bcrypt.hashSync(newPassword, 10)
+  await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2 AND tenant_id = $3`, [
+    hash,
+    userId,
+    tenantId,
+  ])
+
+  res.json({ ok: true, message: 'Password updated' })
 })
 
 authRouter.get('/me', requireAuth, async (req, res) => {

@@ -109,6 +109,16 @@ export type AdminTenantRow = {
   maxUsers: number
   createdAt: string
   daysLeft: number | null
+  adminUsername?: string | null
+  adminEmail?: string | null
+}
+
+export type CentreAccessBadge = 'ACTIVE' | 'SUSPENDED' | 'EXPIRED'
+
+export function centreAccessBadge(row: Pick<AdminTenantRow, 'status' | 'daysLeft'>): CentreAccessBadge {
+  if (row.status !== 'active') return 'SUSPENDED'
+  if (row.daysLeft !== null && row.daysLeft < 0) return 'EXPIRED'
+  return 'ACTIVE'
 }
 
 export async function listAdminTenants(masterSecret: string) {
@@ -134,7 +144,7 @@ export async function activateAdminTenant(tenantId: string, masterSecret: string
     ok: true
     tenant: { id: string; firmName: string; status: string }
     message: string
-  }>(`/api/admin/tenants/${encodeURIComponent(tenantId)}/activate`, {
+  }>(`/api/admin/tenants/${encodeURIComponent(tenantId)}/reactivate`, {
     method: 'POST',
     json: { masterSecret },
   })

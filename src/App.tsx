@@ -150,6 +150,9 @@ const InvoiceSettings = lazy(() =>
 )
 const DataBackup = lazy(() => import('./pages/DataBackup').then((m) => ({ default: m.DataBackup })))
 const LicensePage = lazy(() => import('./pages/License').then((m) => ({ default: m.LicensePage })))
+const PlatformOperator = lazy(() =>
+  import('./pages/PlatformOperator').then((m) => ({ default: m.PlatformOperator })),
+)
 
 function PageFallback() {
   return (
@@ -166,6 +169,7 @@ export default function App() {
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/operator" element={<PlatformOperator />} />
 
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>

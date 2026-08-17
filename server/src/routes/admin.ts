@@ -31,6 +31,12 @@ function requireMaster(body: unknown): { ok: true } | { ok: false; status: numbe
   return { ok: true }
 }
 
+function audit(action: string, tenantId: string, firmName: string, detail?: string) {
+  console.info(
+    `[admin] ${action} tenant=${tenantId} firm=${JSON.stringify(firmName)}${detail ? ` ${detail}` : ''} at=${new Date().toISOString()}`,
+  )
+}
+
 /** List all registered centres (including suspended) — master secret only */
 adminRouter.post('/tenants', masterLimiter, async (req, res) => {
   const auth = requireMaster(req.body)
@@ -40,15 +46,27 @@ adminRouter.post('/tenants', masterLimiter, async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    `SELECT id, slug, firm_name AS "firmName", gstin, plan, status,
-            license_key AS "licenseKey",
-            license_expires_at AS "licenseExpiresAt",
-            license_activated_at AS "licenseActivatedAt",
-            max_users AS "maxUsers",
-            created_at AS "createdAt"
-     FROM tenants
-     ORDER BY lower(firm_name)`,
+    `SELECT t.id, t.slug, t.firm_name AS "firmName", t.gstin, t.plan, t.status,
+            t.license_key AS "licenseKey",
+            t.license_expires_at AS "licenseExpiresAt",
+            t.license_activated_at AS "licenseActivatedAt",
+            t.max_users AS "maxUsers",
+            t.created_at AS "createdAt",
+            admin.username AS "adminUsername",
+            COALESCE(fp.email, '') AS "adminEmail"
+     FROM tenants t
+     LEFT JOIN LATERAL (
+       SELECT username
+       FROM users
+       WHERE tenant_id = t.id AND is_admin = TRUE
+       ORDER BY created_at ASC
+       LIMIT 1
+     ) admin ON TRUE
+     LEFT JOIN firm_profiles fp ON fp.tenant_id = t.id
+     ORDER BY lower(t.firm_name)`,
   )
+
+  audit('list_centres', '-', 'all', `count=${rows.length}`)
 
   res.json({
     tenants: rows.map((row) => ({
@@ -57,6 +75,14 @@ adminRouter.post('/tenants', masterLimiter, async (req, res) => {
     })),
   })
 })
+
+async function loadTenantBrief(tenantId: string) {
+  const existing = await pool.query(
+    `SELECT id, firm_name AS "firmName", status FROM tenants WHERE id = $1`,
+    [tenantId],
+  )
+  return existing.rows[0] as { id: string; firmName: string; status: string } | undefined
+}
 
 /** Suspend one centre — sets tenants.status = 'suspended' only */
 adminRouter.post('/tenants/:tenantId/suspend', masterLimiter, async (req, res) => {
@@ -73,20 +99,14 @@ adminRouter.post('/tenants/:tenantId/suspend', masterLimiter, async (req, res) =
   }
   const tenantId = idParsed.data
 
-  const existing = await pool.query(
-    `SELECT id, firm_name AS "firmName", status FROM tenants WHERE id = $1`,
-    [tenantId],
-  )
-  const tenant = existing.rows[0] as
-    | { id: string; firmName: string; status: string }
-    | undefined
-
+  const tenant = await loadTenantBrief(tenantId)
   if (!tenant) {
     res.status(404).json({ error: 'Centre not found' })
     return
   }
 
   if (tenant.status === 'suspended') {
+    audit('suspend_noop', tenant.id, tenant.firmName, 'already_suspended')
     res.json({
       ok: true,
       tenant: { id: tenant.id, firmName: tenant.firmName, status: 'suspended' },
@@ -96,6 +116,7 @@ adminRouter.post('/tenants/:tenantId/suspend', masterLimiter, async (req, res) =
   }
 
   await pool.query(`UPDATE tenants SET status = 'suspended' WHERE id = $1`, [tenantId])
+  audit('suspend', tenant.id, tenant.firmName)
 
   res.json({
     ok: true,
@@ -104,8 +125,7 @@ adminRouter.post('/tenants/:tenantId/suspend', masterLimiter, async (req, res) =
   })
 })
 
-/** Reactivate one centre — sets tenants.status = 'active' only */
-adminRouter.post('/tenants/:tenantId/activate', masterLimiter, async (req, res) => {
+async function reactivateTenant(req: import('express').Request, res: import('express').Response) {
   const auth = requireMaster(req.body)
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error })
@@ -119,20 +139,14 @@ adminRouter.post('/tenants/:tenantId/activate', masterLimiter, async (req, res) 
   }
   const tenantId = idParsed.data
 
-  const existing = await pool.query(
-    `SELECT id, firm_name AS "firmName", status FROM tenants WHERE id = $1`,
-    [tenantId],
-  )
-  const tenant = existing.rows[0] as
-    | { id: string; firmName: string; status: string }
-    | undefined
-
+  const tenant = await loadTenantBrief(tenantId)
   if (!tenant) {
     res.status(404).json({ error: 'Centre not found' })
     return
   }
 
   if (tenant.status === 'active') {
+    audit('reactivate_noop', tenant.id, tenant.firmName, 'already_active')
     res.json({
       ok: true,
       tenant: { id: tenant.id, firmName: tenant.firmName, status: 'active' },
@@ -142,10 +156,16 @@ adminRouter.post('/tenants/:tenantId/activate', masterLimiter, async (req, res) 
   }
 
   await pool.query(`UPDATE tenants SET status = 'active' WHERE id = $1`, [tenantId])
+  audit('reactivate', tenant.id, tenant.firmName)
 
   res.json({
     ok: true,
     tenant: { id: tenant.id, firmName: tenant.firmName, status: 'active' },
     message: 'Centre access restored',
   })
-})
+}
+
+/** Reactivate one centre — sets tenants.status = 'active' only */
+adminRouter.post('/tenants/:tenantId/activate', masterLimiter, reactivateTenant)
+/** Alias preferred by operators */
+adminRouter.post('/tenants/:tenantId/reactivate', masterLimiter, reactivateTenant)

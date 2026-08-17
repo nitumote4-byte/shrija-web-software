@@ -1034,15 +1034,84 @@ button {
   justify-content: center;
   gap: 0.45rem;
   cursor: pointer;
+  transition:
+    filter 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .login-btn:hover:not(:disabled) {
   filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.login-btn:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .login-btn:disabled {
   opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.login-btn[aria-busy='true']:disabled {
   cursor: wait;
+}
+
+.login-visibility {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  padding: 0;
+  display: inline-flex;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.login-visibility:hover,
+.login-visibility:focus-visible {
+  color: var(--navy);
+}
+
+.login-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -0.35rem 0 0.85rem;
+}
+
+.login-forgot {
+  border: none;
+  background: none;
+  color: var(--navy);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+
+.login-forgot:hover,
+.login-forgot:focus-visible {
+  text-decoration: underline;
+}
+
+.login-operator-link {
+  color: #94a3b8;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.login-operator-link:hover,
+.login-operator-link:focus-visible {
+  color: var(--navy);
+  text-decoration: underline;
+}
+
+.login-hint-sep {
+  opacity: 0.7;
+}
+
+.login-forgot-modal {
+  max-width: 26rem;
 }
 
 .login-admin-link {
@@ -1066,6 +1135,52 @@ button {
   text-align: center;
   font-size: 0.75rem;
   color: #94a3b8;
+}
+
+.operator-page {
+  min-height: 100vh;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 2.5rem;
+}
+
+.operator-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.operator-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.operator-brand h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  color: var(--navy);
+}
+
+.operator-lead {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #475569;
+  font-size: 0.88rem;
+  margin: 0 0 1rem;
+}
+
+.change-password-panel {
+  margin-bottom: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-btn:hover:not(:disabled) {
+    transform: none;
+  }
 }
 
 @media (max-width: 860px) {
@@ -9412,6 +9527,201 @@ body {
 
 /* --- Motion & print ------------------------------------------------------ */
 
+/* --- Registered Centres (platform operator) ----------------------------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes centres-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.centres-admin-panel {
+  margin-top: 0.25rem;
+}
+
+.centres-admin-head h2 {
+  margin-bottom: 0.35rem;
+}
+
+.centres-admin-sub {
+  margin-top: 0;
+}
+
+.centres-admin-auth {
+  margin-top: 0.75rem;
+}
+
+.centres-admin-load .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.centres-stats {
+  margin-top: 1rem;
+}
+
+.centres-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: 1rem 0 0.75rem;
+}
+
+.centres-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: min(100%, 280px);
+  flex: 1 1 240px;
+  padding: 0.35rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(26, 54, 93, 0.16);
+  background: linear-gradient(158deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.88));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.centres-search:focus-within {
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.centres-search input {
+  border: none;
+  background: transparent;
+  width: 100%;
+  outline: none;
+  font: inherit;
+  color: inherit;
+}
+
+.centres-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.centres-filter-btn {
+  min-height: 2rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.centres-table-wrap {
+  margin-top: 0.25rem;
+}
+
+.centres-table td,
+.centres-table th {
+  vertical-align: middle;
+}
+
+.centres-table tbody tr {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.centres-table tbody tr:hover td {
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.centres-row-suspended td {
+  background: rgba(185, 28, 28, 0.03);
+}
+
+.centres-id {
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+
+.centres-admin-cell {
+  font-size: 0.82rem;
+  max-width: 12rem;
+}
+
+.centres-badge {
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+.centres-empty {
+  text-align: center;
+  color: #64748b;
+  padding: 1.25rem 0.75rem !important;
+}
+
+.centres-table .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.centres-table .btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.centres-table .btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.centres-table .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.centres-spin {
+  animation: centres-spin 0.8s linear infinite;
+}
+
+@keyframes centres-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.centres-confirm-overlay {
+  z-index: 80;
+}
+
+.centres-confirm-modal {
+  max-width: 28rem;
+  animation: centres-page-in 180ms var(--ease-out, ease-out);
+}
+
+.centres-confirm-modal .auto-manak-actions {
+  margin-top: 1rem;
+  justify-content: flex-end;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -9428,8 +9738,13 @@ body {
   .others-link-card:hover,
   .fire-assay-card:hover,
   .btn-primary:hover,
-  .btn-gold:hover {
+  .btn-gold:hover,
+  .centres-table .btn:hover:not(:disabled) {
     transform: none;
+  }
+
+  .centres-confirm-modal {
+    animation: none !important;
   }
 }
 

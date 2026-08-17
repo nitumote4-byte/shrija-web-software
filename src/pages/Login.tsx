@@ -1,36 +1,31 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import {
   ArrowRight,
   BadgeCheck,
   Building2,
+  Eye,
+  EyeOff,
   FlaskConical,
   Lock,
   Scale,
-  Shield,
   User,
 } from 'lucide-react'
 import { isAuthenticated, login } from '../data/auth'
-import { setAuth } from '../api/client'
-import { hydrateTenantData } from '../data/tenantCache'
 import { BrandLogo } from '../components/BrandLogo'
 import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_VERSION } from '../data/modules'
-import { createTenant, listTenants, type Tenant } from '../data/tenant'
+import { listTenants, type Tenant } from '../data/tenant'
 
 export function Login() {
-  const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [tenantId, setTenantId] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [bootError, setBootError] = useState('')
-
-  const [firmName, setFirmName] = useState('')
-  const [gstin, setGstin] = useState('')
-  const [adminUser, setAdminUser] = useState('qm_admin')
-  const [adminPass, setAdminPass] = useState('')
+  const [forgotOpen, setForgotOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -56,6 +51,15 @@ export function Login() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!forgotOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setForgotOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [forgotOpen])
 
   const selectedTenant = useMemo(
     () => tenants.find((t) => t.id === tenantId),
@@ -83,31 +87,6 @@ export function Login() {
     window.location.assign('/')
   }
 
-  const submitSignup = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    const result = await createTenant({
-      firmName,
-      gstin,
-      adminUsername: adminUser,
-      adminPassword: adminPass,
-    })
-    if (!result.ok) {
-      setLoading(false)
-      setError(result.error)
-      return
-    }
-    setAuth(result.token, result.session)
-    try {
-      await hydrateTenantData()
-      window.location.assign('/')
-    } catch (err) {
-      setLoading(false)
-      setError(err instanceof Error ? err.message : 'Centre created but hydrate failed')
-    }
-  }
-
   return (
     <div className="login-page">
       <aside className="login-brand">
@@ -116,11 +95,8 @@ export function Login() {
           <div className="login-logo" aria-hidden>
             <BrandLogo size={112} />
           </div>
-          <h1>Multi-centre</h1>
+          <h1>Hallmark Centre Login</h1>
           <p className="login-tagline">{PRODUCT_TAGLINE}</p>
-          <p className="login-tenant-note">
-            Each centre is isolated in PostgreSQL with server-side tenant_id enforcement.
-          </p>
           <ul className="login-pillars">
             <li>
               <Scale size={16} /> Hallmarking workflow
@@ -132,7 +108,7 @@ export function Login() {
               <BadgeCheck size={16} /> Billing &amp; reports
             </li>
             <li>
-              <Shield size={16} /> JWT + tenant-bound API
+              <Lock size={16} /> Secure centre access
             </li>
           </ul>
         </div>
@@ -141,181 +117,142 @@ export function Login() {
       <main className="login-form-side">
         <div className="login-form-card">
           <p className="login-eyebrow">{PRODUCT_NAME}</p>
-          <h2>{mode === 'login' ? 'Sign in' : 'Register centre'}</h2>
-          <p className="login-sub">
-            {mode === 'login'
-              ? 'Select your centre, then enter credentials.'
-              : 'Create a new hallmarking centre with its own isolated data.'}
-          </p>
+          <h2>Sign in</h2>
+          <p className="login-sub">Select your Hallmark Centre, then enter your credentials.</p>
 
-          <div className="login-mode-tabs">
-            <button
-              type="button"
-              className={mode === 'login' ? 'active' : ''}
-              onClick={() => {
-                setMode('login')
-                setError('')
-              }}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              className={mode === 'signup' ? 'active' : ''}
-              onClick={() => {
-                setMode('signup')
-                setError('')
-              }}
-            >
-              Register centre
-            </button>
-          </div>
+          {(bootError || error) && (
+            <p className="login-error" role="alert">
+              {bootError || error}
+            </p>
+          )}
 
-          {(bootError || error) && <p className="login-error">{bootError || error}</p>}
+          <form onSubmit={(e) => void submitLogin(e, false)}>
+            <div className="login-field">
+              <label htmlFor="login-centre">Centre</label>
+              <div className="login-input">
+                <Building2 size={16} aria-hidden />
+                <select
+                  id="login-centre"
+                  value={tenantId}
+                  onChange={(e) => setTenantId(e.target.value)}
+                  required
+                  disabled={!tenants.length}
+                >
+                  {!tenants.length && <option value="">No centres available</option>}
+                  {tenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.firmName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedTenant && (
+                <p className="login-tenant-meta">Signing into {selectedTenant.firmName}</p>
+              )}
+            </div>
 
-          {mode === 'login' ? (
-            <>
-              <form onSubmit={(e) => void submitLogin(e, false)}>
-                <div className="login-field">
-                  <label htmlFor="login-centre">Centre</label>
-                  <div className="login-input">
-                    <Building2 size={16} />
-                    <select
-                      id="login-centre"
-                      value={tenantId}
-                      onChange={(e) => setTenantId(e.target.value)}
-                      required
-                      disabled={!tenants.length}
-                    >
-                      {!tenants.length && (
-                        <option value="">No centres yet — register one</option>
-                      )}
-                      {tenants.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.firmName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {selectedTenant && (
-                    <p className="login-tenant-meta">Signing into {selectedTenant.firmName}</p>
-                  )}
-                </div>
+            <div className="login-field">
+              <label htmlFor="login-user">Username</label>
+              <div className="login-input">
+                <User size={16} aria-hidden />
+                <input
+                  id="login-user"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  required
+                  placeholder="Enter username"
+                />
+              </div>
+            </div>
 
-                <div className="login-field">
-                  <label htmlFor="login-user">Username</label>
-                  <div className="login-input">
-                    <User size={16} />
-                    <input
-                      id="login-user"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      autoComplete="username"
-                      required
-                      placeholder="qm_admin"
-                    />
-                  </div>
-                </div>
-
-                <div className="login-field">
-                  <label htmlFor="login-pass">Password</label>
-                  <div className="login-input">
-                    <Lock size={16} />
-                    <input
-                      id="login-pass"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete="current-password"
-                      required
-                      placeholder="••••••••"
-                    />
-                  </div>
-                </div>
-
-                <button type="submit" className="login-btn" disabled={loading || !tenantId}>
-                  {loading ? 'Signing in…' : 'Sign in'}
-                  <ArrowRight size={16} />
+            <div className="login-field">
+              <label htmlFor="login-pass">Password</label>
+              <div className="login-input">
+                <Lock size={16} aria-hidden />
+                <input
+                  id="login-pass"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                  placeholder="Enter password"
+                />
+                <button
+                  type="button"
+                  className="login-visibility"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
-              </form>
+              </div>
+            </div>
 
+            <div className="login-row-actions">
               <button
                 type="button"
-                className="login-admin-link"
-                disabled={loading || !tenantId}
-                onClick={(e) => void submitLogin(e as unknown as React.FormEvent, true)}
+                className="login-forgot"
+                onClick={() => setForgotOpen(true)}
               >
-                Prefer admin access? <strong>Admin sign-in</strong>
+                Forgot Password
               </button>
-            </>
-          ) : (
-            <form onSubmit={(e) => void submitSignup(e)}>
-              <div className="login-field">
-                <label htmlFor="reg-firm">Centre / firm name</label>
-                <div className="login-input">
-                  <Building2 size={16} />
-                  <input
-                    id="reg-firm"
-                    value={firmName}
-                    onChange={(e) => setFirmName(e.target.value)}
-                    required
-                    placeholder="e.g. Shrija Hallmarking Centre B"
-                  />
-                </div>
-              </div>
+            </div>
 
-              <div className="login-field">
-                <label htmlFor="reg-gstin">GSTIN (optional)</label>
-                <div className="login-input">
-                  <input
-                    id="reg-gstin"
-                    value={gstin}
-                    onChange={(e) => setGstin(e.target.value)}
-                    placeholder="22AAAAA0000A1Z5"
-                  />
-                </div>
-              </div>
+            <button
+              type="submit"
+              className="login-btn"
+              disabled={loading || !tenantId}
+              aria-busy={loading}
+            >
+              {loading ? 'Signing in…' : 'Login'}
+              <ArrowRight size={16} aria-hidden />
+            </button>
+          </form>
 
-              <div className="login-field">
-                <label htmlFor="reg-user">Admin username</label>
-                <div className="login-input">
-                  <User size={16} />
-                  <input
-                    id="reg-user"
-                    value={adminUser}
-                    onChange={(e) => setAdminUser(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="login-field">
-                <label htmlFor="reg-pass">Admin password</label>
-                <div className="login-input">
-                  <Lock size={16} />
-                  <input
-                    id="reg-pass"
-                    type="password"
-                    value={adminPass}
-                    onChange={(e) => setAdminPass(e.target.value)}
-                    required
-                    minLength={4}
-                  />
-                </div>
-              </div>
-
-              <button type="submit" className="login-btn" disabled={loading}>
-                {loading ? 'Creating…' : 'Create centre'}
-                <ArrowRight size={16} />
-              </button>
-            </form>
-          )}
+          <button
+            type="button"
+            className="login-admin-link"
+            disabled={loading || !tenantId}
+            onClick={(e) => void submitLogin(e as unknown as React.FormEvent, true)}
+          >
+            Centre admin? <strong>Admin sign-in</strong>
+          </button>
 
           <p className="login-hint">
             {PRODUCT_NAME} · v{PRODUCT_VERSION}
+            <span className="login-hint-sep"> · </span>
+            <Link to="/operator" className="login-operator-link">
+              Platform operator
+            </Link>
           </p>
         </div>
       </main>
+
+      {forgotOpen && (
+        <div
+          className="party-edit-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="forgot-title"
+        >
+          <div className="panel party-edit-modal login-forgot-modal">
+            <h2 id="forgot-title">Forgot Password</h2>
+            <p className="auto-manak-hint">
+              Password reset by email is not available in this system. Contact your centre
+              administrator or Shrija support to restore access. For security, we cannot confirm
+              whether a username exists.
+            </p>
+            <div className="auto-manak-actions">
+              <button type="button" className="btn btn-navy" onClick={() => setForgotOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

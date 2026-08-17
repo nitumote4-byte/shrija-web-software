@@ -13,6 +13,7 @@ import {
   User,
 } from 'lucide-react'
 import { useToast } from '../components/ui'
+import { ChangePasswordForm } from '../components/ChangePasswordForm'
 import { loadAccessUsers, saveAccessUsers } from '../data/auth'
 import { getCentres } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
@@ -254,6 +255,8 @@ export function ManagePassword() {
           <p>Manage credentials and application users.</p>
         </div>
       </div>
+
+      <ChangePasswordForm toast={toast} />
 
       {/* Active Users */}
       <div className="panel access-card">

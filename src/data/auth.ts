@@ -32,6 +32,13 @@ export function setSession(session: AuthSession) {
   if (token) setAuth(token, session)
 }
 
+export async function changeOwnPassword(currentPassword: string, newPassword: string) {
+  return api<{ ok: true; message: string }>('/api/auth/change-password', {
+    method: 'POST',
+    json: { currentPassword, newPassword },
+  })
+}
+
 export async function login(
   username: string,
   password: string,

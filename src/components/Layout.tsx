@@ -1,5 +1,5 @@
 import { Link, Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Building2, ChevronDown, LogOut, Menu, Search, Settings, X } from 'lucide-react'
+import { Bell, Building2, ChevronDown, KeyRound, LogOut, Menu, Search, Settings, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { CENTRE_NAME, PRODUCT_NAME, USER_NAME, USER_ROLE, allModules, modules } from '../data/modules'
@@ -191,6 +191,16 @@ export function Layout() {
                   }}
                 >
                   <Settings size={16} /> Licence
+                </button>
+                <button
+                  type="button"
+                  className="user-dropdown-item"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    navigate('/account-settings')
+                  }}
+                >
+                  <KeyRound size={16} /> Change Password
                 </button>
                 <button
                   type="button"
