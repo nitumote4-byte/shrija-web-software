@@ -39,6 +39,20 @@ export async function changeOwnPassword(currentPassword: string, newPassword: st
   })
 }
 
+export async function requestPasswordReset(tenantId: string, username: string) {
+  return api<{ message: string }>('/api/auth/forgot-password', {
+    method: 'POST',
+    json: { tenantId, username },
+  })
+}
+
+export async function confirmPasswordReset(token: string, tenantId: string, password: string) {
+  return api<{ ok: true; message: string }>('/api/auth/reset-password', {
+    method: 'POST',
+    json: { token, tenantId, password },
+  })
+}
+
 export async function login(
   username: string,
   password: string,

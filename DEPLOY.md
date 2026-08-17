@@ -25,8 +25,16 @@ SQLite is no longer used. Schema is created automatically on API boot (`initDb`)
 |----------|--------|
 | `DATABASE_URL` | From Postgres (Reference Variable) |
 | `JWT_SECRET` | Long random string (e.g. `openssl rand -hex 32`) |
-| `CORS_ORIGIN` | Your Vercel URL, e.g. `https://shrija.vercel.app` (comma-separate if multiple) |
+| `CORS_ORIGIN` | `https://shrija-web-software.vercel.app` (comma-separate if multiple) |
+| `FRONTEND_URL` | `https://shrija-web-software.vercel.app` (password-reset links) |
+| `MAIL_HOST` | `smtp.resend.com` |
+| `MAIL_PORT` | `587` |
+| `MAIL_USER` | `resend` |
+| `MAIL_PASSWORD` | Resend API key (`re_...`) — Railway Variables only, never commit |
+| `MAIL_FROM` | A **verified** Resend sender, e.g. `Shrija Hallmark Suite <noreply@yourdomain.com>` |
 | `NODE_ENV` | `production` |
+
+Forgot Password uses **Resend SMTP**. `MAIL_FROM` must be a domain/address verified in the Resend dashboard. Emails go to the centre **Company Profile** email. If that address is empty, the API still returns the generic success message and does not send mail. Schema for reset tokens is created automatically on API boot.
 
 5. Deploy → open the public URL → `/api/health` should return `{ ok: true, db: "postgres" }`.
 6. Optional seed (Railway shell / one-off):

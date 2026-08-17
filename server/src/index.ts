@@ -132,6 +132,11 @@ async function main() {
       'WARNING: LICENSE_MASTER_SECRET is not set. Master-admin licence/centre APIs fall back to JWT_SECRET. Set a separate LICENSE_MASTER_SECRET in production.',
     )
   }
+  if (!process.env.MAIL_HOST || !process.env.MAIL_FROM) {
+    console.warn(
+      'WARNING: MAIL_HOST / MAIL_FROM are not set. Forgot-password email reset is disabled until SMTP is configured.',
+    )
+  }
 
   // Listen first so Railway healthcheck passes while DB connects
   app.listen(PORT, () => {

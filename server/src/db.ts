@@ -223,6 +223,20 @@ export async function initDb(retries = 8, delayMs = 2000) {
       await p.query(
         `CREATE INDEX IF NOT EXISTS idx_license_keys_unused ON license_keys(used_by_tenant_id) WHERE used_by_tenant_id IS NULL`,
       )
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+          id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TIMESTAMPTZ NOT NULL,
+          used_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await p.query(
+        `CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(tenant_id, user_id)`,
+      )
 
       dbReady = true
       lastDbError = null

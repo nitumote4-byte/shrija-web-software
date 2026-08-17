@@ -1019,6 +1019,16 @@ button {
   margin-bottom: 0.85rem;
 }
 
+.login-success {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
 .login-btn {
   width: 100%;
   margin-top: 0.35rem;
@@ -1094,40 +1104,21 @@ button {
   text-decoration: underline;
 }
 
-.login-operator-link {
-  color: #94a3b8;
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.login-operator-link:hover,
-.login-operator-link:focus-visible {
-  color: var(--navy);
-  text-decoration: underline;
-}
-
-.login-hint-sep {
-  opacity: 0.7;
-}
-
 .login-forgot-modal {
   max-width: 26rem;
 }
 
-.login-admin-link {
-  display: block;
-  width: 100%;
-  margin-top: 1.1rem;
-  border: none;
-  background: none;
-  color: #475569;
-  font-size: 0.9rem;
-  cursor: pointer;
-  text-align: center;
+.login-forgot-form {
+  margin-top: 0.75rem;
 }
 
-.login-admin-link strong {
-  color: var(--navy);
+.login-forgot-form .login-field {
+  margin-bottom: 0.85rem;
+}
+
+.login-forgot-secure {
+  margin: 0.35rem 0 0.85rem;
+  font-size: 0.8rem;
 }
 
 .login-hint {

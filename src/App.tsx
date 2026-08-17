@@ -6,6 +6,9 @@ import { PwaInstallBanner } from './components/PwaInstallBanner'
 import { Login } from './pages/Login'
 
 /** Eager login only — all modules load on demand for faster first paint. */
+const ResetPassword = lazy(() =>
+  import('./pages/ResetPassword').then((m) => ({ default: m.ResetPassword })),
+)
 const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })))
 const AnalyticsDashboard = lazy(() =>
   import('./pages/AnalyticsDashboard').then((m) => ({ default: m.AnalyticsDashboard })),
@@ -169,6 +172,7 @@ export default function App() {
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/operator" element={<PlatformOperator />} />
 
           <Route element={<ProtectedRoute />}>

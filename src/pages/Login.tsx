@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
   BadgeCheck,
@@ -11,12 +11,14 @@ import {
   Scale,
   User,
 } from 'lucide-react'
-import { isAuthenticated, login } from '../data/auth'
+import { isAuthenticated, login, requestPasswordReset } from '../data/auth'
 import { BrandLogo } from '../components/BrandLogo'
 import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_VERSION } from '../data/modules'
 import { listTenants, type Tenant } from '../data/tenant'
 
 export function Login() {
+  const [params] = useSearchParams()
+  const resetSuccess = params.get('reset') === 'success'
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [tenantId, setTenantId] = useState('')
   const [username, setUsername] = useState('')
@@ -26,6 +28,11 @@ export function Login() {
   const [loading, setLoading] = useState(false)
   const [bootError, setBootError] = useState('')
   const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotTenantId, setForgotTenantId] = useState('')
+  const [forgotUsername, setForgotUsername] = useState('')
+  const [forgotBusy, setForgotBusy] = useState(false)
+  const [forgotError, setForgotError] = useState('')
+  const [forgotDone, setForgotDone] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -65,16 +72,52 @@ export function Login() {
     () => tenants.find((t) => t.id === tenantId),
     [tenants, tenantId],
   )
+  const forgotTenant = useMemo(
+    () => tenants.find((t) => t.id === forgotTenantId),
+    [tenants, forgotTenantId],
+  )
+
+  const openForgot = () => {
+    setForgotTenantId(tenantId)
+    setForgotUsername(username)
+    setForgotError('')
+    setForgotDone(false)
+    setForgotOpen(true)
+  }
+
+  const submitForgot = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setForgotError('')
+    setForgotDone(false)
+    if (!forgotTenantId || !forgotUsername.trim()) {
+      setForgotError('Centre and username are required')
+      return
+    }
+    setForgotBusy(true)
+    try {
+      await requestPasswordReset(forgotTenantId, forgotUsername.trim())
+      setForgotDone(true)
+      setForgotError('')
+    } catch (err) {
+      setForgotError(
+        err instanceof Error
+          ? err.message
+          : 'Password reset by email is not available. Contact your centre administrator.',
+      )
+    } finally {
+      setForgotBusy(false)
+    }
+  }
 
   if (isAuthenticated()) {
     return <Navigate to="/" replace />
   }
 
-  const submitLogin = async (e: React.FormEvent, asAdmin = false) => {
+  const submitLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const result = await login(username, password, tenantId, asAdmin)
+    const result = await login(username, password, tenantId)
     setLoading(false)
     if (!result.ok) {
       setError(result.error)
@@ -125,8 +168,13 @@ export function Login() {
               {bootError || error}
             </p>
           )}
+          {resetSuccess && !bootError && !error && (
+            <p className="login-success" role="status">
+              Password has been reset. You can now sign in with your new password.
+            </p>
+          )}
 
-          <form onSubmit={(e) => void submitLogin(e, false)}>
+          <form onSubmit={(e) => void submitLogin(e)}>
             <div className="login-field">
               <label htmlFor="login-centre">Centre</label>
               <div className="login-input">
@@ -195,7 +243,7 @@ export function Login() {
               <button
                 type="button"
                 className="login-forgot"
-                onClick={() => setForgotOpen(true)}
+                onClick={openForgot}
               >
                 Forgot Password
               </button>
@@ -212,21 +260,8 @@ export function Login() {
             </button>
           </form>
 
-          <button
-            type="button"
-            className="login-admin-link"
-            disabled={loading || !tenantId}
-            onClick={(e) => void submitLogin(e as unknown as React.FormEvent, true)}
-          >
-            Centre admin? <strong>Admin sign-in</strong>
-          </button>
-
           <p className="login-hint">
             {PRODUCT_NAME} · v{PRODUCT_VERSION}
-            <span className="login-hint-sep"> · </span>
-            <Link to="/operator" className="login-operator-link">
-              Platform operator
-            </Link>
           </p>
         </div>
       </main>
@@ -240,16 +275,91 @@ export function Login() {
         >
           <div className="panel party-edit-modal login-forgot-modal">
             <h2 id="forgot-title">Forgot Password</h2>
-            <p className="auto-manak-hint">
-              Password reset by email is not available in this system. Contact your centre
-              administrator or Shrija support to restore access. For security, we cannot confirm
-              whether a username exists.
-            </p>
-            <div className="auto-manak-actions">
-              <button type="button" className="btn btn-navy" onClick={() => setForgotOpen(false)}>
-                Close
-              </button>
-            </div>
+            {forgotDone ? (
+              <p className="auto-manak-hint" role="status">
+                If the account exists, password reset instructions have been sent.
+              </p>
+            ) : (
+              <>
+                <p className="auto-manak-hint">
+                  Enter your centre and username. If the account exists, password reset
+                  instructions will be sent to the email on file for that centre.
+                </p>
+                {forgotError && (
+                  <p className="login-error" role="alert">
+                    {forgotError}
+                  </p>
+                )}
+                <form className="login-forgot-form" onSubmit={(e) => void submitForgot(e)}>
+                  <div className="login-field">
+                    <label htmlFor="forgot-centre">Centre</label>
+                    <div className="login-input">
+                      <Building2 size={16} aria-hidden />
+                      <select
+                        id="forgot-centre"
+                        value={forgotTenantId}
+                        onChange={(e) => setForgotTenantId(e.target.value)}
+                        required
+                        disabled={!tenants.length || forgotBusy}
+                      >
+                        {!tenants.length && <option value="">No centres available</option>}
+                        {tenants.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.firmName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {forgotTenant && (
+                      <p className="login-tenant-meta">Reset for {forgotTenant.firmName}</p>
+                    )}
+                  </div>
+                  <div className="login-field">
+                    <label htmlFor="forgot-user">Username</label>
+                    <div className="login-input">
+                      <User size={16} aria-hidden />
+                      <input
+                        id="forgot-user"
+                        value={forgotUsername}
+                        onChange={(e) => setForgotUsername(e.target.value)}
+                        autoComplete="username"
+                        required
+                        placeholder="Enter username"
+                        disabled={forgotBusy}
+                      />
+                    </div>
+                  </div>
+                  <p className="auto-manak-hint login-forgot-secure">
+                    For security, we cannot confirm whether a username exists.
+                  </p>
+                  <div className="auto-manak-actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setForgotOpen(false)}
+                      disabled={forgotBusy}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn-navy"
+                      disabled={forgotBusy || !forgotTenantId}
+                      aria-busy={forgotBusy}
+                    >
+                      {forgotBusy ? 'Please wait…' : 'Send Reset Link'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+            {forgotDone && (
+              <div className="auto-manak-actions">
+                <button type="button" className="btn btn-navy" onClick={() => setForgotOpen(false)}>
+                  Close
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

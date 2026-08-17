@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
+import crypto from 'node:crypto'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import {
@@ -12,6 +13,7 @@ import {
 } from '../db.js'
 import { requireAuth, signToken, type AuthUser } from '../middleware/auth.js'
 import { assertMaster, evaluateLicense, getTenantLicense, trialExpiryIso } from '../license.js'
+import { isMailConfigured, resetBaseUrl, sendPasswordResetEmail, PASSWORD_RESET_TTL_MINUTES } from '../mail.js'
 
 export const authRouter = Router()
 
@@ -23,6 +25,30 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many attempts. Please try again in 15 minutes.' },
 })
+
+const forgotLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please try again in 15 minutes.' },
+})
+
+const GENERIC_FORGOT_MESSAGE =
+  'If the account exists, password reset instructions have been sent.'
+const GENERIC_RESET_ERROR = 'Invalid or expired password reset link.'
+
+function hashResetToken(token: string) {
+  return crypto.createHash('sha256').update(token).digest('hex')
+}
+
+function newResetToken() {
+  return crypto.randomBytes(32).toString('base64url')
+}
+
+function isUsableEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
 
 function slugify(name: string) {
   return (
@@ -333,6 +359,183 @@ authRouter.post('/change-password', authLimiter, requireAuth, async (req, res) =
   ])
 
   res.json({ ok: true, message: 'Password updated' })
+})
+
+const forgotPasswordSchema = z.object({
+  tenantId: z.string().min(1),
+  username: z.string().trim().min(1),
+})
+
+/** Unauthenticated recovery — always the same success body (no account enumeration). */
+authRouter.post('/forgot-password', forgotLimiter, async (req, res) => {
+  const parsed = forgotPasswordSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Centre and username are required' })
+    return
+  }
+
+  if (!isMailConfigured()) {
+    console.error(
+      'Password reset requested but email is not configured. Set MAIL_HOST, MAIL_FROM, and FRONTEND_URL (or CORS_ORIGIN).',
+    )
+    res.status(503).json({
+      error: 'Password reset by email is not available. Contact your centre administrator.',
+    })
+    return
+  }
+
+  const { tenantId, username } = parsed.data
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT u.id AS "userId", u.username, t.id AS "tenantId", t.firm_name AS "firmName",
+              t.status, COALESCE(fp.email, '') AS email
+       FROM users u
+       INNER JOIN tenants t ON t.id = u.tenant_id
+       LEFT JOIN firm_profiles fp ON fp.tenant_id = t.id
+       WHERE u.tenant_id = $1 AND lower(u.username) = lower($2)`,
+      [tenantId, username],
+    )
+    const row = rows[0] as
+      | {
+          userId: string
+          username: string
+          tenantId: string
+          firmName: string
+          status: string
+          email: string
+        }
+      | undefined
+
+    const email = String(row?.email || '').trim()
+    const canSend = Boolean(
+      row && row.status === 'active' && row.tenantId === tenantId && isUsableEmail(email),
+    )
+
+    if (row && canSend) {
+      const token = newResetToken()
+      const tokenHash = hashResetToken(token)
+      const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000)
+
+      await withTransaction(async (client) => {
+        await client.query(
+          `UPDATE password_reset_tokens
+           SET used_at = NOW()
+           WHERE tenant_id = $1 AND user_id = $2 AND used_at IS NULL`,
+          [row.tenantId, row.userId],
+        )
+        await client.query(
+          `INSERT INTO password_reset_tokens (id, tenant_id, user_id, token_hash, expires_at, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [uid('prt'), row.tenantId, row.userId, tokenHash, expiresAt.toISOString()],
+        )
+      })
+
+      const resetUrl = `${resetBaseUrl()}/reset-password?token=${encodeURIComponent(token)}&tenant=${encodeURIComponent(row.tenantId)}`
+      try {
+        await sendPasswordResetEmail({
+          to: email,
+          resetUrl,
+          username: row.username,
+          centreName: row.firmName,
+        })
+      } catch {
+        console.error('Password reset email failed')
+      }
+    }
+  } catch {
+    console.error('Password reset request failed')
+  }
+
+  res.json({ message: GENERIC_FORGOT_MESSAGE })
+})
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(16).max(400),
+  tenantId: z.string().min(1),
+  password: z.string().min(4).max(200),
+})
+
+authRouter.post('/reset-password', authLimiter, async (req, res) => {
+  const parsed = resetPasswordSchema.safeParse(req.body)
+  if (!parsed.success) {
+    const onlyPassword = parsed.error.issues.every((issue) => issue.path[0] === 'password')
+    if (onlyPassword) {
+      res.status(400).json({ error: 'A new password (min 4 characters) is required' })
+      return
+    }
+    res.status(400).json({ error: GENERIC_RESET_ERROR })
+    return
+  }
+
+  const { token, tenantId, password } = parsed.data
+  const tokenHash = hashResetToken(token)
+
+  try {
+    await withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT id, tenant_id AS "tenantId", user_id AS "userId",
+                expires_at AS "expiresAt", used_at AS "usedAt"
+         FROM password_reset_tokens
+         WHERE token_hash = $1
+         FOR UPDATE`,
+        [tokenHash],
+      )
+      const tok = rows[0] as
+        | {
+            id: string
+            tenantId: string
+            userId: string
+            expiresAt: Date | string
+            usedAt: Date | string | null
+          }
+        | undefined
+
+      if (
+        !tok ||
+        tok.tenantId !== tenantId ||
+        tok.usedAt ||
+        new Date(tok.expiresAt).getTime() <= Date.now()
+      ) {
+        throw Object.assign(new Error('INVALID_RESET'), { status: 400 })
+      }
+
+      const tenantRes = await client.query(`SELECT status FROM tenants WHERE id = $1`, [tok.tenantId])
+      const tenant = tenantRes.rows[0] as { status: string } | undefined
+      if (!tenant || tenant.status !== 'active') {
+        throw Object.assign(new Error('INVALID_RESET'), { status: 400 })
+      }
+
+      const userRes = await client.query(
+        `SELECT id FROM users WHERE id = $1 AND tenant_id = $2`,
+        [tok.userId, tok.tenantId],
+      )
+      if (!userRes.rows[0]) {
+        throw Object.assign(new Error('INVALID_RESET'), { status: 400 })
+      }
+
+      const passwordHash = bcrypt.hashSync(password, 10)
+      await client.query(`UPDATE users SET password_hash = $1 WHERE id = $2 AND tenant_id = $3`, [
+        passwordHash,
+        tok.userId,
+        tok.tenantId,
+      ])
+      await client.query(
+        `UPDATE password_reset_tokens
+         SET used_at = NOW()
+         WHERE tenant_id = $1 AND user_id = $2 AND used_at IS NULL`,
+        [tok.tenantId, tok.userId],
+      )
+    })
+  } catch (e) {
+    if ((e as { message?: string })?.message !== 'INVALID_RESET') {
+      console.error('Password reset failed')
+    }
+    res.status(400).json({ error: GENERIC_RESET_ERROR })
+    return
+  }
+
+  res.json({ ok: true, message: 'Password has been reset. You can now sign in.' })
 })
 
 authRouter.get('/me', requireAuth, async (req, res) => {
