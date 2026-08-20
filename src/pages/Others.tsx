@@ -128,7 +128,7 @@ const links: OtherLink[] = [
   },
   {
     title: 'Invoice Settings',
-    description: 'Configure invoice numbering & signatures.',
+    description: 'Letterhead, numbering & signatures.',
     path: '/others/invoice-settings',
     icon: Receipt,
     color: '#1d4ed8',

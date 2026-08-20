@@ -10,6 +10,7 @@ import {
 } from '../middleware/auth.js'
 import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
 import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeOscStoreWrite } from '../tenantIsolation.js'
+import { letterheadRouter } from './letterhead.js'
 
 export const dataRouter = Router()
 
@@ -17,6 +18,7 @@ dataRouter.use(requireAuth)
 dataRouter.use(requireActiveTenant)
 dataRouter.use(enforceTenantBody)
 dataRouter.use(requireValidLicense)
+dataRouter.use(letterheadRouter)
 
 function asJson(value: unknown): unknown {
   if (value == null) return null

@@ -188,6 +188,24 @@ export async function initDb(retries = 8, delayMs = 2000) {
       await p.query(`CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)`)
       await p.query(`CREATE INDEX IF NOT EXISTS idx_kv_tenant ON kv_docs(tenant_id)`)
       await p.query(`
+        CREATE TABLE IF NOT EXISTS centre_letterheads (
+          id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          centre_id TEXT NOT NULL,
+          file_name TEXT NOT NULL DEFAULT '',
+          mime_type TEXT NOT NULL,
+          width INTEGER NOT NULL DEFAULT 0,
+          height INTEGER NOT NULL DEFAULT 0,
+          data_url TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (tenant_id, centre_id)
+        )
+      `)
+      await p.query(
+        `CREATE INDEX IF NOT EXISTS idx_letterhead_tenant_centre ON centre_letterheads(tenant_id, centre_id)`,
+      )
+      await p.query(`
         CREATE TABLE IF NOT EXISTS job_docs (
           tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           request_no TEXT NOT NULL,

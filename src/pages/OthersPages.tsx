@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
+import { LetterheadSettings } from '../components/LetterheadSettings'
 import { useToast } from '../components/ui'
 import { store } from '../data/store'
 import { CENTRE_NAME } from '../data/modules'
@@ -2088,9 +2089,11 @@ export function InvoiceSettings() {
           <span className="invset-head-icon">📄</span>
           <div>
             <h1>Invoice Settings</h1>
-            <p>Configure your invoice numbering and branding details</p>
+            <p>Configure letterhead, invoice numbering, and branding details</p>
           </div>
         </div>
+
+        <LetterheadSettings toast={toast} />
 
         <div className="invset-section">
           <h2>General Settings</h2>

@@ -1,5 +1,6 @@
 import { FileText } from 'lucide-react'
 import { formatInvoiceDateTime } from './InvoiceChallan'
+import { InvoiceLetterhead } from './InvoiceLetterhead'
 import { InvoicePaperSizeToggle } from './InvoicePaperSizeToggle'
 import { getInvoiceHeader } from '../data/firmProfile'
 import type { MonthlyInvoice, MonthlyInvoiceLine } from '../data/store'
@@ -62,10 +63,6 @@ export function MonthlyInvoiceSheet({
 }: SheetProps) {
   const header = getInvoiceHeader()
   const centreName = header.centreName
-  const centreAddr =
-    header.centreKind === 'osc'
-      ? `${header.centreAddress}${header.firmName ? ` (Outlet of ${header.firmName})` : ''}`
-      : header.centreAddress
   const minRows = paperSize === 'A5' ? 8 : 12
   const filler = Math.max(0, minRows - Math.max(view?.lines.length || 0, 0))
 
@@ -76,11 +73,7 @@ export function MonthlyInvoiceSheet({
       data-paper={paperSize}
     >
       <div className="invoice-sheet-topblock">
-        <div className="invoice-centre-head">
-          <strong>{centreName}</strong>
-          <div className="invoice-centre-addr">{centreAddr || '\u00A0'}</div>
-          <div className="invoice-gstin">CENTRE GSTIN: {header.centreGstin}</div>
-        </div>
+        <InvoiceLetterhead />
         <div className="invoice-title-bar">
           <h2>MONTHLY CONSOLIDATED INVOICE</h2>
         </div>

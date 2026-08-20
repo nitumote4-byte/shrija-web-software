@@ -1,3 +1,4 @@
+import { InvoiceLetterhead } from './InvoiceLetterhead'
 import { getFirmProfile, getInvoiceHeader } from '../data/firmProfile'
 import type { Invoice, InvoiceLine } from '../data/store'
 import { tenantGet } from '../data/tenant'
@@ -269,12 +270,7 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
   const firm = getFirmProfile()
   const header = getInvoiceHeader()
   const cols = settings.columns
-  const centreGst = header.centreGstin
   const centreName = header.centreName
-  const centreAddr =
-    header.centreKind === 'osc'
-      ? `${header.centreAddress}${header.firmName ? ` (Outlet of ${header.firmName})` : ''}`
-      : header.centreAddress
   const dateShown = formatInvoiceDateTime(view?.invoiceDateTime || view?.date)
 
   const totPcs = view?.lines.reduce((s, l) => s + l.pcsRec, 0) ?? 0
@@ -290,11 +286,7 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
       data-paper={paperSize}
     >
       <div className="invoice-sheet-topblock">
-        <div className="invoice-centre-head">
-          <strong>{centreName}</strong>
-          <div className="invoice-centre-addr">{centreAddr || '\u00A0'}</div>
-          <div className="invoice-gstin">CENTRE GSTIN: {centreGst}</div>
-        </div>
+        <InvoiceLetterhead />
 
         <div className="invoice-title-bar">
           <h2>INVOICE CUM DELIVERY CHALLAN</h2>

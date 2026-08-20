@@ -3478,6 +3478,42 @@ button {
   box-sizing: border-box;
 }
 
+.invoice-letterhead {
+  width: 100%;
+  margin: 0 0 0.4rem;
+  text-align: center;
+}
+
+.invoice-letterhead img {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  max-height: 34mm;
+  object-fit: contain;
+  object-position: center top;
+}
+
+.invoice-sheet.paper-a5 .invoice-letterhead img {
+  max-height: 22mm;
+}
+
+.invoice-letterhead-fallback {
+  padding: 0.15rem 0 0.3rem;
+}
+
+.invoice-letterhead-fallback strong {
+  font-size: 0.92rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.invoice-sheet.paper-a5 .invoice-letterhead-fallback strong {
+  font-size: 0.78rem;
+}
+
 .invoice-centre-head {
   text-align: center;
   margin-bottom: 0.55rem;
@@ -3840,6 +3876,16 @@ button {
     min-height: 200mm !important;
     font-size: 0.68rem !important;
     padding: 0 !important;
+  }
+
+  .invoice-letterhead img {
+    max-height: 32mm !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .invoice-sheet.paper-a5 .invoice-letterhead img {
+    max-height: 20mm !important;
   }
 
   .invoice-sheet.paper-a5 .invoice-items th,
@@ -4354,6 +4400,38 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
+}
+
+.invset-letterhead > label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  color: #334155;
+}
+
+.invset-letterhead-preview {
+  margin: 0.35rem 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.45rem;
+}
+
+.invset-letterhead-preview img {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  height: auto;
+  object-fit: contain;
+  object-position: center top;
+}
+
+.invset-letterhead-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .invset-cols {

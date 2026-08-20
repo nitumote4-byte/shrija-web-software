@@ -3,6 +3,7 @@
  * Pages keep sync read/write; mutations flush to the server with JWT tenant_id.
  */
 import { api, getToken } from '../api/client'
+import { fetchLetterhead, resetLetterheadCache } from './letterhead'
 
 type StoreShape = Record<string, unknown>
 
@@ -28,6 +29,7 @@ export function resetTenantCache() {
   storeCache = null
   kvCache.clear()
   firmCache = null
+  resetLetterheadCache()
   hydrated = false
   hydratePromise = null
   storeVersion += 1
@@ -49,6 +51,7 @@ export async function hydrateTenantData() {
       api<{ data: StoreShape }>('/api/data/store'),
       api<{ docs: Record<string, unknown> }>('/api/data/kv'),
       api<{ profile: Record<string, unknown> }>('/api/data/firm-profile'),
+      fetchLetterhead(true).catch(() => null),
     ])
     storeCache = storeRes.data
     storeVersion += 1
