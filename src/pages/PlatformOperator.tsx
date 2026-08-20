@@ -135,7 +135,8 @@ export function PlatformOperator() {
           Register Centre
         </h2>
         <p className="auto-manak-hint">
-          Creates a new isolated Hallmark Centre. Existing centres are not modified.
+          Creates a new isolated Hallmark Centre. Admin username must be unique across all centres
+          — users sign in with username and password only (no centre picker).
         </p>
         <form className="form-grid" onSubmit={(e) => void registerCentre(e)}>
           <div className="field">
@@ -158,7 +159,7 @@ export function PlatformOperator() {
             />
           </div>
           <div className="field">
-            <label htmlFor="op-user">Admin username</label>
+            <label htmlFor="op-user">Admin username (unique across centres)</label>
             <input
               id="op-user"
               value={adminUser}

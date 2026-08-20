@@ -52,9 +52,23 @@ export function scopeKey(key: string): string {
 
 export { tenantGet, tenantSet, tenantRemove }
 
+/**
+ * Never fetches a global centre list. Normal users only ever see their own session centre.
+ */
 export async function listTenants(): Promise<Tenant[]> {
-  const result = await api<{ tenants: Tenant[] }>('/api/auth/tenants')
-  return Array.isArray(result?.tenants) ? result.tenants : []
+  const session = getSession()
+  if (!session) return []
+  return [
+    {
+      id: session.tenantId,
+      slug: '',
+      firmName: session.tenantName,
+      gstin: '',
+      plan: 'trial',
+      status: 'active',
+      createdAt: session.loggedInAt,
+    },
+  ]
 }
 
 export type CreateTenantInput = {

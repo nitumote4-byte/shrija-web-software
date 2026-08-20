@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
   BadgeCheck,
-  Building2,
   Eye,
   EyeOff,
   FlaskConical,
@@ -14,50 +13,20 @@ import {
 import { isAuthenticated, login, requestPasswordReset } from '../data/auth'
 import { BrandLogo } from '../components/BrandLogo'
 import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_VERSION } from '../data/modules'
-import { listTenants, type Tenant } from '../data/tenant'
 
 export function Login() {
   const [params] = useSearchParams()
   const resetSuccess = params.get('reset') === 'success'
-  const [tenants, setTenants] = useState<Tenant[]>([])
-  const [tenantId, setTenantId] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [bootError, setBootError] = useState('')
   const [forgotOpen, setForgotOpen] = useState(false)
-  const [forgotTenantId, setForgotTenantId] = useState('')
   const [forgotUsername, setForgotUsername] = useState('')
   const [forgotBusy, setForgotBusy] = useState(false)
   const [forgotError, setForgotError] = useState('')
   const [forgotDone, setForgotDone] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const list = await listTenants()
-        if (cancelled) return
-        const safe = Array.isArray(list) ? list : []
-        setTenants(safe)
-        if (safe[0]) setTenantId(safe[0].id)
-      } catch (e) {
-        if (!cancelled) {
-          setTenants([])
-          setBootError(
-            e instanceof Error
-              ? e.message
-              : 'Cannot reach API — check Railway is online and Vercel /api proxy',
-          )
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     if (!forgotOpen) return
@@ -68,17 +37,7 @@ export function Login() {
     return () => window.removeEventListener('keydown', onKey)
   }, [forgotOpen])
 
-  const selectedTenant = useMemo(
-    () => tenants.find((t) => t.id === tenantId),
-    [tenants, tenantId],
-  )
-  const forgotTenant = useMemo(
-    () => tenants.find((t) => t.id === forgotTenantId),
-    [tenants, forgotTenantId],
-  )
-
   const openForgot = () => {
-    setForgotTenantId(tenantId)
     setForgotUsername(username)
     setForgotError('')
     setForgotDone(false)
@@ -89,13 +48,13 @@ export function Login() {
     e.preventDefault()
     setForgotError('')
     setForgotDone(false)
-    if (!forgotTenantId || !forgotUsername.trim()) {
-      setForgotError('Centre and username are required')
+    if (!forgotUsername.trim()) {
+      setForgotError('Username is required')
       return
     }
     setForgotBusy(true)
     try {
-      await requestPasswordReset(forgotTenantId, forgotUsername.trim())
+      await requestPasswordReset(forgotUsername.trim())
       setForgotDone(true)
       setForgotError('')
     } catch (err) {
@@ -117,7 +76,7 @@ export function Login() {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const result = await login(username, password, tenantId)
+    const result = await login(username, password)
     setLoading(false)
     if (!result.ok) {
       setError(result.error)
@@ -161,44 +120,20 @@ export function Login() {
         <div className="login-form-card">
           <p className="login-eyebrow">{PRODUCT_NAME}</p>
           <h2>Sign in</h2>
-          <p className="login-sub">Select your Hallmark Centre, then enter your credentials.</p>
+          <p className="login-sub">Enter your username and password.</p>
 
-          {(bootError || error) && (
+          {error && (
             <p className="login-error" role="alert">
-              {bootError || error}
+              {error}
             </p>
           )}
-          {resetSuccess && !bootError && !error && (
+          {resetSuccess && !error && (
             <p className="login-success" role="status">
               Password has been reset. You can now sign in with your new password.
             </p>
           )}
 
           <form onSubmit={(e) => void submitLogin(e)}>
-            <div className="login-field">
-              <label htmlFor="login-centre">Centre</label>
-              <div className="login-input">
-                <Building2 size={16} aria-hidden />
-                <select
-                  id="login-centre"
-                  value={tenantId}
-                  onChange={(e) => setTenantId(e.target.value)}
-                  required
-                  disabled={!tenants.length}
-                >
-                  {!tenants.length && <option value="">No centres available</option>}
-                  {tenants.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.firmName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {selectedTenant && (
-                <p className="login-tenant-meta">Signing into {selectedTenant.firmName}</p>
-              )}
-            </div>
-
             <div className="login-field">
               <label htmlFor="login-user">Username</label>
               <div className="login-input">
@@ -240,21 +175,12 @@ export function Login() {
             </div>
 
             <div className="login-row-actions">
-              <button
-                type="button"
-                className="login-forgot"
-                onClick={openForgot}
-              >
+              <button type="button" className="login-forgot" onClick={openForgot}>
                 Forgot Password
               </button>
             </div>
 
-            <button
-              type="submit"
-              className="login-btn"
-              disabled={loading || !tenantId}
-              aria-busy={loading}
-            >
+            <button type="submit" className="login-btn" disabled={loading} aria-busy={loading}>
               {loading ? 'Signing in…' : 'Login'}
               <ArrowRight size={16} aria-hidden />
             </button>
@@ -282,8 +208,8 @@ export function Login() {
             ) : (
               <>
                 <p className="auto-manak-hint">
-                  Enter your centre and username. If the account exists, password reset
-                  instructions will be sent to the email on file for that centre.
+                  Enter your username. If the account exists, password reset instructions will be
+                  sent to the email on file for your centre.
                 </p>
                 {forgotError && (
                   <p className="login-error" role="alert">
@@ -291,29 +217,6 @@ export function Login() {
                   </p>
                 )}
                 <form className="login-forgot-form" onSubmit={(e) => void submitForgot(e)}>
-                  <div className="login-field">
-                    <label htmlFor="forgot-centre">Centre</label>
-                    <div className="login-input">
-                      <Building2 size={16} aria-hidden />
-                      <select
-                        id="forgot-centre"
-                        value={forgotTenantId}
-                        onChange={(e) => setForgotTenantId(e.target.value)}
-                        required
-                        disabled={!tenants.length || forgotBusy}
-                      >
-                        {!tenants.length && <option value="">No centres available</option>}
-                        {tenants.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.firmName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {forgotTenant && (
-                      <p className="login-tenant-meta">Reset for {forgotTenant.firmName}</p>
-                    )}
-                  </div>
                   <div className="login-field">
                     <label htmlFor="forgot-user">Username</label>
                     <div className="login-input">
@@ -344,7 +247,7 @@ export function Login() {
                     <button
                       type="submit"
                       className="btn btn-navy"
-                      disabled={forgotBusy || !forgotTenantId}
+                      disabled={forgotBusy}
                       aria-busy={forgotBusy}
                     >
                       {forgotBusy ? 'Please wait…' : 'Send Reset Link'}

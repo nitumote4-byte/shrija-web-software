@@ -54,6 +54,6 @@ await withTransaction(async (client) => {
 })
 
 console.log('Seeded Centre A')
-console.log('  Login: select centre → qm_admin / admin123')
-console.log(`  tenantId: ${tenantId}`)
+console.log('  Login: qm_admin / admin123  (no centre selection)')
+console.log(`  tenantId (server-assigned): ${tenantId}`)
 await pool.end()

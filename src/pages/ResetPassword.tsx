@@ -8,8 +8,7 @@ import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../data/modules'
 export function ResetPassword() {
   const [params] = useSearchParams()
   const token = params.get('token') || ''
-  const tenantId = params.get('tenant') || ''
-  const linkValid = token.length >= 16 && Boolean(tenantId)
+  const linkValid = token.length >= 16
 
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -36,7 +35,7 @@ export function ResetPassword() {
     }
     setLoading(true)
     try {
-      await confirmPasswordReset(token, tenantId, password)
+      await confirmPasswordReset(token, password)
       window.location.assign('/login?reset=success')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid or expired password reset link.')

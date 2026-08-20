@@ -10,7 +10,8 @@
     "seed": "npm --prefix server run seed",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npm --prefix server test"
   },
   "dependencies": {
     "lucide-react": "^1.25.0",

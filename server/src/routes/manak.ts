@@ -3,7 +3,13 @@ import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { decryptSecret, encryptSecret } from '../crypto.js'
 import { assertTenantId, nowIso, pool } from '../db.js'
-import { enforceTenantBody, requireAuth, requireValidLicense } from '../middleware/auth.js'
+import {
+  enforceTenantBody,
+  requireAuth,
+  requireActiveTenant,
+  requireValidLicense,
+  sessionCentre,
+} from '../middleware/auth.js'
 import {
   completePortalFetch,
   demoRequests,
@@ -15,6 +21,7 @@ import type { ManakCredentialsStored } from '../manak/types.js'
 export const manakRouter = Router()
 
 manakRouter.use(requireAuth)
+manakRouter.use(requireActiveTenant)
 manakRouter.use(enforceTenantBody)
 manakRouter.use(requireValidLicense)
 
@@ -80,6 +87,10 @@ const putSchema = z.object({
 manakRouter.put('/credentials', async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
+  if (sessionCentre(req.user!).centreKind === 'osc') {
+    res.status(403).json({ error: 'Off-site users cannot change Manak credentials' })
+    return
+  }
   const parsed = putSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'username required' })
@@ -123,6 +134,10 @@ manakRouter.put('/credentials', async (req, res) => {
 manakRouter.post('/scrap-bundle', scrapBundleLimiter, async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
+  if (sessionCentre(req.user!).centreKind === 'osc') {
+    res.status(403).json({ error: 'Off-site users cannot export Manak credentials' })
+    return
+  }
   const creds = await loadCreds(tenantId)
   if (!creds?.username || !creds.passwordEnc) {
     res.status(400).json({ error: 'Save Manak credentials first.' })

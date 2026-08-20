@@ -2,7 +2,7 @@ import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { nowIso, pool, withTransaction } from '../db.js'
-import { requireAuth } from '../middleware/auth.js'
+import { enforceTenantBody, requireAuth, requireActiveTenant } from '../middleware/auth.js'
 import {
   addDaysIso,
   assertMaster,
@@ -37,7 +37,7 @@ licenseRouter.get('/ping', (_req, res) => {
 })
 
 /** Current centre licence status */
-licenseRouter.get('/status', requireAuth, async (req, res) => {
+licenseRouter.get('/status', requireAuth, enforceTenantBody, async (req, res) => {
   await ready()
   const status = await getTenantLicense(req.user!.tenantId)
   if (!status) {
@@ -52,7 +52,7 @@ const activateSchema = z.object({
 })
 
 /** Activate / renew licence for the logged-in centre (admin only) */
-licenseRouter.post('/activate', requireAuth, issueLimiter, async (req, res) => {
+licenseRouter.post('/activate', requireAuth, requireActiveTenant, enforceTenantBody, issueLimiter, async (req, res) => {
   await ready()
   if (!req.user!.isAdmin) {
     res.status(403).json({ error: 'Only centre admin can activate a licence' })

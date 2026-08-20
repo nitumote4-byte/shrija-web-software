@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { pool } from '../db.js'
 import { assertMaster, daysLeftFrom } from '../license.js'
+import { invalidateTenantStatus } from '../tenantStatus.js'
 
 export const adminRouter = Router()
 
@@ -116,6 +117,7 @@ adminRouter.post('/tenants/:tenantId/suspend', masterLimiter, async (req, res) =
   }
 
   await pool.query(`UPDATE tenants SET status = 'suspended' WHERE id = $1`, [tenantId])
+  invalidateTenantStatus(tenantId)
   audit('suspend', tenant.id, tenant.firmName)
 
   res.json({
@@ -156,6 +158,7 @@ async function reactivateTenant(req: import('express').Request, res: import('exp
   }
 
   await pool.query(`UPDATE tenants SET status = 'active' WHERE id = $1`, [tenantId])
+  invalidateTenantStatus(tenantId)
   audit('reactivate', tenant.id, tenant.firmName)
 
   res.json({

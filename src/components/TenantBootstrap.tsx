@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ApiRequestError, getToken } from '../api/client'
-import { clearSession, isAuthenticated } from '../data/auth'
+import { clearSession, isAuthenticated, refreshSessionFromServer } from '../data/auth'
 import { fetchLicenseStatus, setCachedLicense } from '../data/license'
 import { hydrateTenantData, isTenantHydrated } from '../data/tenantCache'
 
@@ -17,14 +17,24 @@ export function TenantBootstrap({ children }: { children: ReactNode }) {
     let cancelled = false
     ;(async () => {
       try {
+        try {
+          await refreshSessionFromServer()
+        } catch (e) {
+          if (e instanceof ApiRequestError && e.status === 401) {
+            clearSession()
+            window.location.assign('/login')
+            return
+          }
+        }
+
         // Always refresh licence status first
         try {
           await fetchLicenseStatus()
         } catch (e) {
-          if (e instanceof ApiRequestError && (e.code === 'EXPIRED' || e.status === 403)) {
+          if (e instanceof ApiRequestError && (e.code === 'EXPIRED' || e.code === 'SUSPENDED' || e.status === 403)) {
             const body = e.body as { license?: Parameters<typeof setCachedLicense>[0] } | null
             if (body?.license) setCachedLicense(body.license)
-            else
+            else if (e.code !== 'SUSPENDED')
               setCachedLicense({
                 ok: false,
                 plan: 'unknown',

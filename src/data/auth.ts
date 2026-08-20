@@ -39,32 +39,40 @@ export async function changeOwnPassword(currentPassword: string, newPassword: st
   })
 }
 
-export async function requestPasswordReset(tenantId: string, username: string) {
+export async function requestPasswordReset(username: string) {
   return api<{ message: string }>('/api/auth/forgot-password', {
     method: 'POST',
-    json: { tenantId, username },
+    json: { username },
   })
 }
 
-export async function confirmPasswordReset(token: string, tenantId: string, password: string) {
+export async function confirmPasswordReset(token: string, password: string) {
   return api<{ ok: true; message: string }>('/api/auth/reset-password', {
     method: 'POST',
-    json: { token, tenantId, password },
+    json: { token, password },
   })
+}
+
+export async function refreshSessionFromServer() {
+  const result = await api<{ session: AuthSession; license?: LicenseStatus }>('/api/auth/me')
+  const token = getToken()
+  if (token && result.session) {
+    setAuth(token, result.session)
+  }
+  if (result.license) setCachedLicense(result.license)
+  return result.session
 }
 
 export async function login(
   username: string,
   password: string,
-  tenantId: string,
-  asAdmin = false,
 ): Promise<{ ok: true; session: AuthSession; licenseExpired?: boolean } | { ok: false; error: string }> {
   try {
     const result = await api<{ token: string; session: AuthSession; license?: LicenseStatus }>(
       '/api/auth/login',
       {
         method: 'POST',
-        json: { tenantId, username, password, asAdmin },
+        json: { username, password },
       },
     )
     setAuth(result.token, result.session)

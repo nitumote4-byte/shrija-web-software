@@ -56,9 +56,6 @@ app.get('/api/health', async (_req, res) => {
 })
 
 app.use('/api/auth', (req, res, next) => {
-  if (!isDbReady() && req.path !== '/tenants') {
-    // still allow tenants list after ready; block early if not ready
-  }
   if (!isDbReady()) {
     res.status(503).json({
       error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
@@ -145,7 +142,7 @@ async function main() {
 
   try {
     await initDb()
-    console.log('DB: PostgreSQL · Tenant isolation: JWT tenant_id')
+    console.log('DB: PostgreSQL · Tenant isolation: JWT tenant_id (client tenant/centre IDs ignored)')
   } catch (err) {
     console.error('PostgreSQL init failed — API is up but /api/auth and /api/data will return 503')
     console.error(err)
