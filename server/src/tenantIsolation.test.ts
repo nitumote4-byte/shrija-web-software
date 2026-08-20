@@ -12,9 +12,13 @@ import {
   filterKvForSession,
   filterStoreForSession,
   isCrossTenantOverride,
+  isOscOutlet,
   isOscRestrictedKvKey,
+  listFirmOutlets,
+  mergeAssignedOscOutlets,
   mergeOscStoreWrite,
   ownTenantPublicView,
+  resolveCentreFromList,
   selectPasswordMatch,
   stripClientTenantOverrides,
 } from './tenantIsolation.js'
@@ -188,5 +192,68 @@ describe('centre list privacy', () => {
     assert.equal('manak_credentials' in filtered, false)
     assert.equal(isOscRestrictedKvKey('manak_credentials', 'osc'), true)
     assert.equal(isOscRestrictedKvKey('manak_credentials', 'main'), false)
+  })
+})
+
+describe('firm outlets for user creation', () => {
+  const main = { name: 'Smg2', address: 'Main Road' }
+
+  it('includes an OSC outlet even when kind is omitted but id is osc-*', () => {
+    const list = listFirmOutlets(
+      [
+        { id: 'main', kind: 'main', name: 'Smg2' },
+        { id: 'osc-smg2', name: 'Smg2 Off-Site' },
+      ],
+      main,
+    )
+    assert.equal(list.some((c) => c.id === 'osc-smg2' && c.kind === 'osc'), true)
+    assert.equal(isOscOutlet({ id: 'osc-smg2' }), true)
+  })
+
+  it('includes a non-main row in the tenant centres list as OSC', () => {
+    const list = listFirmOutlets(
+      [
+        { id: 'main', kind: 'main', name: 'Smg2' },
+        { id: 'smg2-osc', name: 'OSC Smg2', address: 'Outlet road' },
+      ],
+      main,
+    )
+    const osc = list.find((c) => c.id === 'smg2-osc')
+    assert.ok(osc)
+    assert.equal(osc?.kind, 'osc')
+  })
+
+  it('does not treat another tenant id as an OSC outlet option', () => {
+    const list = mergeAssignedOscOutlets(listFirmOutlets([], main), ['tn_other_centre'])
+    assert.equal(list.some((c) => c.id === 'tn_other_centre'), false)
+  })
+
+  it('keeps an existing tenant user OSC assignment in the outlet list', () => {
+    const list = mergeAssignedOscOutlets(listFirmOutlets([], main), ['osc-smg2', 'main'])
+    assert.equal(list.some((c) => c.id === 'osc-smg2' && c.kind === 'osc'), true)
+    assert.equal(list[0]?.kind, 'main')
+  })
+
+  it('resolves a listed OSC id as osc, and main stays main', () => {
+    const list = listFirmOutlets(
+      [
+        { id: 'main', kind: 'main', name: 'Smg2' },
+        { id: 'osc-smg2', kind: 'osc', name: 'OSC Smg2' },
+      ],
+      main,
+    )
+    const osc = resolveCentreFromList(list, 'osc-smg2', 'Smg2')
+    assert.equal(osc.centreKind, 'osc')
+    assert.equal(osc.centreId, 'osc-smg2')
+    const home = resolveCentreFromList(list, 'main', 'Smg2')
+    assert.equal(home.centreKind, 'main')
+    assert.equal(home.centreId, 'main')
+  })
+
+  it('keeps an orphaned non-main centreId as OSC so lab stays on Main', () => {
+    const list = listFirmOutlets([{ id: 'main', kind: 'main', name: 'Smg2' }], main)
+    const orphan = resolveCentreFromList(list, 'osc-legacy', 'Smg2')
+    assert.equal(orphan.centreKind, 'osc')
+    assert.equal(orphan.centreId, 'osc-legacy')
   })
 })

@@ -231,6 +231,130 @@ export function mergeOscStoreWrite(
   return merged
 }
 
+export type FirmOutlet = {
+  id: string
+  kind: 'main' | 'osc'
+  name: string
+  address?: string
+  city?: string
+  state?: string
+}
+
+function asCentresArray(raw: unknown): Record<string, unknown>[] {
+  if (Array.isArray(raw)) {
+    return raw.filter((c) => c && typeof c === 'object' && !Array.isArray(c)) as Record<string, unknown>[]
+  }
+  if (typeof raw === 'string') {
+    try {
+      return asCentresArray(JSON.parse(raw))
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+/** True when a firm_profiles.centres row is this tenant's Off-Site outlet (never another Hallmark Centre). */
+export function isOscOutlet(c: { id?: unknown; kind?: unknown } | null | undefined): boolean {
+  if (!c) return false
+  const id = String(c.id || '').trim()
+  if (!id || id === 'main') return false
+  const kind = String(c.kind || '').trim().toLowerCase()
+  if (kind === 'osc') return true
+  if (id.toLowerCase().startsWith('osc')) return true
+  if (kind === 'main') return false
+  return true
+}
+
+/**
+ * Main + OSC outlets stored on this tenant's firm profile.
+ * Does not include other tenants — caller must pass JWT-scoped firm_profiles.centres.
+ */
+export function listFirmOutlets(
+  centres: unknown,
+  main: { name: string; address?: string; city?: string; state?: string },
+): FirmOutlet[] {
+  const raw = asCentresArray(centres)
+  const existingMain = raw.find((c) => {
+    const kind = String(c.kind || '').trim().toLowerCase()
+    const id = String(c.id || '').trim()
+    return kind === 'main' || id === 'main'
+  })
+  const osc: FirmOutlet[] = []
+  const seen = new Set<string>()
+  for (const c of raw) {
+    if (!isOscOutlet(c)) continue
+    const id = String(c.id).trim()
+    if (seen.has(id)) continue
+    seen.add(id)
+    osc.push({
+      id,
+      kind: 'osc',
+      name: String(c.name || 'Off-Site Centre').trim() || 'Off-Site Centre',
+      address: String(c.address || ''),
+      city: c.city != null ? String(c.city) : undefined,
+      state: c.state != null ? String(c.state) : undefined,
+    })
+  }
+  return [
+    {
+      id: 'main',
+      kind: 'main',
+      name: String(existingMain?.name || main.name || '').trim() || main.name,
+      address: String(main.address || existingMain?.address || ''),
+      city: main.city || (existingMain?.city != null ? String(existingMain.city) : undefined),
+      state: main.state || (existingMain?.state != null ? String(existingMain.state) : undefined),
+    },
+    ...osc,
+  ]
+}
+
+export function resolveCentreFromList(
+  list: FirmOutlet[],
+  centreId: string | null | undefined,
+  fallbackName: string,
+): { centreId: string; centreKind: 'main' | 'osc'; centreName: string } {
+  const wanted = (centreId || 'main').trim() || 'main'
+  const found = list.find((c) => c.id === wanted)
+  if (found) {
+    return {
+      centreId: found.id || 'main',
+      centreKind: found.kind === 'osc' ? 'osc' : 'main',
+      centreName: String(found.name || fallbackName),
+    }
+  }
+  // Orphaned non-main assignment (e.g. OSC id still on a user after the outlet row was dropped).
+  // Keep OSC scope so lab records stay on Main.
+  if (wanted !== 'main' && !wanted.startsWith('tn_')) {
+    return { centreId: wanted, centreKind: 'osc', centreName: wanted }
+  }
+  const main = list.find((c) => c.kind === 'main') || list[0]
+  return {
+    centreId: 'main',
+    centreKind: 'main',
+    centreName: String(main?.name || fallbackName),
+  }
+}
+
+export function mergeAssignedOscOutlets(
+  outlets: FirmOutlet[],
+  assignedCentreIds: Iterable<string | null | undefined>,
+): FirmOutlet[] {
+  const next = [...outlets]
+  const ids = new Set(next.map((c) => c.id))
+  for (const raw of assignedCentreIds) {
+    const id = String(raw || '').trim()
+    if (!id || id === 'main' || ids.has(id) || id.startsWith('tn_')) continue
+    next.push({
+      id,
+      kind: 'osc',
+      name: id,
+    })
+    ids.add(id)
+  }
+  return next
+}
+
 export function filterFirmCentres(
   centres: unknown,
   opts: { centreId: string; centreKind: 'main' | 'osc' },

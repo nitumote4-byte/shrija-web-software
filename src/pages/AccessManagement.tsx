@@ -15,7 +15,7 @@ import {
 import { useToast } from '../components/ui'
 import { ChangePasswordForm } from '../components/ChangePasswordForm'
 import { loadAccessUsers, saveAccessUsers } from '../data/auth'
-import { getCentres } from '../data/firmProfile'
+import { FIRM_PROFILE_EVENT, getCentres, type CentreOutlet } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
 
 type AppUser = {
@@ -42,6 +42,36 @@ const ROLE_OPTIONS = [
   { value: 'accountant', label: 'Accountant' },
   { value: 'admin', label: 'Admin' },
 ]
+
+function mergeCreateUserCentres(fromFirm: CentreOutlet[], assignedIds: string[]): CentreOutlet[] {
+  const out = [...fromFirm]
+  const ids = new Set(out.map((c) => c.id))
+  for (const raw of assignedIds) {
+    const id = String(raw || '').trim()
+    if (!id || id === 'main' || ids.has(id) || id.startsWith('tn_')) continue
+    out.push({
+      id,
+      kind: 'osc',
+      name: id,
+      address: '',
+    })
+    ids.add(id)
+  }
+  return out
+}
+
+function centresFromServer(
+  raw: { id: string; kind?: string; name?: string; address?: string }[],
+): CentreOutlet[] {
+  return raw
+    .filter((c) => c && c.id)
+    .map((c) => ({
+      id: String(c.id),
+      kind: c.kind === 'osc' || String(c.id).toLowerCase().startsWith('osc') ? ('osc' as const) : ('main' as const),
+      name: String(c.name || c.id),
+      address: String(c.address || ''),
+    }))
+}
 
 async function persistUsers(users: AppUser[]) {
   await saveAccessUsers(
@@ -82,22 +112,35 @@ export function ManagePassword() {
     centreId: 'main',
   })
   const [showInstructions, setShowInstructions] = useState(false)
-  const centres = getCentres()
+  const [centres, setCentres] = useState<CentreOutlet[]>(() => getCentres())
+
+  useEffect(() => {
+    const syncCentres = () => setCentres((prev) => mergeCreateUserCentres(getCentres(), prev.map((c) => c.id)))
+    window.addEventListener(FIRM_PROFILE_EVENT, syncCentres)
+    return () => window.removeEventListener(FIRM_PROFILE_EVENT, syncCentres)
+  }, [])
 
   useEffect(() => {
     setStoredReception(loadReception())
     void loadAccessUsers()
-      .then((list) =>
-        setUsers(
-          list.map((u, i) => ({
-            id: `u-${i}-${u.username}`,
-            username: u.username,
-            role: u.role,
-            password: u.password,
-            centreId: u.centreId || 'main',
-          })),
-        ),
-      )
+      .then((result) => {
+        const nextUsers = result.users.map((u, i) => ({
+          id: `u-${i}-${u.username}`,
+          username: u.username,
+          role: u.role,
+          password: u.password,
+          centreId: u.centreId || 'main',
+        }))
+        setUsers(nextUsers)
+        const fromServer = centresFromServer(result.centres)
+        const combined = mergeCreateUserCentres(getCentres(), fromServer.map((c) => c.id))
+        for (const c of fromServer) {
+          const i = combined.findIndex((x) => x.id === c.id)
+          if (i >= 0 && c.kind === 'osc') combined[i] = { ...combined[i], ...c, kind: 'osc' }
+          else if (i < 0) combined.push(c)
+        }
+        setCentres(mergeCreateUserCentres(combined, nextUsers.map((u) => u.centreId)))
+      })
       .catch(() => toast('Failed to load users from server'))
   }, [])
 

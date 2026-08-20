@@ -9,7 +9,7 @@ import {
   sessionCentre,
 } from '../middleware/auth.js'
 import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
-import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, mergeOscStoreWrite } from '../tenantIsolation.js'
+import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeOscStoreWrite } from '../tenantIsolation.js'
 
 export const dataRouter = Router()
 
@@ -249,7 +249,12 @@ dataRouter.get('/firm-profile', async (req, res) => {
       centres = []
     }
   }
-  const list = Array.isArray(centres) ? centres : []
+  const list = listFirmOutlets(centres, {
+    name: String(row.firmName || req.user!.tenantName),
+    address: String(row.address || ''),
+    city: row.city != null ? String(row.city) : undefined,
+    state: row.state != null ? String(row.state) : undefined,
+  })
   res.json({ profile: { ...row, centres: filterFirmCentres(list, centre) } })
 })
 
@@ -273,9 +278,9 @@ dataRouter.put('/firm-profile', async (req, res) => {
     state: String(p.state || ''),
   }
   const incoming = Array.isArray(p.centres) ? p.centres : []
-  const oscCentres = incoming
-    .filter((c: { kind?: string; id?: string }) => c && c.kind === 'osc' && c.id)
-    .map((c: { id: string; name?: string; address?: string; city?: string; state?: string }) => ({
+  const oscCentres = listFirmOutlets(incoming, { name: firmName, address: String(p.address || '') })
+    .filter((c) => c.kind === 'osc')
+    .map((c) => ({
       id: String(c.id),
       kind: 'osc',
       name: String(c.name || 'Off-Site Centre').trim() || 'Off-Site Centre',

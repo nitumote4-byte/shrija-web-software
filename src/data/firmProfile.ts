@@ -44,21 +44,52 @@ export function defaultMainCentre(profile: Pick<FirmProfile, 'firmName' | 'addre
   }
 }
 
+function isOscOutlet(c: { id?: unknown; kind?: unknown } | null | undefined): boolean {
+  if (!c) return false
+  const id = String(c.id || '').trim()
+  if (!id || id === 'main') return false
+  const kind = String(c.kind || '').trim().toLowerCase()
+  if (kind === 'osc') return true
+  if (id.toLowerCase().startsWith('osc')) return true
+  if (kind === 'main') return false
+  return true
+}
+
+function asCentresArray(raw: unknown): CentreOutlet[] {
+  if (Array.isArray(raw)) return raw.filter((c) => c && typeof c === 'object') as CentreOutlet[]
+  if (typeof raw === 'string') {
+    try {
+      return asCentresArray(JSON.parse(raw))
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
 /** Ensure Main exists; keep firm address as Main address when syncing. */
 export function normalizeCentres(profile: FirmProfile): CentreOutlet[] {
   const main = defaultMainCentre(profile)
-  const raw = Array.isArray(profile.centres) ? profile.centres : []
-  const others = raw
-    .filter((c) => c && c.id && c.kind === 'osc')
-    .map((c) => ({
-      id: String(c.id),
-      kind: 'osc' as const,
-      name: String(c.name || 'Off-Site Centre').trim() || 'Off-Site Centre',
-      address: String(c.address || '').trim(),
-      city: c.city ? String(c.city) : undefined,
-      state: c.state ? String(c.state) : undefined,
-    }))
-  const existingMain = raw.find((c) => c?.kind === 'main' || c?.id === 'main')
+  const raw = asCentresArray(profile.centres)
+  const others = raw.filter((c) => isOscOutlet(c)).map((c) => ({
+    id: String(c.id),
+    kind: 'osc' as const,
+    name: String(c.name || 'Off-Site Centre').trim() || 'Off-Site Centre',
+    address: String(c.address || '').trim(),
+    city: c.city ? String(c.city) : undefined,
+    state: c.state ? String(c.state) : undefined,
+  }))
+  const existingMain = raw.find((c) => {
+    const kind = String(c?.kind || '').trim().toLowerCase()
+    return kind === 'main' || c?.id === 'main'
+  })
+  const seen = new Set<string>()
+  const osc: CentreOutlet[] = []
+  for (const c of others) {
+    if (seen.has(c.id)) continue
+    seen.add(c.id)
+    osc.push(c)
+  }
   return [
     {
       ...main,
@@ -67,7 +98,7 @@ export function normalizeCentres(profile: FirmProfile): CentreOutlet[] {
       city: profile.city || existingMain?.city,
       state: profile.state || existingMain?.state,
     },
-    ...others,
+    ...osc,
   ]
 }
 

@@ -23,7 +23,10 @@ import { assertMaster, evaluateLicense, getTenantLicense, trialExpiryIso } from 
 import { isMailConfigured, resetBaseUrl, sendPasswordResetEmail, PASSWORD_RESET_TTL_MINUTES } from '../mail.js'
 import {
   GENERIC_LOGIN_ERROR,
+  listFirmOutlets,
+  mergeAssignedOscOutlets,
   ownTenantPublicView,
+  resolveCentreFromList,
   selectPasswordMatch,
 } from '../tenantIsolation.js'
 
@@ -93,13 +96,7 @@ function slugify(name: string) {
   )
 }
 
-type CentreRow = { id: string; kind: 'main' | 'osc'; name: string; address?: string }
-
-async function resolveUserCentre(
-  tenantId: string,
-  firmName: string,
-  centreId?: string | null,
-): Promise<{ centreId: string; centreKind: 'main' | 'osc'; centreName: string }> {
+async function loadTenantOutlets(tenantId: string, firmName: string) {
   const { rows } = await pool.query(
     `SELECT firm_name AS "firmName", address, centres FROM firm_profiles WHERE tenant_id = $1`,
     [tenantId],
@@ -107,30 +104,19 @@ async function resolveUserCentre(
   const row = rows[0] as
     | { firmName: string; address: string; centres: unknown }
     | undefined
-  let centres: CentreRow[] = []
-  try {
-    const raw = row?.centres
-    centres = Array.isArray(raw) ? (raw as CentreRow[]) : typeof raw === 'string' ? JSON.parse(raw) : []
-  } catch {
-    centres = []
-  }
-  const main: CentreRow = {
-    id: 'main',
-    kind: 'main',
+  return listFirmOutlets(row?.centres, {
     name: row?.firmName || firmName,
     address: row?.address || '',
-  }
-  const list = [
-    centres.find((c) => c?.kind === 'main' || c?.id === 'main') || main,
-    ...centres.filter((c) => c && c.kind === 'osc' && c.id),
-  ]
-  const wanted = (centreId || 'main').trim() || 'main'
-  const found = list.find((c) => c.id === wanted) || list[0] || main
-  return {
-    centreId: found.id || 'main',
-    centreKind: found.kind === 'osc' ? 'osc' : 'main',
-    centreName: String(found.name || firmName),
-  }
+  })
+}
+
+async function resolveUserCentre(
+  tenantId: string,
+  firmName: string,
+  centreId?: string | null,
+): Promise<{ centreId: string; centreKind: 'main' | 'osc'; centreName: string }> {
+  const list = await loadTenantOutlets(tenantId, firmName)
+  return resolveCentreFromList(list, centreId, firmName)
 }
 
 /**
@@ -610,7 +596,11 @@ authRouter.get('/users', requireAuth, requireActiveTenant, enforceTenantBody, re
      FROM users WHERE tenant_id = $1 ORDER BY lower(username)`,
     [tenantId],
   )
-  res.json({ users: rows })
+  const outlets = mergeAssignedOscOutlets(
+    await loadTenantOutlets(tenantId, req.user!.tenantName),
+    (rows as { centreId?: string }[]).map((u) => u.centreId),
+  )
+  res.json({ users: rows, centres: outlets })
 })
 
 const upsertUsersSchema = z.object({
@@ -643,11 +633,13 @@ authRouter.put('/users', requireAuth, requireActiveTenant, enforceTenantBody, re
   }
 
   const existing = await pool.query(
-    `SELECT username, password_hash AS "passwordHash" FROM users WHERE tenant_id = $1`,
+    `SELECT username, password_hash AS "passwordHash",
+            COALESCE(centre_id, 'main') AS "centreId"
+     FROM users WHERE tenant_id = $1`,
     [tenantId],
   )
   const byName = new Map(
-    (existing.rows as { username: string; passwordHash: string }[]).map((u) => [
+    (existing.rows as { username: string; passwordHash: string; centreId: string }[]).map((u) => [
       u.username.toLowerCase(),
       u.passwordHash,
     ]),
@@ -659,6 +651,30 @@ authRouter.put('/users', requireAuth, requireActiveTenant, enforceTenantBody, re
       res.status(409).json({
         error: `Username "${u.username}" is already used by another centre. Choose a different username.`,
       })
+      return
+    }
+  }
+
+  const outlets = mergeAssignedOscOutlets(
+    await loadTenantOutlets(tenantId, req.user!.tenantName),
+    (existing.rows as { centreId: string }[]).map((u) => u.centreId),
+  )
+  const allowed = new Set(outlets.map((c) => c.id))
+  allowed.add('main')
+  for (const row of existing.rows as { centreId: string }[]) {
+    const id = String(row.centreId || '').trim()
+    if (id) allowed.add(id)
+  }
+
+  for (const u of parsed.data.users) {
+    const centreId = (u.centreId || 'main').trim() || 'main'
+    if (!allowed.has(centreId)) {
+      res.status(400).json({ error: `Unknown centre / outlet "${centreId}" for this tenant` })
+      return
+    }
+    const found = outlets.find((c) => c.id === centreId)
+    if (found?.kind === 'osc' && /^(assay_lab|in_lab|inlab)$/i.test(u.role)) {
+      res.status(400).json({ error: 'Off-Site users cannot be In Lab — lab stays at Main Centre' })
       return
     }
   }
