@@ -1,8 +1,31 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ApiRequestError, getToken } from '../api/client'
 import { clearSession, isAuthenticated, refreshSessionFromServer } from '../data/auth'
-import { fetchLicenseStatus, setCachedLicense } from '../data/license'
+import { fetchLicenseStatus, getCachedLicense, setCachedLicense, type LicenseStatus } from '../data/license'
 import { hydrateTenantData, isTenantHydrated } from '../data/tenantCache'
+
+function goToLicensePage() {
+  if (!window.location.pathname.includes('license')) {
+    window.location.assign('/license')
+  }
+}
+
+function cacheBlockedLicense(code: 'EXPIRED' | 'SUSPENDED', reason: string): LicenseStatus {
+  const license: LicenseStatus = {
+    ok: false,
+    plan: 'unknown',
+    status: code === 'SUSPENDED' ? 'suspended' : 'active',
+    licenseKey: null,
+    expiresAt: null,
+    activatedAt: null,
+    maxUsers: 0,
+    daysLeft: -1,
+    reason,
+    code,
+  }
+  setCachedLicense(license)
+  return license
+}
 
 /** Loads store + KV from API for the JWT tenant before rendering the app shell. */
 export function TenantBootstrap({ children }: { children: ReactNode }) {
@@ -15,6 +38,12 @@ export function TenantBootstrap({ children }: { children: ReactNode }) {
       return
     }
     let cancelled = false
+    const finishWithoutHydrate = () => {
+      if (!cancelled) {
+        setReady(true)
+        goToLicensePage()
+      }
+    }
     ;(async () => {
       try {
         try {
@@ -27,34 +56,32 @@ export function TenantBootstrap({ children }: { children: ReactNode }) {
           }
         }
 
-        // Always refresh licence status first
+        // Always refresh licence status first. 200 + !ok (EXPIRED/SUSPENDED) must not hydrate.
         try {
-          await fetchLicenseStatus()
-        } catch (e) {
-          if (e instanceof ApiRequestError && (e.code === 'EXPIRED' || e.code === 'SUSPENDED' || e.status === 403)) {
-            const body = e.body as { license?: Parameters<typeof setCachedLicense>[0] } | null
-            if (body?.license) setCachedLicense(body.license)
-            else if (e.code !== 'SUSPENDED')
-              setCachedLicense({
-                ok: false,
-                plan: 'unknown',
-                status: 'active',
-                licenseKey: null,
-                expiresAt: null,
-                activatedAt: null,
-                maxUsers: 0,
-                daysLeft: -1,
-                reason: e.message,
-                code: 'EXPIRED',
-              })
-            if (!cancelled) {
-              setReady(true)
-              if (!window.location.pathname.includes('license')) {
-                window.location.assign('/license')
-              }
-            }
+          const license = await fetchLicenseStatus()
+          if (license && !license.ok) {
+            finishWithoutHydrate()
             return
           }
+        } catch (e) {
+          if (e instanceof ApiRequestError && e.status === 401) {
+            clearSession()
+            window.location.assign('/login')
+            return
+          }
+          if (e instanceof ApiRequestError && (e.code === 'EXPIRED' || e.code === 'SUSPENDED' || e.status === 403)) {
+            const body = e.body as { license?: LicenseStatus } | null
+            if (body?.license) setCachedLicense(body.license)
+            else cacheBlockedLicense(e.code === 'SUSPENDED' ? 'SUSPENDED' : 'EXPIRED', e.message)
+            finishWithoutHydrate()
+            return
+          }
+        }
+
+        const cached = getCachedLicense()
+        if (cached?.code === 'SUSPENDED') {
+          finishWithoutHydrate()
+          return
         }
 
         if (isTenantHydrated()) {
@@ -67,14 +94,15 @@ export function TenantBootstrap({ children }: { children: ReactNode }) {
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Failed to load centre data')
-          if (e instanceof ApiRequestError && (e.code === 'EXPIRED' || e.status === 403)) {
-            setReady(true)
-            window.location.assign('/license')
-            return
-          }
-          if (String(e).toLowerCase().includes('token') || (e instanceof ApiRequestError && e.status === 401)) {
+          if (e instanceof ApiRequestError && e.status === 401) {
             clearSession()
             window.location.assign('/login')
+            return
+          }
+          if (e instanceof ApiRequestError && (e.code === 'EXPIRED' || e.code === 'SUSPENDED' || e.status === 403)) {
+            setReady(true)
+            goToLicensePage()
+            return
           }
         }
       }
