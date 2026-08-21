@@ -3481,22 +3481,13 @@ button {
 .invoice-letterhead {
   width: 100%;
   margin: 0 0 0.4rem;
-  text-align: center;
 }
 
 .invoice-letterhead img {
   display: block;
-  margin: 0 auto;
+  width: 100%;
   max-width: 100%;
-  width: auto;
   height: auto;
-  max-height: 34mm;
-  object-fit: contain;
-  object-position: center top;
-}
-
-.invoice-sheet.paper-a5 .invoice-letterhead img {
-  max-height: 22mm;
 }
 
 .invoice-letterhead-fallback {
@@ -3879,13 +3870,11 @@ button {
   }
 
   .invoice-letterhead img {
-    max-height: 32mm !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-  }
-
-  .invoice-sheet.paper-a5 .invoice-letterhead img {
-    max-height: 20mm !important;
   }
 
   .invoice-sheet.paper-a5 .invoice-items th,

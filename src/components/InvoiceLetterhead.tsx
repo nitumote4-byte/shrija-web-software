@@ -33,12 +33,7 @@ export function InvoiceLetterhead() {
   if (image?.dataUrl) {
     return (
       <div className="invoice-letterhead">
-        <img
-          src={image.dataUrl}
-          alt=""
-          width={image.width || undefined}
-          height={image.height || undefined}
-        />
+        <img src={image.dataUrl} alt="" />
       </div>
     )
   }
