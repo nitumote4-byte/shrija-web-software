@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { store, type Party } from '../data/store'
+import { displayPartyGstin, normalizePartyGstin, validatePartyGstin } from '../utils/partyGstin'
 
 const INDIAN_STATES: { name: string; code: string }[] = [
   { name: 'Andhra Pradesh', code: '37' },
@@ -121,8 +122,9 @@ export function AddParty() {
       toast('Party Name and Address are required')
       return
     }
-    if (!form.gstin.trim() || form.gstin.trim().length !== 15) {
-      toast('Enter a valid 15-digit GST Number')
+    const gstinError = validatePartyGstin(form.gstin)
+    if (gstinError) {
+      toast(gstinError)
       return
     }
     if (!form.licenseNo.trim()) {
@@ -138,7 +140,7 @@ export function AddParty() {
       name: form.name.trim(),
       phone: form.phone.trim(),
       address: form.address.trim(),
-      gstin: form.gstin.trim().toUpperCase(),
+      gstin: normalizePartyGstin(form.gstin),
       transactionType: form.transactionType,
       licenseNo: form.licenseNo.trim(),
       state: form.state,
@@ -312,18 +314,17 @@ export function AddParty() {
           </div>
           <div className="party-grid">
             <div className="field">
-              <label>
-                GST Number <span className="req">*</span>
-              </label>
+              <label>GST Number</label>
               <IconInput
                 icon={IdCard}
                 placeholder="22AAAAA0000A1Z5"
                 value={form.gstin}
                 maxLength={15}
                 onChange={(e) => set('gstin', e.target.value.toUpperCase())}
-                required
               />
-              <small className="field-hint">Enter 15-digit GST identification number</small>
+              <small className="field-hint">
+                Optional. If entered, must be a 15-digit GST identification number
+              </small>
             </div>
             <div className="field">
               <label>
@@ -542,7 +543,7 @@ export function AddParty() {
                 <tr key={p.id}>
                   <td>{p.name}</td>
                   <td>{p.phone || '—'}</td>
-                  <td>{p.gstin || '—'}</td>
+                  <td>{displayPartyGstin(p.gstin)}</td>
                   <td>
                     {p.state || '—'}
                     {p.stateCode ? ` (${p.stateCode})` : ''}
