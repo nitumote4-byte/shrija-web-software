@@ -30,6 +30,7 @@ export type ChallanView = {
   igst: number
   grandTotal: number
   useIgst: boolean
+  minChargeAdjustment?: number
 }
 
 type InvoiceSettings = {
@@ -256,6 +257,7 @@ export function invoiceToChallan(
     igst,
     grandTotal: inv.total,
     useIgst,
+    minChargeAdjustment: Number(inv.minChargeAdjustment) || 0,
   }
 }
 
@@ -277,6 +279,8 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
   const totHm = view?.lines.reduce((s, l) => s + l.hm, 0) ?? 0
   const totRej = view?.lines.reduce((s, l) => s + l.rej, 0) ?? 0
   const totMelt = view?.lines.reduce((s, l) => s + l.melt, 0) ?? 0
+  const actualTotal = view?.lines.reduce((s, l) => s + l.amount, 0) ?? 0
+  const minCharge = view?.minChargeAdjustment || 0
   const colSpan = 9
 
   return (
@@ -419,7 +423,7 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
               {cols.ratePcs !== false && <td />}
               {cols.amount !== false && (
                 <td>
-                  <strong>{view ? money(view.taxable) : ''}</strong>
+                  <strong>{view ? money(actualTotal) : ''}</strong>
                 </td>
               )}
             </tr>
@@ -450,6 +454,18 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
             </div>
           </div>
           <div className="invoice-tax">
+            {minCharge > 0 ? (
+              <>
+                <div>
+                  <span>Add: Minimum Charge</span>
+                  <strong>{view ? money(minCharge) : '0.00'}</strong>
+                </div>
+                <div>
+                  <span>Taxable amount</span>
+                  <strong>{view ? money(view.taxable) : '0.00'}</strong>
+                </div>
+              </>
+            ) : null}
             <div>
               <span>CGST @ 9.00 %</span>
               <strong>{view && !view.useIgst ? money(view.cgst) : '0.00'}</strong>

@@ -4447,14 +4447,40 @@ button {
 
 .invset-check-global {
   grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 1rem;
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   padding: 0.65rem 0.75rem;
   font-weight: 600;
 }
 
+.invset-check-global > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .invset-check-global.on {
   background: #dbeafe;
+}
+
+.invset-minbill-amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  font-weight: 500;
+}
+
+.invset-minbill-amount input {
+  width: 6.5rem;
+  padding: 0.28rem 0.4rem;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  font: inherit;
 }
 
 .invset-actions {

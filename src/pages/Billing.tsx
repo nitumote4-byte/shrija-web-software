@@ -19,11 +19,17 @@ import {
   saveInvoicePaperSize,
   type InvoicePaperSize,
 } from '../utils/invoicePaper'
+import {
+  actualFromLines,
+  invoiceTotalsFromActual,
+  parseMinBillAmount,
+} from '../utils/minBillCharge'
 
 type InvoiceSettings = {
   startFrom: string
   prefix: string
   minBillCharges: boolean
+  minBillAmount: number
 }
 
 function loadInvoiceSettings(): InvoiceSettings {
@@ -31,11 +37,18 @@ function loadInvoiceSettings(): InvoiceSettings {
     startFrom: '1',
     prefix: '',
     minBillCharges: false,
+    minBillAmount: parseMinBillAmount(undefined),
   }
   try {
     const raw = tenantGet('shrija-invoice-settings')
     if (!raw) return defaults
-    return { ...defaults, ...(JSON.parse(raw) as Partial<InvoiceSettings>) }
+    const parsed = JSON.parse(raw) as Partial<InvoiceSettings>
+    return {
+      ...defaults,
+      ...parsed,
+      minBillCharges: Boolean(parsed.minBillCharges),
+      minBillAmount: parseMinBillAmount(parsed.minBillAmount),
+    }
   } catch {
     return defaults
   }
@@ -50,7 +63,6 @@ function buildLines(
   request: HallmarkRequest,
   rough: RoughSheetEntry[],
   rate: number,
-  minBill: boolean,
 ): InvoiceLine[] {
   const related = rough.filter(
     (r) =>
@@ -79,8 +91,7 @@ function buildLines(
     })
   }
   const pcs = request.pieces || 0
-  let amount = Number((pcs * rate).toFixed(2))
-  if (minBill && amount < rate) amount = rate
+  const amount = Number((pcs * rate).toFixed(2))
   return [
     {
       description: request.categoryName,
@@ -122,6 +133,7 @@ function invoiceToPreview(inv: Invoice): ChallanView {
     igst: inv.igst || 0,
     grandTotal: inv.total,
     useIgst: Boolean(inv.useIgst),
+    minChargeAdjustment: inv.minChargeAdjustment || 0,
   }
 }
 
@@ -195,14 +207,16 @@ export function Billing() {
       const party = data.parties.find((p) => p.id === request.partyId)
       const category = data.categories.find((c) => c.id === request.categoryId)
       const rate = category?.rate ?? 40
-      const lines = buildLines(request, data.roughSheets, rate, settings.minBillCharges)
-      const taxable = lines.reduce((s, l) => s + l.amount, 0)
+      const lines = buildLines(request, data.roughSheets, rate)
+      const actual = actualFromLines(lines)
+      const { minChargeAdjustment, taxable, cgst, sgst, igst, tax, grandTotal } =
+        invoiceTotalsFromActual(actual, {
+          enabled: settings.minBillCharges,
+          minAmount: settings.minBillAmount,
+          skipMinBill: Boolean(party?.skipMinBill),
+          useIgst: Boolean(party?.igstApplicable),
+        })
       const useIgst = Boolean(party?.igstApplicable)
-      const cgst = useIgst ? 0 : Number((taxable * 0.09).toFixed(2))
-      const sgst = useIgst ? 0 : Number((taxable * 0.09).toFixed(2))
-      const igst = useIgst ? Number((taxable * 0.18).toFixed(2)) : 0
-      const tax = cgst + sgst + igst
-      const grandTotal = Number((taxable + tax).toFixed(2))
 
       const related = data.roughSheets.filter(
         (r) =>
@@ -252,6 +266,7 @@ export function Billing() {
         igst,
         grandTotal,
         useIgst,
+        minChargeAdjustment,
       }
       setPreview(bill)
       setSelectedNo(request.requestNo)
@@ -286,6 +301,7 @@ export function Billing() {
           sgst,
           igst,
           useIgst,
+          minChargeAdjustment,
         })
         if (request.status !== 'Billed' && request.status !== 'Delivered') {
           store.updateRequestStatus(request.id, 'Billed')

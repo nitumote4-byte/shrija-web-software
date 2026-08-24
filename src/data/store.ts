@@ -183,6 +183,8 @@ export type Invoice = {
   sgst?: number
   igst?: number
   useIgst?: boolean
+  /** Shortfall vs Invoice Settings minimum, once per request. Not a line item. */
+  minChargeAdjustment?: number
   careOf?: string
   invoiceDateTime?: string
   updatedAt?: string

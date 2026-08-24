@@ -11,7 +11,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "npm --prefix server test && npm --prefix server exec -- tsx ./scripts/party-gstin-optional.selftest.ts"
+    "test": "npm --prefix server test && npm --prefix server exec -- tsx ./scripts/party-gstin-optional.selftest.ts && npx --yes tsx ./scripts/min-bill-charge.selftest.ts"
   },
   "dependencies": {
     "lucide-react": "^1.25.0",

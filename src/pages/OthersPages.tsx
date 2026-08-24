@@ -7,6 +7,7 @@ import { store } from '../data/store'
 import { CENTRE_NAME } from '../data/modules'
 import { getFirmProfile, saveFirmProfile, type CentreOutlet } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
+import { DEFAULT_MIN_BILL_AMOUNT, parseMinBillAmount } from '../utils/minBillCharge'
 
 function SubPageShell({
   title,
@@ -1991,6 +1992,7 @@ type InvoiceSettingsData = {
   sealDataUrl: string
   columns: Record<InvoiceColId, boolean>
   minBillCharges: boolean
+  minBillAmount: number
 }
 
 const DEFAULT_INVOICE_SETTINGS: InvoiceSettingsData = {
@@ -2010,6 +2012,7 @@ const DEFAULT_INVOICE_SETTINGS: InvoiceSettingsData = {
     amount: true,
   },
   minBillCharges: false,
+  minBillAmount: DEFAULT_MIN_BILL_AMOUNT,
 }
 
 function loadInvoiceSettings(): InvoiceSettingsData {
@@ -2021,6 +2024,7 @@ function loadInvoiceSettings(): InvoiceSettingsData {
       ...DEFAULT_INVOICE_SETTINGS,
       ...parsed,
       columns: { ...DEFAULT_INVOICE_SETTINGS.columns, ...(parsed.columns || {}) },
+      minBillAmount: parseMinBillAmount(parsed.minBillAmount),
     }
   } catch {
     return DEFAULT_INVOICE_SETTINGS
@@ -2045,6 +2049,7 @@ export function InvoiceSettings() {
   const [sealDataUrl, setSealDataUrl] = useState(initial.sealDataUrl)
   const [columns, setColumns] = useState(initial.columns)
   const [minBillCharges, setMinBillCharges] = useState(initial.minBillCharges)
+  const [minBillAmount, setMinBillAmount] = useState(String(initial.minBillAmount))
 
   const onUpload = async (
     file: File | null | undefined,
@@ -2073,6 +2078,7 @@ export function InvoiceSettings() {
       sealDataUrl,
       columns,
       minBillCharges,
+      minBillAmount: parseMinBillAmount(minBillAmount),
     }
     tenantSet('shrija-invoice-settings', JSON.stringify(data))
     toast('Invoice settings saved')
@@ -2190,14 +2196,27 @@ export function InvoiceSettings() {
                 <span>{col.label}</span>
               </label>
             ))}
-            <label className={`invset-check invset-check-global ${minBillCharges ? 'on' : ''}`}>
-              <input
-                type="checkbox"
-                checked={minBillCharges}
-                onChange={(e) => setMinBillCharges(e.target.checked)}
-              />
-              <span>Min. bill Charges per Job card (Global)</span>
-            </label>
+            <div className={`invset-check invset-check-global ${minBillCharges ? 'on' : ''}`}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={minBillCharges}
+                  onChange={(e) => setMinBillCharges(e.target.checked)}
+                />
+                <span>Min. bill Charges per Job card (Global)</span>
+              </label>
+              <label className="invset-minbill-amount">
+                <span>Amount ₹</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={minBillAmount}
+                  onChange={(e) => setMinBillAmount(e.target.value)}
+                  aria-label="Minimum bill charge amount"
+                />
+              </label>
+            </div>
           </div>
         </div>
 

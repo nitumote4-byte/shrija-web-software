@@ -5,6 +5,7 @@ import { invoiceToChallan, type ChallanView } from '../components/InvoiceChallan
 import { InvoicePreviewPanel } from '../components/InvoicePreviewPanel'
 import { useToast } from '../components/ui'
 import { store, type InvoiceLine } from '../data/store'
+import { tenantGet } from '../data/tenant'
 import {
   applyInvoicePaperForPrint,
   loadInvoicePaperSize,
@@ -12,29 +13,47 @@ import {
   saveInvoicePaperSize,
   type InvoicePaperSize,
 } from '../utils/invoicePaper'
+import { invoiceTotalsFromActual, parseMinBillAmount } from '../utils/minBillCharge'
 
 function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function recalc(lines: InvoiceLine[], useIgst: boolean) {
-  const taxable = Number(lines.reduce((s, l) => s + l.amount, 0).toFixed(2))
-  const cgst = useIgst ? 0 : Number((taxable * 0.09).toFixed(2))
-  const sgst = useIgst ? 0 : Number((taxable * 0.09).toFixed(2))
-  const igst = useIgst ? Number((taxable * 0.18).toFixed(2)) : 0
-  return {
-    taxable,
-    cgst,
-    sgst,
-    igst,
-    tax: cgst + sgst + igst,
-    grandTotal: Number((taxable + cgst + sgst + igst).toFixed(2)),
+function loadMinBillSettings() {
+  try {
+    const raw = tenantGet('shrija-invoice-settings')
+    if (!raw) {
+      return { enabled: false, minAmount: parseMinBillAmount(undefined) }
+    }
+    const parsed = JSON.parse(raw) as { minBillCharges?: boolean; minBillAmount?: unknown }
+    return {
+      enabled: Boolean(parsed.minBillCharges),
+      minAmount: parseMinBillAmount(parsed.minBillAmount),
+    }
+  } catch {
+    return { enabled: false, minAmount: parseMinBillAmount(undefined) }
   }
+}
+
+function recalc(
+  lines: InvoiceLine[],
+  useIgst: boolean,
+  skipMinBill: boolean,
+  settings: { enabled: boolean; minAmount: number },
+) {
+  const actual = Number(lines.reduce((s, l) => s + l.amount, 0).toFixed(2))
+  return invoiceTotalsFromActual(actual, {
+    enabled: settings.enabled,
+    minAmount: settings.minAmount,
+    skipMinBill,
+    useIgst,
+  })
 }
 
 export function ViewGeneratedBills() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
+  const minBillSettings = loadMinBillSettings()
   const [selectedKey, setSelectedKey] = useState('')
   const [preview, setPreview] = useState<ChallanView | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -58,6 +77,14 @@ export function ViewGeneratedBills() {
 
   const invoices = data.invoices
 
+  const skipMinBillForActive = () => {
+    const inv = activeId ? store.getInvoiceById(activeId) : null
+    const party =
+      data.parties.find((p) => p.id === inv?.partyId) ||
+      data.parties.find((p) => p.name === (inv?.partyName || preview?.partyName))
+    return Boolean(party?.skipMinBill)
+  }
+
   const options = useMemo(() => {
     return invoices.map((inv) => ({
       key: inv.id,
@@ -72,7 +99,7 @@ export function ViewGeneratedBills() {
       ...l,
       amount: Number((Math.max(0, l.hm) * l.rate).toFixed(2)),
     }))
-    const r = recalc(lines, preview.useIgst)
+    const r = recalc(lines, preview.useIgst, skipMinBillForActive(), minBillSettings)
     return {
       ...preview,
       lines,
@@ -85,6 +112,7 @@ export function ViewGeneratedBills() {
       sgst: r.sgst,
       igst: r.igst,
       grandTotal: r.grandTotal,
+      minChargeAdjustment: r.minChargeAdjustment,
     }
   })()
 
@@ -192,7 +220,12 @@ export function ViewGeneratedBills() {
       amount: Number((Math.max(0, l.hm) * l.rate).toFixed(2)),
     }))
     const useIgst = preview.useIgst
-    const { taxable, cgst, sgst, igst, tax, grandTotal } = recalc(lines, useIgst)
+    const { taxable, cgst, sgst, igst, tax, grandTotal, minChargeAdjustment } = recalc(
+      lines,
+      useIgst,
+      skipMinBillForActive(),
+      minBillSettings,
+    )
     const weightReturned = Number(
       (editWeights.weightReceived - editWeights.sampleWeight).toFixed(3),
     )
@@ -205,6 +238,7 @@ export function ViewGeneratedBills() {
       sgst,
       igst,
       useIgst,
+      minChargeAdjustment,
       weightReceived: editWeights.weightReceived,
       sampleWeight: editWeights.sampleWeight,
       unusedSample: editWeights.unusedSample,
