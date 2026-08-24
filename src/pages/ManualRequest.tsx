@@ -3,10 +3,6 @@ import { Link } from 'react-router-dom'
 import { Loader2, Plus, Trash2, X } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { store } from '../data/store'
-import {
-  matchItemMasterName,
-  unmatchedItemCategoryMessage,
-} from '../utils/itemCategoryMatch'
 import { readVoucherFile } from '../utils/voucherReader'
 
 const PURITY_OPTIONS = ['22K916', '18K750', '14K585', '24K999', 'Silver925']
@@ -152,16 +148,16 @@ export function ManualRequest() {
         receiptNo: lines[0]?.receiptNo || defaultNos().receiptNo,
       }
       // Voucher matching uses the real Item Master only — never FALLBACK_ITEMS.
-      const masterNames = store.getAll().jewelleryCategories.map((c) => c.name)
       setBatchNos(nos)
       // Gold Shark: ALL voucher lines go into the main editable grid.
       // Match each voucher Item Category independently against Item Master.
+      // Missing names are created in Item Master (same tenant store) and the row is resolved.
       const mapped: ItemEntry[] = lines.map((line, i) => {
         const voucherItem = line.item.trim()
-        const matched = voucherItem ? matchItemMasterName(voucherItem, masterNames) : null
+        const resolved = store.ensureJewelleryCategory(voucherItem)
         return {
           key: `v-${Date.now()}-${i}`,
-          item: matched ?? voucherItem,
+          item: resolved.ok ? resolved.name : voucherItem,
           pic: line.pic,
           weight: line.weight,
           purity: line.purity || '22K916',
@@ -169,17 +165,19 @@ export function ManualRequest() {
           receiptNo: line.receiptNo || nos.receiptNo,
           jobCardNo: line.jobCardNo || '',
           selected: true,
-          itemMatchWarning: matched ? undefined : unmatchedItemCategoryMessage(voucherItem),
+          itemMatchWarning: resolved.ok ? undefined : resolved.error,
         }
       })
       setRows(mapped)
       resetEntry(nos)
       setVoucherLoaded(true)
-      const unmatchedCount = mapped.filter((r) => r.itemMatchWarning).length
+      const failed = mapped.filter((r) => r.itemMatchWarning)
       toast(
-        unmatchedCount
-          ? `Voucher loaded · ${mapped.length} item(s). ${unmatchedCount} item categor${unmatchedCount === 1 ? 'y' : 'ies'} could not be matched.`
-          : `Voucher loaded · ${mapped.length} item(s)`,
+        failed.length === 0
+          ? `Voucher loaded · ${mapped.length} item(s)`
+          : failed.length === 1
+            ? failed[0].itemMatchWarning!
+            : `Voucher loaded · ${mapped.length} item(s). ${failed.length} Item Master item(s) could not be created.`,
       )
     } catch (err) {
       console.error(err)
@@ -521,7 +519,7 @@ export function ManualRequest() {
               <div className="voucher-item-warning" role="alert">
                 {unmatchedRows.length === 1
                   ? unmatchedRows[0].itemMatchWarning
-                  : `${unmatchedRows.length} voucher item categories could not be matched with Item Master. Please select the correct item(s) manually.`}
+                  : `${unmatchedRows.length} Item Master item(s) could not be created. Please try again.`}
               </div>
             )}
             <div className="table-wrap">

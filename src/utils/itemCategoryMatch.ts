@@ -69,3 +69,104 @@ export function unmatchedItemCategoryMessage(voucherItem: string): string {
   }
   return `Voucher item '${label}' could not be matched with an Item Master item. Please select the correct item manually.`
 }
+
+export function itemMasterCreateFailedMessage(voucherItem: string): string {
+  const label = voucherItem.trim()
+  return `Could not create Item Master item '${label}'. Please try again.`
+}
+
+export type EnsureItemMasterOk = {
+  ok: true
+  name: string
+  created: boolean
+}
+
+export type EnsureItemMasterErr = {
+  ok: false
+  error: string
+}
+
+export type EnsureItemMasterResult = EnsureItemMasterOk | EnsureItemMasterErr
+
+/**
+ * Match a voucher item against Item Master. If no equivalent exists, create one
+ * via the provided create function (the existing Item Master save API).
+ *
+ * Matching is unchanged: exact / normalized / alias rules in matchItemMasterName.
+ */
+export function ensureVoucherItemMasterName(
+  voucherItem: string,
+  getItemMasterNames: () => readonly string[],
+  createItem: (name: string) => { name: string } | null | undefined,
+): EnsureItemMasterResult {
+  const trimmed = voucherItem.trim()
+  if (!trimmed) {
+    return { ok: false, error: unmatchedItemCategoryMessage(voucherItem) }
+  }
+
+  const matched = matchItemMasterName(trimmed, getItemMasterNames())
+  if (matched) {
+    return { ok: true, name: matched, created: false }
+  }
+
+  let created: { name: string } | null | undefined
+  try {
+    created = createItem(trimmed)
+  } catch {
+    return { ok: false, error: itemMasterCreateFailedMessage(trimmed) }
+  }
+
+  if (created?.name) {
+    return { ok: true, name: created.name, created: true }
+  }
+
+  const rematch = matchItemMasterName(trimmed, getItemMasterNames())
+  if (rematch) {
+    return { ok: true, name: rematch, created: false }
+  }
+
+  return { ok: false, error: itemMasterCreateFailedMessage(trimmed) }
+}
+
+export type VoucherItemFields = {
+  item: string
+  pic: string
+  weight: string
+  purity: string
+  requestNo: string
+  receiptNo: string
+  jobCardNo?: string
+}
+
+export type ResolvedVoucherItemRow = {
+  item: string
+  pic: string
+  weight: string
+  purity: string
+  requestNo: string
+  receiptNo: string
+  jobCardNo: string
+  itemMatchWarning?: string
+  createdItemMaster: boolean
+}
+
+/** Resolve one voucher line: match or auto-create Item Master; preserve voucher fields. */
+export function resolveVoucherItemRow(
+  line: VoucherItemFields,
+  getItemMasterNames: () => readonly string[],
+  createItem: (name: string) => { name: string } | null | undefined,
+): ResolvedVoucherItemRow {
+  const voucherItem = line.item.trim()
+  const resolved = ensureVoucherItemMasterName(voucherItem, getItemMasterNames, createItem)
+  return {
+    item: resolved.ok ? resolved.name : voucherItem,
+    pic: line.pic,
+    weight: line.weight,
+    purity: line.purity,
+    requestNo: line.requestNo,
+    receiptNo: line.receiptNo,
+    jobCardNo: line.jobCardNo || '',
+    itemMatchWarning: resolved.ok ? undefined : resolved.error,
+    createdItemMaster: resolved.ok ? resolved.created : false,
+  }
+}

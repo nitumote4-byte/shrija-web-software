@@ -1,7 +1,11 @@
 import { getActiveTenantId } from './tenant'
 import { getStoreCache, getStoreVersion, setStoreCache } from './tenantCache'
 import { getSession } from './auth'
-import { matchItemMasterName } from '../utils/itemCategoryMatch'
+import {
+  ensureVoucherItemMasterName,
+  matchItemMasterName,
+  type EnsureItemMasterResult,
+} from '../utils/itemCategoryMatch'
 import {
   calcXrfAverage,
   DEFAULT_XRF_STANDARD_SETTINGS,
@@ -1356,6 +1360,18 @@ export const store = {
   matchJewelleryCategory(voucherItem: string): string | null {
     const names = load().jewelleryCategories.map((c) => c.name)
     return matchItemMasterName(voucherItem, names)
+  },
+
+  /**
+   * Manual Request: reuse an equivalent Item Master item, or create one in the
+   * authenticated tenant store via addJewelleryCategory.
+   */
+  ensureJewelleryCategory(voucherItem: string): EnsureItemMasterResult {
+    return ensureVoucherItemMasterName(
+      voucherItem,
+      () => load().jewelleryCategories.map((c) => c.name),
+      (name) => store.addJewelleryCategory(name),
+    )
   },
 
   /** GoldShark “Sync from Database” — common jewellery types */

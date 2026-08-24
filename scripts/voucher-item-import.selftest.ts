@@ -2,7 +2,9 @@
  * Run: npx --yes tsx scripts/voucher-item-import.selftest.ts
  */
 import {
+  itemMasterCreateFailedMessage,
   matchItemMasterName,
+  resolveVoucherItemRow,
   unmatchedItemCategoryMessage,
 } from '../src/utils/itemCategoryMatch.ts'
 import { parseVoucherText } from '../src/utils/voucherReader.ts'
@@ -227,5 +229,180 @@ assertEq(realTwoRows.lines[0].item, 'Mix Ornaments', 'two rows: row1 item')
 assertEq(realTwoRows.lines[1].item, 'pendent', 'two rows: row2 item')
 assertEq(realTwoRows.lines[1].pic, '61', 'two rows: row2 pic')
 assertEq(realTwoRows.lines[1].purity, '22K916', 'two rows: row2 purity')
+
+/** In-memory Item Master that mirrors addJewelleryCategory (tenant-scoped list). */
+function makeTenantMaster(tenantId: string, initial: string[]) {
+  const names = [...initial]
+  return {
+    tenantId,
+    names,
+    getNames: () => names,
+    create: (name: string) => {
+      const trimmed = name.trim()
+      if (!trimmed) return null
+      if (names.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return null
+      names.unshift(trimmed)
+      return { name: trimmed, tenantId }
+    },
+  }
+}
+
+function sampleLine(item: string, extra: Partial<{
+  pic: string
+  weight: string
+  purity: string
+  requestNo: string
+  receiptNo: string
+  jobCardNo: string
+}> = {}) {
+  return {
+    item,
+    pic: extra.pic ?? '10',
+    weight: extra.weight ?? '24.0',
+    purity: extra.purity ?? '22K916',
+    requestNo: extra.requestNo ?? '118723574',
+    receiptNo: extra.receiptNo ?? '28612544',
+    jobCardNo: extra.jobCardNo ?? '',
+  }
+}
+
+// 1. Existing Item Master item is still matched — no create
+{
+  const master = makeTenantMaster('tn_demo', ['Locket', 'Necklace', 'Pendent', 'Bangles'])
+  const before = master.names.slice()
+  const row = resolveVoucherItemRow(sampleLine('pendent'), master.getNames, master.create)
+  assertEq(row.item, 'Pendent', '1 existing match uses Item Master name')
+  assertEq(row.createdItemMaster, false, '1 existing match does not create')
+  assertEq(row.itemMatchWarning, undefined, '1 existing match has no warning')
+  assertEq(master.names.join('|'), before.join('|'), '1 existing match does not mutate master')
+}
+
+// 2–4. Missing item is created, linked, warning cleared
+{
+  const master = makeTenantMaster('tn_demo', ['Necklace', 'Bangles'])
+  const row = resolveVoucherItemRow(sampleLine('Locket'), master.getNames, master.create)
+  assertEq(row.item, 'Locket', '2 created name is voucher name')
+  assertEq(row.createdItemMaster, true, '2 missing item is created')
+  assert(master.names.includes('Locket'), '3 created item is in Item Master')
+  assertEq(row.itemMatchWarning, undefined, '4 warning cleared after create')
+}
+
+// 5. Multiple missing items created independently; existing reused
+{
+  const master = makeTenantMaster('tn_demo', ['Locket', 'Bracelet'])
+  const rows = [
+    resolveVoucherItemRow(sampleLine('Locket'), master.getNames, master.create),
+    resolveVoucherItemRow(sampleLine('Chain', { pic: '2', weight: '15.23' }), master.getNames, master.create),
+    resolveVoucherItemRow(sampleLine('Bracelet'), master.getNames, master.create),
+    resolveVoucherItemRow(sampleLine('Ring'), master.getNames, master.create),
+  ]
+  assertEq(rows[0].item, 'Locket', '5 Locket reused')
+  assertEq(rows[0].createdItemMaster, false, '5 Locket not duplicated')
+  assertEq(rows[1].item, 'Chain', '5 Chain created')
+  assertEq(rows[1].createdItemMaster, true, '5 Chain is new')
+  assertEq(rows[2].item, 'Bracelet', '5 Bracelet reused')
+  assertEq(rows[3].item, 'Ring', '5 Ring created')
+  assertEq(master.names.filter((n) => n === 'Locket').length, 1, '5 still one Locket')
+  assertEq(master.names.filter((n) => n === 'Chain').length, 1, '5 one Chain')
+  assertEq(master.names.filter((n) => n === 'Ring').length, 1, '5 one Ring')
+}
+
+// 6–7. Normalized equivalent does not duplicate
+{
+  const master = makeTenantMaster('tn_demo', [])
+  const first = resolveVoucherItemRow(sampleLine('Locket'), master.getNames, master.create)
+  const second = resolveVoucherItemRow(sampleLine(' locket '), master.getNames, master.create)
+  assertEq(first.createdItemMaster, true, '6 first Locket created')
+  assertEq(second.item, 'Locket', '7 second uses existing Locket')
+  assertEq(second.createdItemMaster, false, '7 whitespace/case does not create duplicate')
+  assertEq(master.names.filter((n) => n.toLowerCase() === 'locket').length, 1, '7 one locket record')
+}
+
+// 8–13. Voucher fields preserved
+{
+  const master = makeTenantMaster('tn_demo', ['Necklace'])
+  const row = resolveVoucherItemRow(
+    sampleLine('chain', {
+      pic: '2',
+      weight: '15.23',
+      purity: '22K916',
+      requestNo: '118723574',
+      receiptNo: '28612544',
+      jobCardNo: 'JC-9',
+    }),
+    master.getNames,
+    master.create,
+  )
+  assertEq(row.pic, '2', '8 PIC unchanged')
+  assertEq(row.weight, '15.23', '9 weight unchanged')
+  assertEq(row.purity, '22K916', '10 purity unchanged')
+  assertEq(row.requestNo, '118723574', '11 request no unchanged')
+  assertEq(row.receiptNo, '28612544', '12 receipt no unchanged')
+  assertEq(row.jobCardNo, 'JC-9', '13 job card no unchanged')
+  assertEq(row.item, 'chain', 'created name is voucher name, not rewritten')
+}
+
+// 14. New Item Master record uses the calling tenant only
+{
+  const tenantA = makeTenantMaster('tn_a', ['Necklace'])
+  const tenantB = makeTenantMaster('tn_b', ['Necklace', 'Locket'])
+  const created = tenantA.create('Chain')
+  assertEq(created?.tenantId, 'tn_a', '14 create stamps tenant A')
+  assert(tenantA.names.includes('Chain'), '14 tenant A received Chain')
+  assert(!tenantB.names.includes('Chain'), '14 tenant B did not receive Chain')
+  const row = resolveVoucherItemRow(sampleLine('Bangle'), tenantA.getNames, tenantA.create)
+  assertEq(row.item, 'Bangle', '14 Bangle created in A')
+  assert(tenantA.names.includes('Bangle'), '14 A has Bangle')
+  assert(!tenantB.names.includes('Bangle'), '14 B does not have Bangle')
+}
+
+// 15. Session Item Master list is the only write target (centre/outlet context)
+{
+  const sessionCentre = makeTenantMaster('tn_demo', ['Necklace'])
+  const otherCentre = makeTenantMaster('tn_demo', ['Necklace', 'Coin'])
+  resolveVoucherItemRow(sampleLine('Locket'), sessionCentre.getNames, sessionCentre.create)
+  assert(sessionCentre.names.includes('Locket'), '15 session centre master gained Locket')
+  assert(!otherCentre.names.includes('Locket'), '15 other centre master unchanged')
+}
+
+// 16. Create failure stays unresolved with a clear error
+{
+  const master = makeTenantMaster('tn_demo', ['Necklace'])
+  const row = resolveVoucherItemRow(sampleLine('Locket'), master.getNames, () => null)
+  assertEq(row.item, 'Locket', '16 voucher row is kept')
+  assertEq(row.createdItemMaster, false, '16 not marked created')
+  assertEq(row.itemMatchWarning, itemMasterCreateFailedMessage('Locket'), '16 create error shown')
+  assert(!master.names.includes('Locket'), '16 master unchanged on failure')
+
+  const thrown = resolveVoucherItemRow(sampleLine('Chain'), master.getNames, () => {
+    throw new Error('db down')
+  })
+  assertEq(thrown.itemMatchWarning, itemMasterCreateFailedMessage('Chain'), '16 thrown create error')
+  assertEq(thrown.item, 'Chain', '16 thrown path keeps voucher item')
+}
+
+// 17. Save payload still carries resolved item + original voucher fields
+{
+  const master = makeTenantMaster('tn_demo', ['Necklace'])
+  const row = resolveVoucherItemRow(
+    sampleLine('Locket', { pic: '10', weight: '24.0', purity: '22K916' }),
+    master.getNames,
+    master.create,
+  )
+  const savePayload = {
+    item: row.item,
+    pic: Number(row.pic) || 1,
+    weight: Number(row.weight),
+    purity: row.purity,
+    requestNo: row.requestNo,
+    receiptNo: row.receiptNo,
+    jobCardNo: row.jobCardNo,
+  }
+  assertEq(savePayload.item, 'Locket', '17 save uses created Item Master name')
+  assertEq(savePayload.pic, 10, '17 save PIC')
+  assertEq(savePayload.weight, 24, '17 save weight')
+  assertEq(savePayload.purity, '22K916', '17 save purity')
+  assertEq(row.itemMatchWarning, undefined, '17 resolved row can save without warning')
+}
 
 console.log('voucher item import selftest passed')
