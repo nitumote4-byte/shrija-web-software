@@ -39,6 +39,24 @@ export async function changeOwnPassword(currentPassword: string, newPassword: st
   })
 }
 
+/** Verify the signed-in user's login password. Does not store or return the password. */
+export async function verifyLoginPassword(
+  password: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await api<{ ok: true }>('/api/auth/verify-password', {
+      method: 'POST',
+      json: { password },
+    })
+    return { ok: true }
+  } catch (e) {
+    if (e instanceof ApiRequestError) {
+      return { ok: false, error: e.message }
+    }
+    return { ok: false, error: e instanceof Error ? e.message : 'Password verification failed' }
+  }
+}
+
 export async function requestPasswordReset(username: string) {
   return api<{ message: string }>('/api/auth/forgot-password', {
     method: 'POST',

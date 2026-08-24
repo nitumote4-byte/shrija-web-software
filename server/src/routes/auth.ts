@@ -401,6 +401,40 @@ authRouter.post('/change-password', authLimiter, requireAuth, requireActiveTenan
   res.json({ ok: true, message: 'Password updated' })
 })
 
+const verifyPasswordSchema = z.object({
+  password: z.string().min(1),
+})
+
+/** Confirm the signed-in user's own login password. Does not store or return the password. */
+authRouter.post('/verify-password', authLimiter, requireAuth, requireActiveTenant, enforceTenantBody, async (req, res) => {
+  const parsed = verifyPasswordSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Password is required' })
+    return
+  }
+
+  const tenantId = req.user!.tenantId
+  const userId = req.user!.userId
+
+  const { rows } = await pool.query(
+    `SELECT id, password_hash AS "passwordHash"
+     FROM users
+     WHERE id = $1 AND tenant_id = $2`,
+    [userId, tenantId],
+  )
+  const user = rows[0] as { id: string; passwordHash: string } | undefined
+  if (!user) {
+    res.status(404).json({ error: 'User not found' })
+    return
+  }
+  if (!bcrypt.compareSync(parsed.data.password, user.passwordHash)) {
+    res.status(401).json({ error: 'Incorrect password' })
+    return
+  }
+
+  res.json({ ok: true })
+})
+
 const forgotPasswordSchema = z.object({
   username: z.string().trim().min(1),
 })

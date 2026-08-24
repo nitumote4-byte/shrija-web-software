@@ -4,7 +4,15 @@ import { ArrowLeft, FileText, Home, Search } from 'lucide-react'
 import { invoiceToChallan, type ChallanView } from '../components/InvoiceChallan'
 import { InvoicePreviewPanel } from '../components/InvoicePreviewPanel'
 import { useToast } from '../components/ui'
+import { verifyLoginPassword } from '../data/auth'
 import { store, type InvoiceLine } from '../data/store'
+import {
+  BILL_DELETE_CONFIRM_1,
+  BILL_DELETE_CONFIRM_2,
+  BILL_DELETE_PASSWORD_PROMPT,
+  reduceBillDeletePhase,
+  type BillDeletePhase,
+} from '../data/requestBillingDeletion'
 import { tenantGet } from '../data/tenant'
 import {
   applyInvoicePaperForPrint,
@@ -67,6 +75,10 @@ export function ViewGeneratedBills() {
   })
   const [paperSize, setPaperSize] = useState<InvoicePaperSize>(() => loadInvoicePaperSize())
   const [tick, setTick] = useState(0)
+  const [deletePhase, setDeletePhase] = useState<BillDeletePhase>('idle')
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteError, setDeleteError] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
   void tick
 
   const setPaper = (size: InvoicePaperSize) => {
@@ -186,13 +198,17 @@ export function ViewGeneratedBills() {
     setTimeout(() => printInvoiceSheet(paperSize), 200)
   }
 
-  const deleteBill = () => {
-    if (!activeId || !preview) {
-      toast('Get a bill first')
-      return
-    }
-    if (!window.confirm(`Delete invoice ${preview.invoiceNo}?`)) return
+  const resetBillDelete = () => {
+    setDeletePhase('idle')
+    setDeletePassword('')
+    setDeleteError('')
+    setDeleteBusy(false)
+  }
+
+  const commitBillDelete = () => {
+    if (!activeId) return
     const ok = store.deleteInvoice(activeId)
+    resetBillDelete()
     if (!ok) {
       toast('Delete failed')
       return
@@ -202,6 +218,49 @@ export function ViewGeneratedBills() {
     setSelectedKey('')
     setTick((t) => t + 1)
     toast('Invoice deleted · data pushed')
+  }
+
+  const deleteBill = () => {
+    if (!activeId || !preview) {
+      toast('Get a bill first')
+      return
+    }
+    setDeletePassword('')
+    setDeleteError('')
+    setDeletePhase(reduceBillDeletePhase('idle', { type: 'start' }))
+  }
+
+  const submitDeletePassword = async () => {
+    if (deleteBusy) return
+    const password = deletePassword
+    if (!password) {
+      setDeleteError('Password is required')
+      return
+    }
+    setDeleteBusy(true)
+    setDeleteError('')
+    const result = await verifyLoginPassword(password)
+    setDeletePassword('')
+    setDeleteBusy(false)
+    if (!result.ok) {
+      setDeletePhase(reduceBillDeletePhase('password', { type: 'passwordResult', ok: false }))
+      setDeleteError(result.error || 'Incorrect password')
+      return
+    }
+    setDeletePhase(reduceBillDeletePhase('password', { type: 'passwordResult', ok: true }))
+  }
+
+  const onConfirm1 = (ok: boolean) => {
+    setDeletePhase(reduceBillDeletePhase('confirm1', { type: 'confirm1', ok }))
+  }
+
+  const onConfirm2 = (ok: boolean) => {
+    const next = reduceBillDeletePhase('confirm2', { type: 'confirm2', ok })
+    if (next === 'deleted') {
+      commitBillDelete()
+      return
+    }
+    setDeletePhase(next)
   }
 
   const startUpdate = () => {
@@ -448,6 +507,73 @@ export function ViewGeneratedBills() {
           <ArrowLeft size={14} /> Back
         </Link>
       </div>
+      {deletePhase === 'password' && (
+        <div className="modal-backdrop" onClick={resetBillDelete}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>{BILL_DELETE_PASSWORD_PROMPT}</h3>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                void submitDeletePassword()
+              }}
+            >
+              <div className="field">
+                <label htmlFor="bill-delete-password">Login password</label>
+                <input
+                  id="bill-delete-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              {deleteError ? <p className="field-hint">{deleteError}</p> : null}
+              <div className="form-actions">
+                <button type="button" className="btn btn-secondary" onClick={resetBillDelete}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={deleteBusy}>
+                  OK
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deletePhase === 'confirm1' && (
+        <div className="modal-backdrop" onClick={resetBillDelete}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>{BILL_DELETE_CONFIRM_1}</h3>
+            <div className="form-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => onConfirm1(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => onConfirm1(true)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletePhase === 'confirm2' && (
+        <div className="modal-backdrop" onClick={resetBillDelete}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>{BILL_DELETE_CONFIRM_2}</h3>
+            <div className="form-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => onConfirm2(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => onConfirm2(true)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {Toast}
     </div>
   )

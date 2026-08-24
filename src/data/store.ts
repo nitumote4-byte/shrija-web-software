@@ -2,6 +2,13 @@ import { getActiveTenantId } from './tenant'
 import { getStoreCache, getStoreVersion, setStoreCache } from './tenantCache'
 import { getSession } from './auth'
 import {
+  BILL_GENERATED_DELETE_BLOCKED,
+  deleteInvoiceById as removeInvoiceRecord,
+  deleteRequestFromBillingWorkflow as removeRequestBillingRecords,
+  existingRequestNosAmong,
+  hasGeneratedBillForRequest as invoicesExistForRequest,
+} from './requestBillingDeletion'
+import {
   ensureVoucherItemMasterName,
   matchItemMasterName,
   type EnsureItemMasterResult,
@@ -1796,9 +1803,11 @@ export const store = {
 
   deleteInvoice(id: string) {
     const data = load()
-    const before = data.invoices.length
-    data.invoices = data.invoices.filter((i) => i.id !== id)
-    if (data.invoices.length === before) return false
+    const row = data.invoices.find((i) => i.id === id)
+    if (!row) return false
+    const partyName = row.partyName
+    if (!removeInvoiceRecord(data, id)) return false
+    applyInvoicePaymentStatuses(data, partyName)
     save(data)
     return true
   },
@@ -2465,24 +2474,65 @@ export const store = {
    * Compared case-insensitively and trimmed. Multi-item vouchers legitimately
    * share one Request No inside a single save batch, so this only reports
    * numbers that existed before the current save.
+   * Deleted requests are omitted because they are removed from `requests`.
    */
   findExistingRequestNos(candidates: string[]) {
+    return existingRequestNosAmong(load().requests, candidates)
+  },
+
+  /** Authoritative per-request invoice check (full tenant store, not UI-filtered). */
+  hasGeneratedBillForRequest(requestNo: string) {
+    return invoicesExistForRequest(load().invoices, requestNo)
+  },
+
+  /**
+   * Remove request-side billing workflow rows for the given Request Number(s).
+   * Does not touch Lab / Fire Assay / XRF data. Blocked if an invoice exists.
+   */
+  deleteRequestsFromBillingWorkflow(requestNos: string[]) {
     const data = load()
-    const existing = new Set(
-      data.requests
-        .map((r) => String(r.requestNo || '').trim().toLowerCase())
-        .filter(Boolean),
-    )
+    const session = getSession()
+    const scope = session
+      ? {
+          centreId: session.centreId || 'main',
+          centreKind: (session.centreKind === 'osc' ? 'osc' : 'main') as 'main' | 'osc',
+        }
+      : null
+
+    const unique: string[] = []
     const seen = new Set<string>()
-    const hits: string[] = []
-    for (const candidate of candidates) {
-      const value = String(candidate || '').trim()
+    for (const raw of requestNos) {
+      const value = String(raw || '').trim()
       const key = value.toLowerCase()
       if (!key || seen.has(key)) continue
       seen.add(key)
-      if (existing.has(key)) hits.push(value)
+      unique.push(value)
     }
-    return hits
+    if (unique.length === 0) {
+      return { ok: false as const, error: 'Request number is required' }
+    }
+
+    for (const no of unique) {
+      if (invoicesExistForRequest(data.invoices, no)) {
+        return {
+          ok: false as const,
+          error: BILL_GENERATED_DELETE_BLOCKED,
+          blockedByBill: true as const,
+        }
+      }
+    }
+
+    const fireAssays = data.fireAssays
+    const xray = data.xray
+    let deleted = 0
+    for (const no of unique) {
+      const result = removeRequestBillingRecords(data, no, scope)
+      if (result.ok) deleted += 1
+    }
+    data.fireAssays = fireAssays
+    data.xray = xray
+    if (deleted > 0) save(data)
+    return { ok: true as const, deleted }
   },
 
   getPendingRough(partyId?: string) {

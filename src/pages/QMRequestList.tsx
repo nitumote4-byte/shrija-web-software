@@ -4,6 +4,7 @@ import { CloudUpload } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { isOscSession } from '../data/roles'
 import { store, oscTransferLabel, type RoughSheetEntry } from '../data/store'
+import { BILL_GENERATED_DELETE_BLOCKED } from '../data/requestBillingDeletion'
 
 const SAMPLING_METHODS = ['Cutting', 'Drill', 'Cut', 'Scrap', 'Touch'] as const
 
@@ -275,10 +276,42 @@ export function QMRequestList() {
       toast('Please select at least one row to update the status.')
       return
     }
-    if (!window.confirm(`Delete ${selectedIds.length} row(s) from QM day sheet?`)) return
-    for (const id of selectedIds) store.removeRoughSheet(id)
+    const requestNos = [
+      ...new Set(
+        selected
+          .map((r) => String(r.requestNo || '').trim())
+          .filter(Boolean),
+      ),
+    ]
+    if (requestNos.some((no) => store.hasGeneratedBillForRequest(no))) {
+      window.alert(BILL_GENERATED_DELETE_BLOCKED)
+      return
+    }
+    if (
+      !window.confirm(
+        requestNos.length > 0
+          ? `Delete ${requestNos.length} request(s) from the request/billing workflow?`
+          : `Delete ${selectedIds.length} row(s) from QM day sheet?`,
+      )
+    ) {
+      return
+    }
+    if (requestNos.length > 0) {
+      const result = store.deleteRequestsFromBillingWorkflow(requestNos)
+      if (!result.ok) {
+        window.alert(result.error)
+        return
+      }
+    }
+    for (const row of selected) {
+      if (!String(row.requestNo || '').trim()) store.removeRoughSheet(row.id)
+    }
     reload()
-    toast(`${selectedIds.length} row(s) deleted`)
+    toast(
+      requestNos.length > 0
+        ? `${requestNos.length} request(s) deleted`
+        : `${selectedIds.length} row(s) deleted`,
+    )
   }
 
   const weighRow = (id: string) => {
