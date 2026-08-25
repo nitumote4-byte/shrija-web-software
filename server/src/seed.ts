@@ -2,7 +2,7 @@
  * Optional seed: creates Centre A if DB has no tenants.
  * Requires DATABASE_URL. Run: npm run seed
  */
-import 'dotenv/config'
+import './loadEnv.js'
 import bcrypt from 'bcryptjs'
 import { emptyStorePayload, initDb, nowIso, pool, uid, withTransaction } from './db.js'
 import { addDaysIso } from './license.js'

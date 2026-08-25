@@ -77,11 +77,33 @@ export default defineConfig({
       },
     }),
   ],
+  clearScreen: false,
   server: {
+    port: 5173,
+    strictPort: true,
+    host: '127.0.0.1',
     proxy: {
       '/api': {
-        target: 'http://localhost:8787',
+        target: 'http://127.0.0.1:8787',
         changeOrigin: true,
+        configure(proxy) {
+          proxy.on('error', (_err, _req, res) => {
+            if (!res || typeof (res as { writeHead?: unknown }).writeHead !== 'function') return
+            const out = res as {
+              headersSent?: boolean
+              writeHead: (status: number, headers: Record<string, string>) => void
+              end: (body: string) => void
+            }
+            if (out.headersSent) return
+            out.writeHead(502, { 'Content-Type': 'application/json' })
+            out.end(
+              JSON.stringify({
+                error:
+                  'Local API is not reachable on port 8787. Use npm run dev to start frontend, backend, and database together.',
+              }),
+            )
+          })
+        },
       },
     },
   },

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ui'
 import { store } from '../data/store'
@@ -7,9 +7,18 @@ import {
   getFireAssaySheet,
   listFireAssaySheetNos,
   loadFireAssaySheetArchive,
-  saveFireAssaySheetArchive,
+  publishManakFireAssaySheet,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
+import {
+  arrangeFireAssayPresentation,
+  finenessFromMasses,
+  formatFinenessCell,
+  manakJobCardOf,
+  mapCgToViewFields,
+  mapViewRowsToManakRows,
+  pairMeanFineness,
+} from '../data/fireAssayViewLayout'
 
 type ViewRow = {
   key: string
@@ -26,12 +35,6 @@ type ViewRow = {
 }
 
 /** Sheets store "1_127506513"; the Manak/day-sheet key is the job card alone. */
-function manakJobCardOf(raw: string) {
-  return String(raw || '')
-    .replace(/^\d+[_\-/]/, '')
-    .trim()
-}
-
 function emptyRow(key: string, patch: Partial<ViewRow> = {}): ViewRow {
   return {
     key,
@@ -47,32 +50,31 @@ function emptyRow(key: string, patch: Partial<ViewRow> = {}): ViewRow {
   }
 }
 
-function controlRowsFromSheet(sheet: ManakFireAssaySheet | null, mode: 'CG' | 'Cornet'): ViewRow[] {
-  const cg = sheet?.cg
-  const copperLabel1 = mode === 'Cornet' ? 'Copper 1' : 'CG Ref 1'
-  const copperLabel2 = mode === 'Cornet' ? 'Copper 2' : 'CG Ref 2'
+function controlRowsFromSheet(sheet: ManakFireAssaySheet | null, _mode: 'CG' | 'Cornet'): ViewRow[] {
+  const a = mapCgToViewFields(sheet?.cg, 1)
+  const b = mapCgToViewFields(sheet?.cg, 2)
   return [
     emptyRow('cg1', {
       locked: true,
       jobCardNo: 'CG1',
-      sampleDrawn: cg?.cg1 ? String(cg.cg1) : '',
-      sampleWeight: cg?.wotgcaa1 ? String(cg.wotgcaa1) : '',
-      silver: cg?.silverCg1 ? String(cg.silverCg1) : '',
-      lead: cg?.leadCg1 != null ? String(cg.leadCg1) : '',
-      wotgcaa: cg?.copperCg1 ? String(cg.copperCg1) : '',
-      fineness: copperLabel1,
-      meanFineness: cg?.delta1 != null ? String(cg.delta1) : '',
+      sampleDrawn: a.sampleDrawn,
+      sampleWeight: a.sampleWeight,
+      silver: a.silver,
+      lead: a.lead,
+      wotgcaa: a.wotgcaa,
+      fineness: a.fineness,
+      meanFineness: a.meanFineness,
     }),
     emptyRow('cg2', {
       locked: true,
       jobCardNo: 'CG2',
-      sampleDrawn: cg?.cg2 ? String(cg.cg2) : '',
-      sampleWeight: cg?.wotgcaa2 ? String(cg.wotgcaa2) : '',
-      silver: cg?.silverCg2 ? String(cg.silverCg2) : '',
-      lead: cg?.leadCg2 != null ? String(cg.leadCg2) : '',
-      wotgcaa: cg?.copperCg2 ? String(cg.copperCg2) : '',
-      fineness: copperLabel2,
-      meanFineness: cg?.delta2 != null ? String(cg.delta2) : '',
+      sampleDrawn: b.sampleDrawn,
+      sampleWeight: b.sampleWeight,
+      silver: b.silver,
+      lead: b.lead,
+      wotgcaa: b.wotgcaa,
+      fineness: b.fineness,
+      meanFineness: b.meanFineness,
     }),
   ]
 }
@@ -87,12 +89,17 @@ function sheetToViewRows(sheet: ManakFireAssaySheet, mode: 'CG' | 'Cornet'): Vie
       silver: r.silver ? String(r.silver) : '',
       lead: r.lead ? String(r.lead) : '',
       wotgcaa: r.wotgcaa ? r.wotgcaa.toFixed(3) : '',
-      fineness: r.fineness ? String(r.fineness) : '',
-      meanFineness: r.meanFineness != null ? String(r.meanFineness) : '',
+      fineness: formatFinenessCell(r.fineness),
+      meanFineness: formatFinenessCell(r.meanFineness),
       lotNo: r.lotNo,
     }),
   )
-  return [...controlRowsFromSheet(sheet, mode), ...dataRows]
+  for (let i = 0; i + 1 < dataRows.length; i += 2) {
+    const mean = pairMeanFineness(dataRows[i].fineness, dataRows[i + 1].fineness)
+    dataRows[i].meanFineness = mean.first
+    dataRows[i + 1].meanFineness = mean.second
+  }
+  return arrangeFireAssayPresentation([...controlRowsFromSheet(sheet, mode), ...dataRows])
 }
 
 export function ViewFireAssay() {
@@ -121,6 +128,28 @@ export function ViewFireAssay() {
     return (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(3)
   }, [delta1, delta2])
 
+  /** Live proof correction: sample fineness tracks current avgDelta without regenerating WOTGCAA. */
+  useEffect(() => {
+    const avg = Number(avgDelta) || 0
+    setRows((prev) => {
+      if (!prev.length) return prev
+      const next = prev.map((r) => {
+        if (r.locked) return r
+        return {
+          ...r,
+          fineness: finenessFromMasses(r.sampleWeight, r.wotgcaa, avg),
+        }
+      })
+      const data = next.filter((r) => !r.locked)
+      for (let i = 0; i + 1 < data.length; i += 2) {
+        const mean = pairMeanFineness(data[i].fineness, data[i + 1].fineness)
+        data[i].meanFineness = mean.first
+        data[i + 1].meanFineness = mean.second
+      }
+      return [...next]
+    })
+  }, [avgDelta])
+
   const sheetOptions = useMemo(() => {
     void tick
     const fromArchive = listFireAssaySheetNos(
@@ -143,12 +172,10 @@ export function ViewFireAssay() {
     let view = sheetToViewRows(sheet, mode)
     if (jobCard.trim()) {
       const q = jobCard.trim().toLowerCase()
-      view = [
+      view = arrangeFireAssayPresentation([
         ...view.filter((r) => r.locked),
-        ...view.filter(
-          (r) => !r.locked && r.jobCardNo.toLowerCase().includes(q),
-        ),
-      ]
+        ...view.filter((r) => !r.locked && r.jobCardNo.toLowerCase().includes(q)),
+      ])
     }
     setRows(view)
     if (!silent) {
@@ -228,10 +255,12 @@ export function ViewFireAssay() {
         if (r.key !== key) return r
         if (r.locked && !cupelEdit) return r
         const updated = { ...r, ...patch }
-        const sw = Number(updated.sampleWeight)
-        const w = Number(updated.wotgcaa)
-        if (!r.locked && sw > 0 && w > 0 && (patch.sampleWeight != null || patch.wotgcaa != null)) {
-          updated.fineness = ((w / sw) * 1000).toFixed(3)
+        if (!r.locked && (patch.sampleWeight != null || patch.wotgcaa != null)) {
+          updated.fineness = finenessFromMasses(
+            updated.sampleWeight,
+            updated.wotgcaa,
+            Number(avgDelta) || 0,
+          )
         }
         return updated
       })
@@ -240,11 +269,9 @@ export function ViewFireAssay() {
       for (let i = 0; i + 1 < data.length; i += 2) {
         const a = data[i]
         const b = data[i + 1]
-        a.meanFineness = '0.0'
-        b.meanFineness = (
-          (Number(a.fineness || 0) + Number(b.fineness || 0)) /
-          2
-        ).toFixed(3)
+        const mean = pairMeanFineness(a.fineness, b.fineness)
+        a.meanFineness = mean.first
+        b.meanFineness = mean.second
         if (patch.jobCardNo != null && (key === a.key || key === b.key)) {
           a.jobCardNo = patch.jobCardNo
           b.jobCardNo = patch.jobCardNo
@@ -272,28 +299,10 @@ export function ViewFireAssay() {
     if (!loadedSheet && !(purityFilter && sheetNo)) return
     const dataRows = rows.filter((r) => !r.locked)
     const sheetRows = loadedSheet?.viewRows?.length ? loadedSheet.viewRows : loadedSheet?.rows || []
+    const viewRows = mapViewRowsToManakRows(dataRows, sheetRows)
     const byJobCard = new Map(
       sheetRows.filter((r) => r.jobCardNo).map((r) => [manakJobCardOf(r.jobCardNo), r]),
     )
-    const viewRows = dataRows.map((r, i) => {
-      const card = manakJobCardOf(r.jobCardNo)
-      const from = byJobCard.get(card)
-      return {
-        lotNo: r.lotNo || Math.floor(i / 2) + 1,
-        jobCardNo: r.jobCardNo,
-        manakJobCard: card,
-        sampleDrawn: Number(r.sampleDrawn) || 0,
-        sampleWeight: Number(r.sampleWeight) || 0,
-        silver: Number(r.silver) || 0,
-        copper: 0,
-        lead: Number(r.lead) || 4,
-        wotgcaa: Number(r.wotgcaa) || 0,
-        fineness: Number(r.fineness) || 0,
-        meanFineness: Number(r.meanFineness) || 0,
-        partyName: from?.partyName,
-        requestNo: from?.requestNo,
-      }
-    })
     const base: ManakFireAssaySheet = loadedSheet || {
       version: 1,
       source: 'shrija-hallmark-suite',
@@ -333,7 +342,7 @@ export function ViewFireAssay() {
       viewRows,
       rows: viewRows.filter((r) => r.jobCardNo.trim()),
     }
-    saveFireAssaySheetArchive(next)
+    publishManakFireAssaySheet(next)
     // Assay finished here → carry each job card's cornet (WOTGCAA, mg) onto its
     // day-sheet row, so QM Request List and Billing read it without re-entry
     store.applyFireAssayCornet(
@@ -342,6 +351,16 @@ export function ViewFireAssay() {
         requestNo: r.requestNo,
         cornet: r.wotgcaa,
       })),
+    )
+    store.applyFireAssaySampleWeights(
+      rows
+        .filter((r) => !r.locked && r.jobCardNo.trim())
+        .map((r) => ({
+          jobCardNo: manakJobCardOf(r.jobCardNo),
+          requestNo: byJobCard.get(manakJobCardOf(r.jobCardNo))?.requestNo,
+          sampleWeight: r.sampleWeight.trim() === '' ? null : Number(r.sampleWeight),
+          sampleDrawn: r.sampleDrawn.trim() === '' ? null : Number(r.sampleDrawn),
+        })),
     )
     setLoadedSheet(next)
     setTick((t) => t + 1)

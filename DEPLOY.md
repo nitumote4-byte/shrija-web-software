@@ -77,23 +77,16 @@ Creates **Centre A** → `qm_admin` / `admin123`.
 ## 3. Local development
 
 ```bash
-# Postgres
-docker compose up -d
-
-# API
-cd server
-cp .env.example .env   # DATABASE_URL + JWT_SECRET + PGSSL=false
 npm install
-npm run seed
-npm run dev
-
-# UI (repo root)
-cp .env.example .env.local   # leave VITE_API_URL empty to use Vite proxy
-npm install
+npm --prefix server install
+# First time only, if server/.env does not exist:
+#   copy server/.env.example → server/.env
 npm run dev
 ```
 
-Vite proxies `/api` → `http://localhost:8787` when `VITE_API_URL` is unset.
+Open **http://localhost:5173**. One command starts Docker Postgres, the API on port **8787**, and Vite on **5173** (strict — it will not fall back to 5174). Vite proxies `/api` → `http://127.0.0.1:8787` when `VITE_API_URL` is unset.
+
+Optional seed (empty database only): `npm run seed`
 
 ---
 

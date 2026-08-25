@@ -74,9 +74,8 @@ function buildLines(
     return related.map((r) => {
       const pcs = r.pic || 0
       const rej = r.rejectPic || 0
-      // GoldShark: Melt often = sample pcs; HM charged separately (can equal Pcs Rec)
       const melt = Number(r.sampleQty) > 0 ? Number(r.sampleQty) : 0
-      const hm = Math.max(0, pcs - rej)
+      const hm = Math.max(0, pcs - melt)
       const amt = Number((hm * rate).toFixed(2))
       return {
         description: r.item || request.categoryName,
@@ -200,6 +199,14 @@ export function Billing() {
           toast(
             `Invoice #${existing.invoiceNo} already exists for ${request.requestNo}. Open View Bills to edit.`,
           )
+          return
+        }
+
+        const fireAssayCompleted = data.fireAssays.some(
+          (a) => a.requestNo === request.requestNo && a.status === 'Completed',
+        )
+        if (!fireAssayCompleted) {
+          toast('Please complete Fire Assay first.')
           return
         }
       }

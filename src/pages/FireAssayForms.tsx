@@ -4,14 +4,22 @@ import { useToast } from '../components/ui'
 import { getSession } from '../data/auth'
 import { store } from '../data/store'
 import {
+  blankLotWotgcaaJitter,
   copperForCg,
   deltaMg,
-  expectedWotgcaa,
-  finenessPpt,
   getBisDefaults,
+  JOB_PAIR_WOTGCAA_JITTER,
   sampleDrawnMgFromRequest,
+  seedStripPairAssay,
   splitSampleWeights,
 } from '../data/fireAssayBis'
+import {
+  baseJobCardNumberFromRaw,
+  findDuplicateLotQualifiedJob,
+  lotQualifiedJobKey,
+  parseLotJobCard,
+} from '../data/fireAssayJobCard'
+import { finenessFromMasses, pairMeanFineness } from '../data/fireAssayViewLayout'
 import {
   fireAssaySheetExists,
   listFireAssaySheetNos,
@@ -46,15 +54,6 @@ const MODE_META: Record<
   'cornet-auto': { tab: 'Cornet Fire Assay', assayType: 'Cornet Auto' },
   'cornet-ms-m2': { tab: 'Cornet Fire Assay MS M2', assayType: 'Cornet MS M2' },
   manual: { tab: 'Manual Fire Assay', assayType: 'Manual' },
-}
-
-function parseLotJobCard(raw: string): { lotNo: number; jobCard: string } {
-  const t = raw.trim()
-  const m = /^(\d+)\s*[_\-/]\s*(\d+)$/.exec(t)
-  if (m) return { lotNo: Number(m[1]), jobCard: m[2] }
-  // Plain Manak job card number only
-  if (/^\d{6,}$/.test(t)) return { lotNo: 0, jobCard: t }
-  return { lotNo: 1, jobCard: t }
 }
 
 function FireAssaySheet({ mode }: { mode: Mode }) {
@@ -179,24 +178,54 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     setSheetTick((t) => t + 1)
   }
 
-  /** Same Manak job card on a different lot pair = duplicate. Same pair sharing value is OK. */
-  const findDuplicateJob = (value: string, rowKey: string, list: SheetRow[]) => {
-    const parsed = parseLotJobCard(value)
-    const card = (parsed.jobCard || value).trim()
-    if (!card) return null
-    const row = list.find((r) => r.key === rowKey)
-    const lot = row?.lotNo || parsed.lotNo || 0
-    for (const r of list) {
-      if (!r.jobCardNo.trim()) continue
-      if (r.key === rowKey) continue
-      // paired strip (same lotNo) may share job card
-      if (lot && r.lotNo === lot) continue
-      const op = parseLotJobCard(r.jobCardNo)
-      const otherCard = (op.jobCard || r.jobCardNo).trim()
-      if (!otherCard) continue
-      if (otherCard === card || r.jobCardNo.trim() === value.trim()) return r
+  /** Same (jobCard + lotNo) on a different lot pair = duplicate. Same pair sharing value is OK. */
+  const findDuplicateJob = (value: string, rowKey: string, list: SheetRow[]) =>
+    findDuplicateLotQualifiedJob(value, rowKey, list)
+
+  const assaySheetNumber = (): number => {
+    const n = Number(String(sheetNo || '').trim())
+    return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+  }
+
+  /** Re-apply job-level Model C F* to a strip pair, keeping existing sample weights. */
+  const reseedPairFromJob = (
+    a: SheetRow,
+    b: SheetRow,
+    pur: string,
+    avg: number,
+    sheetNumber: number,
+    jobCardRaw: string,
+  ) => {
+    const baseJob = baseJobCardNumberFromRaw(jobCardRaw)
+    if (!baseJob) return
+    const sw1 = Number(a.sampleWeight) || 0
+    const sw2 = Number(b.sampleWeight) || 0
+    if (!(sw1 > 0 && sw2 > 0)) return
+    const lotNo = a.lotNo || b.lotNo || 1
+    const hasJob = Boolean(jobCardRaw.trim())
+    const [j1, j2] = hasJob ? JOB_PAIR_WOTGCAA_JITTER : blankLotWotgcaaJitter(lotNo)
+    const seeded = seedStripPairAssay(sw1, sw2, pur, avg, j1, j2, {
+      sheetNumber,
+      baseJobCardNumber: baseJob,
+    })
+    a.wotgcaa = seeded.wotgcaa1.toFixed(3)
+    b.wotgcaa = seeded.wotgcaa2.toFixed(3)
+    a.fineness = seeded.fineness1.toFixed(3)
+    b.fineness = seeded.fineness2.toFixed(3)
+    const mean = pairMeanFineness(a.fineness, b.fineness)
+    a.meanFineness = mean.first
+    b.meanFineness = mean.second
+  }
+
+  const reseedAllAssignedJobs = (list: SheetRow[], pur: string, avg: number): SheetRow[] => {
+    const sheetNumber = assaySheetNumber()
+    const next = list.map((r) => ({ ...r }))
+    for (let i = 0; i + 1 < next.length; i += 2) {
+      const jc = (next[i].jobCardNo || next[i + 1].jobCardNo || '').trim()
+      if (!jc) continue
+      reseedPairFromJob(next[i], next[i + 1], pur, avg, sheetNumber, jc)
     }
-    return null
+    return next
   }
 
   function autofillRows(
@@ -210,14 +239,19 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     // items, and each Job Card No must keep its own lot.
     const byLot = new Map<string, SheetRow[]>()
     for (const r of prev) {
-      const card = (parseLotJobCard(r.jobCardNo).jobCard || r.jobCardNo).trim()
-      const k = card ? `job:${card}` : r.lotNo ? `lot:${r.lotNo}` : `row:${r.key}`
+      const qualified = lotQualifiedJobKey(r.jobCardNo)
+      const k = qualified
+        ? `lotjob:${qualified}`
+        : r.lotNo
+          ? `lot:${r.lotNo}`
+          : `row:${r.key}`
       const list = byLot.get(k) || []
       list.push(r)
       byLot.set(k, list)
     }
     const out: SheetRow[] = []
     let lot = 1
+    const sheetNumber = assaySheetNumber()
     for (const [, group] of byLot) {
       const jobCards = group.map((g) => g.jobCardNo)
       const reqId = data.requests.find((x) => x.requestNo === group[0].requestNo)?.id || ''
@@ -229,6 +263,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           silverStrip,
           lead,
           pur,
+          sheetNumber,
           jobCards[0],
         )
         built[0].jobCardNo = jobCards[0] || ''
@@ -245,7 +280,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       }
       lot += 1
     }
-    return out
+    return reseedAllAssignedJobs(out, pur, avg)
   }
 
   const buildPairRows = (
@@ -255,6 +290,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     silverStrip: number,
     lead: number,
     pur: string,
+    sheetNumber: number,
     jobCardNo?: string,
   ): SheetRow[] => {
     const req = data.requests.find((r) => r.id === reqId)
@@ -269,12 +305,24 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       data.roughSheets.find((r) => r.requestNo === req?.requestNo && r.status !== 'Rejected') ||
       data.roughSheets.find((r) => r.jobCardNo && r.jobCardNo === req?.jobCardNo)
     const drawn = sampleDrawnMgFromRequest(Number(rough?.sampleWeight) || 0, pur)
-    const [sw1, sw2] = splitSampleWeights(drawn)
-    const w1 = expectedWotgcaa(sw1, pur, avg, 0.02)
-    const w2 = expectedWotgcaa(sw2, pur, avg, -0.01)
-    const f1 = finenessPpt(sw1, w1)
-    const f2 = finenessPpt(sw2, w2)
-    const mean = Number(((f1 + f2) / 2).toFixed(3))
+    const [sw1, sw2] = splitSampleWeights(drawn, lotNo)
+    const baseJob =
+      baseJobCardNumberFromRaw(jobCardNo || '') ||
+      baseJobCardNumberFromRaw(req?.jobCardNo || '') ||
+      0
+    const seeded = seedStripPairAssay(
+      sw1,
+      sw2,
+      pur,
+      avg,
+      JOB_PAIR_WOTGCAA_JITTER[0],
+      JOB_PAIR_WOTGCAA_JITTER[1],
+      {
+        sheetNumber,
+        baseJobCardNumber: baseJob,
+      },
+    )
+    const mean = pairMeanFineness(seeded.fineness1.toFixed(3), seeded.fineness2.toFixed(3))
     const base = {
       partyName: req?.partyName || '',
       requestNo: req?.requestNo || '',
@@ -288,18 +336,18 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         key: `row-${Date.now()}-${lotNo}-a`,
         sampleDrawn: drawn.toFixed(3),
         sampleWeight: sw1.toFixed(3),
-        wotgcaa: w1.toFixed(3),
-        fineness: f1.toFixed(3),
-        meanFineness: '0.0',
+        wotgcaa: seeded.wotgcaa1.toFixed(3),
+        fineness: seeded.fineness1.toFixed(3),
+        meanFineness: mean.first,
         ...base,
       },
       {
         key: `row-${Date.now()}-${lotNo}-b`,
         sampleDrawn: drawn.toFixed(3),
         sampleWeight: sw2.toFixed(3),
-        wotgcaa: w2.toFixed(3),
-        fineness: f2.toFixed(3),
-        meanFineness: mean.toFixed(3),
+        wotgcaa: seeded.wotgcaa2.toFixed(3),
+        fineness: seeded.fineness2.toFixed(3),
+        meanFineness: mean.second,
         ...base,
       },
     ]
@@ -366,17 +414,16 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       }
     }
 
-    // Gold Shark: selecting purity auto-creates No. of Rows (Job Card empty for paste)
+    // Selecting purity auto-creates No. of Rows (Job Card empty for paste)
     if (noJobPick) {
       const prevCards = rows.map((r) => r.jobCardNo)
       const generated = generateSheetRowsFor(nextPurity)
-      setRows(
-        generated.map((r, i) => ({
-          ...r,
-          jobCardNo: prevCards[i] || '',
-          lotNo: prevCards[i] ? parseLotJobCard(prevCards[i]).lotNo || r.lotNo : r.lotNo,
-        })),
-      )
+      const withCards = generated.map((r, i) => ({
+        ...r,
+        jobCardNo: prevCards[i] || '',
+        lotNo: prevCards[i] ? parseLotJobCard(prevCards[i]).lotNo || r.lotNo : r.lotNo,
+      }))
+      setRows(reseedAllAssignedJobs(withCards, nextPurity, Number(avgDelta) || 0))
       return
     }
 
@@ -407,22 +454,43 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     if (cg2Val) setCopperCg2(String(copperForCg(cg2Val, purity)))
   }, [purity, cg1Val, cg2Val])
 
+  /** Live proof correction: when avgDelta changes, recalculate sample fineness only. */
+  useEffect(() => {
+    const avg = Number(avgDelta) || 0
+    setRows((prev) => {
+      if (!prev.length) return prev
+      const next = prev.map((r) => ({
+        ...r,
+        fineness: finenessFromMasses(r.sampleWeight, r.wotgcaa, avg),
+      }))
+      for (let i = 0; i + 1 < next.length; i += 2) {
+        const mean = pairMeanFineness(next[i].fineness, next[i + 1].fineness)
+        next[i].meanFineness = mean.first
+        next[i + 1].meanFineness = mean.second
+      }
+      return next
+    })
+  }, [avgDelta])
+
   const buildBlankLotPair = (
     lotNo: number,
     avg: number,
     silverStrip: number,
     lead: number,
     pur: string,
+    sheetNumber: number,
+    jobCardNo = '',
   ): SheetRow[] => {
     const bis = getBisDefaults(pur)
     // Slight per-lot variation like Gold Shark (~330 mg band)
     const drawn = Number((bis.sampleDrawnSeed + ((lotNo * 17) % 9) * 0.37 + lotNo * 0.11).toFixed(3))
-    const [sw1, sw2] = splitSampleWeights(drawn)
-    const w1 = expectedWotgcaa(sw1, pur, avg, 0.02 + (lotNo % 3) * 0.01)
-    const w2 = expectedWotgcaa(sw2, pur, avg, -0.01 - (lotNo % 2) * 0.01)
-    const f1 = finenessPpt(sw1, w1)
-    const f2 = finenessPpt(sw2, w2)
-    const mean = Number(((f1 + f2) / 2).toFixed(3))
+    const [sw1, sw2] = splitSampleWeights(drawn, lotNo)
+    const [j1, j2] = blankLotWotgcaaJitter(lotNo)
+    const seeded = seedStripPairAssay(sw1, sw2, pur, avg, j1, j2, {
+      sheetNumber,
+      baseJobCardNumber: baseJobCardNumberFromRaw(jobCardNo),
+    })
+    const mean = pairMeanFineness(seeded.fineness1.toFixed(3), seeded.fineness2.toFixed(3))
     const stamp = Date.now()
     const base = {
       partyName: '',
@@ -437,32 +505,33 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       {
         key: `blank-${stamp}-${lotNo}-a`,
         sampleWeight: sw1.toFixed(3),
-        wotgcaa: w1.toFixed(3),
-        fineness: f1.toFixed(3),
-        meanFineness: '0.0',
+        wotgcaa: seeded.wotgcaa1.toFixed(3),
+        fineness: seeded.fineness1.toFixed(3),
+        meanFineness: mean.first,
         ...base,
       },
       {
         key: `blank-${stamp}-${lotNo}-b`,
         sampleWeight: sw2.toFixed(3),
-        wotgcaa: w2.toFixed(3),
-        fineness: f2.toFixed(3),
-        meanFineness: mean.toFixed(3),
+        wotgcaa: seeded.wotgcaa2.toFixed(3),
+        fineness: seeded.fineness2.toFixed(3),
+        meanFineness: mean.second,
         ...base,
       },
     ]
   }
 
-  /** Gold Shark: create exactly No. of Rows (default 22) — no job selection required. */
+  /** Create exactly No. of Rows (default 22) — no job selection required. */
   const generateSheetRowsFor = (pur: string, count?: number): SheetRow[] => {
     const p = pur || '916'
     const bis = getBisDefaults(p)
     const avg = Number(avgDelta) || 0
+    const sheetNumber = assaySheetNumber()
     const target = Math.max(2, Math.min(50, count ?? (Number(noOfRows) || 22)))
     const pairCount = Math.ceil(target / 2)
     const next: SheetRow[] = []
     for (let i = 0; i < pairCount; i++) {
-      next.push(...buildBlankLotPair(i + 1, avg, bis.silverStrip, bis.lead, p))
+      next.push(...buildBlankLotPair(i + 1, avg, bis.silverStrip, bis.lead, p, sheetNumber))
     }
     return next.slice(0, target)
   }
@@ -482,7 +551,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         jobCardNo: prevCards[i] || '',
         lotNo: prevCards[i] ? parseLotJobCard(prevCards[i]).lotNo || r.lotNo : r.lotNo,
       }))
-      setRows(next)
+      setRows(reseedAllAssignedJobs(next, purity, Number(avgDelta) || 0))
       toast(`${next.length} rows ready — paste Job Card No (1_8080132061 …) then Create Sheet`)
       return
     }
@@ -492,17 +561,30 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     }
     const bis = getBisDefaults(purity)
     const avg = Number(avgDelta) || 0
+    const sheetNumber = assaySheetNumber()
     const target = Math.max(2, Number(noOfRows) || 22)
     const maxPairs = Math.ceil(target / 2)
     const picked = selectedJobs.slice(0, maxPairs)
     store.markOscAssayInLab(picked)
     const next: SheetRow[] = []
     picked.forEach((id, i) => {
-      next.push(...buildPairRows(id, i + 1, avg, bis.silverStrip, bis.lead, purity))
+      const req = data.requests.find((r) => r.id === id)
+      next.push(
+        ...buildPairRows(
+          id,
+          i + 1,
+          avg,
+          bis.silverStrip,
+          bis.lead,
+          purity,
+          sheetNumber,
+          req?.jobCardNo || '',
+        ),
+      )
     })
     while (next.length < target) {
       const lot = Math.floor(next.length / 2) + 1
-      next.push(...buildBlankLotPair(lot, avg, bis.silverStrip, bis.lead, purity))
+      next.push(...buildBlankLotPair(lot, avg, bis.silverStrip, bis.lead, purity, sheetNumber))
     }
     setRows(next.slice(0, target))
     toast(`${target} rows filled — enter Job Card No (lot_jobcard)`)
@@ -525,19 +607,14 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       return
     }
 
-    // Block duplicate job cards across lots
+    // Block duplicate lot-qualified ids (same job + same lot). Different lots of one job are OK.
     for (const r of filledRows) {
-      const parsed = parseLotJobCard(r.jobCardNo)
-      const cardOnly = (parsed.jobCard || r.jobCardNo).trim()
-      for (const o of filledRows) {
-        if (o.key === r.key) continue
-        if ((o.lotNo || 0) === (r.lotNo || 0)) continue
-        const op = parseLotJobCard(o.jobCardNo)
-        const oc = (op.jobCard || o.jobCardNo).trim()
-        if (oc && oc === cardOnly) {
-          toast(`Duplicate Job No ${cardOnly} on different lots — har job unique hona chahiye`)
-          return
-        }
+      const dup = findDuplicateJob(r.jobCardNo, r.key, rows)
+      if (dup) {
+        const parsed = parseLotJobCard(r.jobCardNo)
+        const card = (parsed.jobCard || r.jobCardNo).trim()
+        toast(`Duplicate Job No ${card} lot ${parsed.lotNo || r.lotNo} — already used on this sheet`)
+        return
       }
     }
 
@@ -689,6 +766,16 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         cornet: r.wotgcaa,
       })),
     )
+    store.applyFireAssaySampleWeights(
+      sheetRows
+        .filter((r) => r.jobCardNo.trim())
+        .map((r) => ({
+          jobCardNo: parseLotJobCard(r.jobCardNo).jobCard || r.jobCardNo,
+          requestNo: r.requestNo,
+          sampleWeight: r.sampleWeight.trim() === '' ? null : Number(r.sampleWeight),
+          sampleDrawn: r.sampleDrawn.trim() === '' ? null : Number(r.sampleDrawn),
+        })),
+    )
 
     publishManakFireAssaySheet(sheet)
     try {
@@ -723,17 +810,12 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         return updated
       })
       // Pair by lot index (every 2 rows)
+      const avg = Number(avgDelta) || 0
+      const sheetNumber = assaySheetNumber()
+      const pur = purity || '916'
       for (let i = 0; i + 1 < next.length; i += 2) {
         const a = next[i]
         const b = next[i + 1]
-        const swA = Number(a.sampleWeight)
-        const wA = Number(a.wotgcaa)
-        const swB = Number(b.sampleWeight)
-        const wB = Number(b.wotgcaa)
-        if (swA > 0 && wA > 0) a.fineness = finenessPpt(swA, wA).toFixed(3)
-        if (swB > 0 && wB > 0) b.fineness = finenessPpt(swB, wB).toFixed(3)
-        a.meanFineness = '0.0'
-        b.meanFineness = ((Number(a.fineness) + Number(b.fineness)) / 2).toFixed(3)
         if (patch.jobCardNo != null && (key === a.key || key === b.key)) {
           const parsed = parseLotJobCard(patch.jobCardNo)
           a.jobCardNo = patch.jobCardNo
@@ -742,6 +824,22 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
             a.lotNo = parsed.lotNo
             b.lotNo = parsed.lotNo
           }
+          // Job-level Model C: re-seed W from existing SW + shared F* for this base job
+          if (patch.jobCardNo.trim()) {
+            reseedPairFromJob(a, b, pur, avg, sheetNumber, patch.jobCardNo)
+          } else {
+            a.fineness = finenessFromMasses(a.sampleWeight, a.wotgcaa, avg)
+            b.fineness = finenessFromMasses(b.sampleWeight, b.wotgcaa, avg)
+            const mean = pairMeanFineness(a.fineness, b.fineness)
+            a.meanFineness = mean.first
+            b.meanFineness = mean.second
+          }
+        } else {
+          a.fineness = finenessFromMasses(a.sampleWeight, a.wotgcaa, avg)
+          b.fineness = finenessFromMasses(b.sampleWeight, b.wotgcaa, avg)
+          const mean = pairMeanFineness(a.fineness, b.fineness)
+          a.meanFineness = mean.first
+          b.meanFineness = mean.second
         }
       }
       return [...next]
@@ -811,9 +909,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         const c = parseCsvLine(line)
         const sampleWeight = c[2] || c[0] || '0.250'
         const wotgcaa = c[5] || ''
-        const sw = Number(sampleWeight)
-        const w = Number(wotgcaa)
-        const fineness = c[6] || (sw > 0 && w > 0 ? finenessPpt(sw, w).toFixed(3) : '')
+        const fineness = c[6] || finenessFromMasses(sampleWeight, wotgcaa, Number(avgDelta) || 0)
         return {
           key: `upload-${Date.now()}-${i}`,
           sampleDrawn: c[0] || sampleWeight,
@@ -823,12 +919,20 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           lead: c[4] || '4.0',
           wotgcaa,
           fineness,
-          meanFineness: c[7] || (i % 2 === 1 ? fineness : '0.0'),
+          meanFineness: c[7] || '',
           partyName: '',
           requestNo: '',
           lotNo: Math.floor(i / 2) + 1,
         }
       })
+      for (let i = 0; i + 1 < nextRows.length; i += 2) {
+        const a = nextRows[i]
+        const b = nextRows[i + 1]
+        if (a.meanFineness || b.meanFineness) continue
+        const mean = pairMeanFineness(a.fineness, b.fineness)
+        a.meanFineness = mean.first
+        b.meanFineness = mean.second
+      }
       setRows(nextRows)
       toast(`Uploaded ${nextRows.length} row(s)`)
     }
@@ -1004,7 +1108,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           </div>
 
           <div className="field">
-            <label>CG1</label>
+            <label>CG Weight 1</label>
             <select value={cg1Id} onChange={(e) => onCgSelect(1, e.target.value)}>
               <option value="">Select CG1</option>
               {unusedCg.map((r) => (
@@ -1015,23 +1119,8 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
             </select>
           </div>
           <div className="field">
-            <label>CG2</label>
-            <select value={cg2Id} onChange={(e) => onCgSelect(2, e.target.value)}>
-              <option value="">Select CG2</option>
-              {unusedCg.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.weight.toFixed(3)} (#{r.id})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
             <label>Delta In Mg 1</label>
             <input placeholder="Delta1" value={delta1} readOnly className="table-input-disabled" />
-          </div>
-          <div className="field">
-            <label>Delta In Mg 2</label>
-            <input placeholder="Delta2" value={delta2} readOnly className="table-input-disabled" />
           </div>
           <div className="field" style={{ gridColumn: 'span 2' }}>
             <label>Average Delta In Mg</label>
@@ -1230,6 +1319,26 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="panel cg-form-panel">
+        <div className="cg-form-grid">
+          <div className="field">
+            <label>CG Weight 2</label>
+            <select value={cg2Id} onChange={(e) => onCgSelect(2, e.target.value)}>
+              <option value="">Select CG2</option>
+              {unusedCg.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.weight.toFixed(3)} (#{r.id})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Delta In Mg 2</label>
+            <input placeholder="Delta2" value={delta2} readOnly className="table-input-disabled" />
+          </div>
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import './loadEnv.js'
 import express from 'express'
 import cors from 'cors'
 import { authRouter } from './routes/auth.js'
@@ -36,79 +36,66 @@ app.get('/', (_req, res) => {
 </body></html>`)
 })
 
+function dbNotReadyMessage() {
+  if (process.env.NODE_ENV === 'production') {
+    return 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.'
+  }
+  const detail = getLastDbError()
+  const safeDetail =
+    detail && !/postgres(ql)?:\/\//i.test(detail) ? ` (${detail})` : ''
+  return `Database is not ready${safeDetail}. Local Postgres is started by npm run dev (Docker Compose). Confirm DATABASE_URL is set in server/.env and check GET /api/health.`
+}
+
+async function requireDb(
+  _req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
+  if (!isDbReady()) {
+    await ensureDb()
+  }
+  if (!isDbReady()) {
+    res.status(503).json({ error: dbNotReadyMessage() })
+    return
+  }
+  next()
+}
+
 /** Always 200 once HTTP is up — also tries DB connect so status is fresh */
 app.get('/api/health', async (_req, res) => {
   if (!isDbReady()) {
     await ensureDb()
   }
+  const dbReady = isDbReady()
   res.json({
     ok: true,
+    ready: dbReady,
     service: 'shrija-api',
     tenantEnforcement: true,
-    dbReady: isDbReady(),
+    dbReady,
     hasDatabaseUrl: Boolean(databaseUrlPreview()),
     databaseUrlPreview: databaseUrlPreview(),
-    dbError: isDbReady() ? null : getLastDbError(),
+    dbError: dbReady ? null : getLastDbError(),
     features: { license: true },
     commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_GIT_COMMIT || null,
     hasLicenseMaster: Boolean(process.env.LICENSE_MASTER_SECRET),
   })
 })
 
-app.use('/api/auth', (req, res, next) => {
-  if (!isDbReady()) {
-    res.status(503).json({
-      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
-    })
-    return
-  }
-  next()
-})
+app.use('/api/auth', requireDb)
 app.use('/api/auth', authRouter)
 
-app.use('/api/license', (req, res, next) => {
-  if (!isDbReady()) {
-    res.status(503).json({
-      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
-    })
-    return
-  }
-  next()
-})
+app.use('/api/license', requireDb)
 app.use('/api/license', licenseRouter)
 // Alias under /api/auth so older proxies / caches that only know auth still reach licence APIs
 app.use('/api/auth/license', licenseRouter)
 
-app.use('/api/admin', (req, res, next) => {
-  if (!isDbReady()) {
-    res.status(503).json({
-      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
-    })
-    return
-  }
-  next()
-})
+app.use('/api/admin', requireDb)
 app.use('/api/admin', adminRouter)
 
-app.use('/api/data', (req, res, next) => {
-  if (!isDbReady()) {
-    res.status(503).json({
-      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
-    })
-    return
-  }
-  next()
-})
+app.use('/api/data', requireDb)
 app.use('/api/data', dataRouter)
-app.use('/api/data/manak', (req, res, next) => {
-  if (!isDbReady()) {
-    res.status(503).json({
-      error: 'Database is starting or DATABASE_URL is missing. Add Railway Postgres and link DATABASE_URL.',
-    })
-    return
-  }
-  next()
-})
+app.use('/api/data/manak', requireDb)
 app.use('/api/data/manak', manakRouter)
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

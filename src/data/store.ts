@@ -1,3 +1,10 @@
+import {
+  fireAssaySampleWeightFromArchive,
+  parseFireAssaySampleWeight,
+  totalFromFireAssaySamples,
+  unusedSampleWeightGrams,
+  unusedSampleWeightMg,
+} from './fireAssaySampleWeight'
 import { getActiveTenantId } from './tenant'
 import { getStoreCache, getStoreVersion, setStoreCache } from './tenantCache'
 import { getSession } from './auth'
@@ -141,6 +148,8 @@ export type RoughSheetEntry = {
    * overwrites a figure the operator typed on the day sheet.
    */
   cornetSource?: 'manual' | 'fire-assay'
+  /** Unused sample return (grams) persisted from Fire Assay: drawn − assayed strips. */
+  unusedSample?: number
   rejectPic?: number
   centreId?: string
   centreKind?: 'main' | 'osc'
@@ -1004,6 +1013,7 @@ function normalizeRough(r: Partial<RoughSheetEntry> & { id: string }): RoughShee
     sampleTagId: r.sampleTagId ?? '',
     cornet: r.cornet,
     cornetSource: r.cornetSource === 'manual' || r.cornetSource === 'fire-assay' ? r.cornetSource : undefined,
+    unusedSample: Number(r.unusedSample) > 0 ? Number(r.unusedSample) : undefined,
     rejectPic: r.rejectPic ?? 0,
     centreId: r.centreId,
     centreKind: r.centreKind === 'osc' ? 'osc' : r.centreKind === 'main' ? 'main' : undefined,
@@ -2055,6 +2065,93 @@ export const store = {
     }
     if (updated) save(data)
     return updated
+  },
+
+  /**
+   * Fire Assay Sheet → day sheet Sample Weight (and unused sample return).
+   * Exact Job Card: current Fire Assay sample rows, summed (count follows the sheet).
+   * Incomplete (only one sample) is not written — never invents a missing value.
+   */
+  applyFireAssaySampleWeights(
+    entries: {
+      jobCardNo?: string
+      requestNo?: string
+      sampleWeight?: number | null
+      sampleDrawn?: number | null
+    }[],
+  ) {
+    const data = load()
+    const byJobCard = new Map<
+      string,
+      { weights: Array<number | null>; drawns: number[]; requestNos: Set<string> }
+    >()
+    for (const entry of entries) {
+      const key = normalizeJobCardKey(entry.jobCardNo)
+      if (!key) continue
+      const bucket = byJobCard.get(key) ?? {
+        weights: [],
+        drawns: [],
+        requestNos: new Set<string>(),
+      }
+      bucket.weights.push(parseFireAssaySampleWeight(entry.sampleWeight))
+      const drawn = parseFireAssaySampleWeight(entry.sampleDrawn)
+      if (drawn != null && drawn > 0) bucket.drawns.push(drawn)
+      if (entry.requestNo) bucket.requestNos.add(entry.requestNo)
+      byJobCard.set(key, bucket)
+    }
+    if (byJobCard.size === 0) return 0
+
+    let updated = 0
+    for (const row of data.roughSheets) {
+      const bucket = byJobCard.get(normalizeJobCardKey(row.jobCardNo))
+      if (!bucket) continue
+      if (row.requestNo && bucket.requestNos.size > 0 && !bucket.requestNos.has(row.requestNo)) {
+        continue
+      }
+      const result = totalFromFireAssaySamples(bucket.weights)
+      if (result.status !== 'ready' || result.total == null) continue
+      const drawn = bucket.drawns.find((d) => d > 0) || 0
+      const unusedGrams =
+        drawn > 0 ? unusedSampleWeightGrams(unusedSampleWeightMg(drawn, bucket.weights)) : undefined
+      const sampleChanged = Number(row.sampleWeight) !== result.total
+      const unusedChanged =
+        unusedGrams != null && Number(row.unusedSample || 0) !== unusedGrams
+      if (!sampleChanged && !unusedChanged) continue
+      row.sampleWeight = result.total
+      if (unusedGrams != null) row.unusedSample = unusedGrams
+      updated += 1
+    }
+    if (updated) save(data)
+    return updated
+  },
+
+  /**
+   * Authoritative Sample Weight for an exact Job Card from current Fire Assay
+   * sheet rows (both samples). Tenant KV is already scoped; request/centre
+   * filters prevent another outlet's job from being used.
+   */
+  getFireAssaySampleWeight(
+    jobCardNo?: string,
+    requestNo?: string,
+    centreId?: string,
+  ) {
+    if (!normalizeJobCardKey(jobCardNo)) {
+      return fireAssaySampleWeightFromArchive('')
+    }
+    const data = load()
+    const allowed = new Set<string>()
+    for (const req of data.requests) {
+      if (centreId && req.centreId && req.centreId !== centreId) continue
+      if (req.requestNo) allowed.add(req.requestNo)
+    }
+    for (const row of data.roughSheets) {
+      if (centreId && row.centreId && row.centreId !== centreId) continue
+      if (row.requestNo) allowed.add(row.requestNo)
+    }
+    return fireAssaySampleWeightFromArchive(jobCardNo || '', {
+      requestNo,
+      allowRequestNo: (no) => allowed.has(no),
+    })
   },
 
   addFireAssay(input: Omit<FireAssay, 'id' | 'assayNo' | 'date'> & { assayNo?: string; date?: string }) {

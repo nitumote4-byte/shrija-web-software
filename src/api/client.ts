@@ -93,7 +93,17 @@ export async function api<T>(
   }
 
   if (!res.ok) {
-    const msg = (body as ApiError)?.error || `Request failed (${res.status})`
+    let msg = (body as ApiError)?.error
+    if (!msg) {
+      if (res.status === 502) {
+        msg =
+          'Request failed (502): local API is not reachable. Use npm run dev to start backend and database.'
+      } else if (res.status === 503) {
+        msg = 'Request failed (503): database is not ready. Check GET /api/health.'
+      } else {
+        msg = `Request failed (${res.status})`
+      }
+    }
     const code = (body as ApiError)?.code
     throw new ApiRequestError(msg, res.status, code, body)
   }

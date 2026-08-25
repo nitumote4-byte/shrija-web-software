@@ -4,12 +4,17 @@ Quality Manager web software for hallmarking centre operations — request intak
 
 ## Run locally
 
+Requires **Docker Desktop** (local PostgreSQL).
+
 ```bash
 npm install
+npm --prefix server install
 npm run dev
 ```
 
-Open the URL shown in the terminal (usually `http://localhost:5173`).
+Then open **http://localhost:5173**.
+
+`npm run dev` starts PostgreSQL, waits until the API and database are ready, then starts the UI on port **5173** (it will not silently move to 5174). First-time API env: copy `server/.env.example` to `server/.env` if that file is missing.
 
 ## Modules
 
