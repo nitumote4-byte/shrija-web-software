@@ -39,6 +39,9 @@ type SummaryRow = {
   shift: string
   date: string
   address: string
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
 }
 
 type EntryForm = {
@@ -67,7 +70,7 @@ function emptyEntry(): EntryForm {
   }
 }
 
-/** Auto sample qty/weight from sampling method (disabled fields). */
+/** Auto sample qty from sampling method. Sample Weight is not derived here. */
 function sampleForMethod(method: SamplingMethod): { qty: string; weight: string } {
   switch (method) {
     case 'Drill':
@@ -81,6 +84,29 @@ function sampleForMethod(method: SamplingMethod): { qty: string; weight: string 
     default:
       return { qty: '', weight: '' }
   }
+}
+
+function resolvedRowSampleWeight(row: {
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
+  sampleWeight: number
+}) {
+  const fa = store.getFireAssaySampleWeight(row.jobCardNo, row.requestNo, row.centreId)
+  if (fa.status === 'ready' && fa.total != null) return fa.total
+  return Number(row.sampleWeight) || 0
+}
+
+function formatRowSampleWeight(row: {
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
+  sampleWeight: number
+}) {
+  const fa = store.getFireAssaySampleWeight(row.jobCardNo, row.requestNo, row.centreId)
+  if (fa.status === 'ready' && fa.total != null) return fa.total.toFixed(3)
+  const n = Number(row.sampleWeight) || 0
+  return n > 0 ? n.toFixed(3) : ''
 }
 
 export function RoughSheet() {
@@ -148,7 +174,7 @@ export function RoughSheet() {
         pic: r.pic,
         weight: r.weight,
         purity: r.purity,
-        sampleWeight: r.sampleWeight,
+        sampleWeight: resolvedRowSampleWeight(r),
         sampleQty: r.sampleQty,
         samplingMethod: r.samplingMethod,
         cml: r.cml,
@@ -156,6 +182,9 @@ export function RoughSheet() {
         shift: r.shift,
         date: r.date,
         address: r.address,
+        jobCardNo: r.jobCardNo,
+        requestNo: r.requestNo,
+        centreId: r.centreId,
       })),
     )
     setSelected([])
@@ -188,7 +217,7 @@ export function RoughSheet() {
       if (key === 'samplingMethod') {
         const auto = sampleForMethod(value as SamplingMethod)
         next.sampleQty = auto.qty
-        next.sampleWeight = auto.weight
+        // Sample Weight comes from Fire Assay (two samples), not from sampling method
       }
       return next
     })
@@ -213,10 +242,6 @@ export function RoughSheet() {
     }
     if (!entry.purity) {
       toast('Purity is required')
-      return
-    }
-    if (!entry.samplingMethod) {
-      toast('Sampling Method is required')
       return
     }
 
@@ -246,7 +271,7 @@ export function RoughSheet() {
         pic: saved.pic,
         weight: saved.weight,
         purity: saved.purity,
-        sampleWeight: saved.sampleWeight,
+        sampleWeight: resolvedRowSampleWeight(saved),
         sampleQty: saved.sampleQty,
         samplingMethod: saved.samplingMethod,
         cml: saved.cml,
@@ -254,6 +279,9 @@ export function RoughSheet() {
         shift: saved.shift,
         date: saved.date,
         address: saved.address,
+        jobCardNo: saved.jobCardNo,
+        requestNo: saved.requestNo,
+        centreId: saved.centreId,
       },
     ])
     setEntry(emptyEntry())
@@ -519,7 +547,7 @@ export function RoughSheet() {
                   <td />
                   <td />
                   <td>{entryTotals.sampleQty || 0}</td>
-                  <td>{entryTotals.sampleWeight.toFixed(3)}</td>
+                  <td>{entry.sampleWeight || ''}</td>
                   <td />
                 </tr>
               </tbody>
@@ -605,7 +633,7 @@ export function RoughSheet() {
                     <td>{row.pic}</td>
                     <td>{row.weight.toFixed(3)}</td>
                     <td>{row.purity}</td>
-                    <td>{row.sampleWeight.toFixed(3)}</td>
+                    <td>{formatRowSampleWeight(row)}</td>
                     <td>{row.sampleQty}</td>
                     <td>{row.samplingMethod}</td>
                     <td>{row.cml}</td>

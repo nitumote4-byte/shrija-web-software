@@ -32,20 +32,32 @@ function formatSampleWeight(n: number) {
 }
 
 function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
-  return entries.map((r) => ({
-    ...r,
-    jobCardNo: r.jobCardNo || '',
-    jobCardSaved: Boolean(r.jobCardSaved),
-    co: r.co || '',
-    sampleTagId: r.sampleTagId || '',
-    sampleQty: r.sampleQty ?? 1,
-    samplingMethod: r.samplingMethod || '',
-    cornet: r.cornet ?? 0,
-    rejectPic: r.rejectPic ?? 0,
-    sampleWeightText: formatSampleWeight(Number(r.sampleWeight) || 0),
-    checked: false,
-    dirty: false,
-  }))
+  return entries.map((r) => {
+    const fa = store.getFireAssaySampleWeight(r.jobCardNo, r.requestNo, r.centreId)
+    const sampleWeight =
+      fa.status === 'ready' && fa.total != null ? fa.total : Number(r.sampleWeight) || 0
+    const sampleWeightText =
+      fa.status === 'ready' && fa.total != null
+        ? fa.total.toFixed(3)
+        : sampleWeight > 0
+          ? formatSampleWeight(sampleWeight)
+          : ''
+    return {
+      ...r,
+      jobCardNo: r.jobCardNo || '',
+      jobCardSaved: Boolean(r.jobCardSaved),
+      co: r.co || '',
+      sampleTagId: r.sampleTagId || '',
+      sampleQty: r.sampleQty ?? 1,
+      samplingMethod: r.samplingMethod || '',
+      cornet: r.cornet ?? 0,
+      rejectPic: r.rejectPic ?? 0,
+      sampleWeight,
+      sampleWeightText,
+      checked: false,
+      dirty: false,
+    }
+  })
 }
 
 function persistRow(row: SheetRow, markSaved: boolean) {
@@ -139,7 +151,18 @@ export function QMRequestList() {
         const dataChanged = Object.keys(patch).some((k) => k !== 'checked')
         if (dataChanged) {
           next.dirty = true
-          if (patch.jobCardNo !== undefined) next.jobCardSaved = false
+          if (patch.jobCardNo !== undefined) {
+            next.jobCardSaved = false
+            const fa = store.getFireAssaySampleWeight(
+              patch.jobCardNo,
+              next.requestNo,
+              next.centreId,
+            )
+            if (fa.status === 'ready' && fa.total != null) {
+              next.sampleWeight = fa.total
+              next.sampleWeightText = fa.total.toFixed(3)
+            }
+          }
         }
         return next
       }),
