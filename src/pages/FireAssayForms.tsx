@@ -27,6 +27,7 @@ import {
   publishManakFireAssaySheet,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
+import { hasAvailableCgWeightForSheet } from '../data/cgWeightAvailability'
 import { loadCgWeights, markCgWeightsUsed, type CgWeightRow } from './CGWeight'
 
 type SheetRow = {
@@ -616,6 +617,17 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         toast(`Duplicate Job No ${card} lot ${parsed.lotNo || r.lotNo} — already used on this sheet`)
         return
       }
+    }
+
+    // CG comes from QM Stock unused list (loadCgWeights). Do not treat missing as 0.
+    const cgStock = loadCgWeights()
+    const cg1Weight =
+      cg1Row?.weight ?? cgStock.find((r) => String(r.id) === cg1Id)?.weight
+    const cg2Weight =
+      cg2Row?.weight ?? cgStock.find((r) => String(r.id) === cg2Id)?.weight
+    if (!hasAvailableCgWeightForSheet(cg1Weight, cg2Weight)) {
+      toast('There is no available CG weight.')
+      return
     }
 
     // Same Sheet No pe Create Sheet = UPDATE (overwrite). Naya sheet chahiye to Sheet dropdown badlo.

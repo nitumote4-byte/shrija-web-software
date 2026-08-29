@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Pencil, Trash2 } from 'lucide-react'
 import { useToast } from '../components/ui'
+import { isValidCgWeightValue } from '../data/cgWeightAvailability'
 import { tenantGet, tenantSet } from '../data/tenant'
 import { store } from '../data/store'
 
@@ -65,7 +66,7 @@ function parseCgWeight(raw: string): number | null {
   if (!t) return null
   if (!/^\d*\.?\d+$/.test(t) && !/^\.\d+$/.test(t)) return null
   const n = Number(t.startsWith('.') ? `0${t}` : t)
-  return Number.isFinite(n) && n > 0 ? n : null
+  return isValidCgWeightValue(n) ? n : null
 }
 
 export function QMCGWeightPage({ hubPath = '/qm-stock' }: { hubPath?: string }) {
