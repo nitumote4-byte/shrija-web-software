@@ -10,15 +10,20 @@ import {
   publishManakFireAssaySheet,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
+import { FireAssayReportSheet } from '../components/FireAssayReportSheet'
+import { getSession } from '../data/auth'
+import { USER_NAME } from '../data/modules'
 import {
   arrangeFireAssayPresentation,
   finenessFromMasses,
   formatFinenessCell,
+  getPrintableFireAssayRows,
   manakJobCardOf,
   mapCgToViewFields,
   mapViewRowsToManakRows,
   pairMeanFineness,
 } from '../data/fireAssayViewLayout'
+import { applyFireAssayPaperForPrint, printFireAssaySheet } from '../utils/fireAssayPaper'
 
 type ViewRow = {
   key: string
@@ -127,6 +132,24 @@ export function ViewFireAssay() {
     if (vals.length === 0) return ''
     return (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(3)
   }, [delta1, delta2])
+
+  /** Print/PDF only. The on-screen grid keeps the full source sheet (up to 22 slots). */
+  const printableRows = useMemo(() => getPrintableFireAssayRows(rows), [rows])
+  /** On-screen grid only. Same Job Card filter; does not replace or mutate `rows`. */
+  const visibleRows = useMemo(() => getPrintableFireAssayRows(rows), [rows])
+  const signedBy = getSession()?.username || USER_NAME
+
+  useEffect(() => {
+    const onBeforePrint = () => applyFireAssayPaperForPrint()
+    const onAfterPrint = () => document.documentElement.removeAttribute('data-fire-assay-print')
+    window.addEventListener('beforeprint', onBeforePrint)
+    window.addEventListener('afterprint', onAfterPrint)
+    return () => {
+      window.removeEventListener('beforeprint', onBeforePrint)
+      window.removeEventListener('afterprint', onAfterPrint)
+      document.documentElement.removeAttribute('data-fire-assay-print')
+    }
+  }, [])
 
   /** Live proof correction: sample fineness tracks current avgDelta without regenerating WOTGCAA. */
   useEffect(() => {
@@ -434,6 +457,7 @@ export function ViewFireAssay() {
 
   return (
     <div className="view-assay-page">
+      <div className="view-assay-work no-print">
       <div className="panel view-assay-filters">
         <div className="view-assay-filter-row">
           <input
@@ -517,8 +541,8 @@ export function ViewFireAssay() {
             <button type="button" className="btn btn-navy" onClick={saveAll}>
               Save All
             </button>
-            <button type="button" className="btn btn-navy" onClick={() => window.print()}>
-              Print
+            <button type="button" className="btn btn-navy" onClick={() => printFireAssaySheet()}>
+              Print / PDF
             </button>
           </div>
           <button
@@ -551,7 +575,7 @@ export function ViewFireAssay() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {visibleRows.map((row) => (
                 <tr key={row.key} className={row.locked ? 'view-assay-control-row' : ''}>
                   <td>
                     <input
@@ -640,6 +664,21 @@ export function ViewFireAssay() {
         <Link to="/create-fire-assay" className="btn btn-navy">
           Back
         </Link>
+      </div>
+      </div>
+
+      <div className="fa-report-print-root" aria-hidden="true">
+        <FireAssayReportSheet
+          rows={printableRows}
+          purity={purity}
+          delta1={delta1}
+          delta2={delta2}
+          avgDelta={avgDelta}
+          weighingDate={date}
+          reportingDate={date}
+          weightedBy={signedBy}
+          reportedBy={signedBy}
+        />
       </div>
       {Toast}
     </div>

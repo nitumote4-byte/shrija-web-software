@@ -28,6 +28,56 @@ export function arrangeFireAssayPresentation<T extends { key: string }>(rows: T[
   return out
 }
 
+type FireAssayPrintableRow = {
+  jobCardNo?: string | null
+}
+
+function hasPrintableFireAssayJobCard(jobCardNo: unknown): boolean {
+  return String(jobCardNo ?? '').trim() !== ''
+}
+
+/**
+ * Print/PDF only: keep rows that have a Job Card Number.
+ * Empty unused slots (no Job Card) are omitted. Secondary fields are ignored.
+ * Does not mutate, reorder, or recalculate the source rows.
+ */
+export function getPrintableFireAssayRows<T extends FireAssayPrintableRow>(
+  rows: readonly T[],
+): T[] {
+  return rows.filter((r) => hasPrintableFireAssayJobCard(r.jobCardNo))
+}
+
+/**
+ * Native Print Preview and Save as PDF must render this same filtered list.
+ * There is one filter and one report markup — not a separate on-screen preview.
+ */
+export function getFireAssayPreviewAndPrintRows<T extends FireAssayPrintableRow>(
+  rows: readonly T[],
+): { previewRows: T[]; printRows: T[] } {
+  const filtered = getPrintableFireAssayRows(rows)
+  return { previewRows: filtered, printRows: filtered }
+}
+
+/** BIS Fire Assay Sheet document-control header (Format F-25). Not assay chemistry. */
+export const FIRE_ASSAY_SHEET_FORMAT = {
+  formatNo: 'F-25',
+  issueNo: '01',
+  revisionNo: '00',
+  preparedBy: 'QM',
+  approvedBy: 'TM',
+  issuedBy: 'QM',
+  issueDate: '01.04.2023',
+} as const
+
+/** Display date on the F-25 sheet as DD-MM-YYYY. */
+export function formatFireAssayReportDate(raw: string): string {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`
+  return s
+}
+
 /**
  * CG control-row display: gold-cornet column is WOTGCAA of check gold.
  * Copper stays on sheet.cg for Manak and is never shown as gold cornet.

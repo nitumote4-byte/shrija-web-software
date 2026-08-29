@@ -9849,3 +9849,163 @@ body {
   }
 }
 
+/* --- Fire Assay Sheet (Format F-25) — native print / PDF only --------------- */
+.fa-report-print-root {
+  display: none;
+}
+
+.fa-report-sheet {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 194mm;
+  margin: 0 auto;
+  background: #fff;
+  color: #111;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.fa-report-sheet table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.fa-report-sheet table + table {
+  margin-top: -1px;
+}
+
+.fa-report-sheet th,
+.fa-report-sheet td {
+  border: 1px solid #111;
+  padding: 6px 7px;
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+.fa-report-head td {
+  text-align: left;
+}
+
+.fa-report-title {
+  margin: 0;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 8px 6px;
+  background: #fff;
+}
+
+.fa-report-metrics th,
+.fa-report-metrics td {
+  text-align: center;
+  width: 25%;
+}
+
+.fa-report-metrics th {
+  font-weight: 700;
+}
+
+.fa-report-data th {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.25;
+  padding: 7px 4px;
+  background: #fff;
+}
+
+.fa-report-data td {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 5px 4px;
+}
+
+.fa-report-data .fa-col-drawn {
+  width: 12%;
+}
+
+.fa-report-data .fa-col-job {
+  width: 16%;
+}
+
+.fa-report-data .fa-col-sw {
+  width: 12%;
+}
+
+.fa-report-data .fa-col-ag {
+  width: 9%;
+}
+
+.fa-report-data .fa-col-pb {
+  width: 8%;
+}
+
+.fa-report-data .fa-col-cornet {
+  width: 17%;
+}
+
+.fa-report-data .fa-col-fin {
+  width: 13%;
+}
+
+.fa-report-data .fa-col-mean {
+  width: 13%;
+}
+
+.fa-report-data .fa-report-cg td {
+  font-weight: 700;
+}
+
+@media print {
+  html[data-fire-assay-print],
+  html[data-fire-assay-print] body {
+    background: #fff !important;
+  }
+
+  html[data-fire-assay-print] .no-print,
+  html[data-fire-assay-print] .top-header,
+  html[data-fire-assay-print] .all-modules-fab,
+  html[data-fire-assay-print] .all-modules-backdrop,
+  html[data-fire-assay-print] .pwa-install-banner,
+  html[data-fire-assay-print] .view-assay-work {
+    display: none !important;
+  }
+
+  html[data-fire-assay-print] .main-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  html[data-fire-assay-print] .view-assay-page {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+    max-width: none !important;
+  }
+
+  html[data-fire-assay-print] .fa-report-print-root {
+    display: block !important;
+  }
+
+  html[data-fire-assay-print] .fa-report-sheet {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+    zoom: normal !important;
+  }
+}
+
