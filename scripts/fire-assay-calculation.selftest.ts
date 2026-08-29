@@ -4,6 +4,8 @@
  */
 import {
   autoGenerateJobPair,
+  blankLotSampleDrawnMg,
+  blankLotSplitSeed,
   blankLotWotgcaaJitter,
   copperForCg,
   expectedWotgcaa,
@@ -30,7 +32,7 @@ import {
   mapViewRowsToManakRows,
   pairMeanFineness,
 } from '../src/data/fireAssayViewLayout.ts'
-import { MANAK_FIRE_ASSAY_KEY } from '../src/data/manakFireAssayBridge.ts'
+import { MANAK_FIRE_ASSAY_KEY, parseFireAssaySheetNumber, sheetNumberForNewSheetGeneration } from '../src/data/manakFireAssayBridge.ts'
 import type { ManakFireAssayRow, ManakFireAssaySheet } from '../src/data/manakFireAssayBridge.ts'
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -394,9 +396,7 @@ for (const c of AUTO_PURITIES) {
   assertEq(bis.lead, 4.0, '750 lead remains 4.0')
 
   const lotNo = 1
-  const drawn = Number(
-    (bis.sampleDrawnSeed + ((lotNo * 17) % 9) * 0.37 + lotNo * 0.11).toFixed(3),
-  )
+  const drawn = blankLotSampleDrawnMg('750', lotNo, 0)
   assert(drawn >= 403 && drawn <= 406, `750 blank drawn ≈ 403–406 (got ${drawn})`)
   const pair = autoGenerateJobPair(drawn, '750', 0, lotNo, 'blank', 1, 123)
   assert(pair.sw1 >= 198 && pair.sw1 <= 201.5, `750 strip 1 ≈ 199–201 (got ${pair.sw1})`)
@@ -420,7 +420,7 @@ for (const c of AUTO_PURITIES) {
   const bis916 = getBisDefaults('916')
   assertEq(bis916.sampleDrawnSeed, 330, '916 drawn seed unchanged')
   assertEq(bis916.silverStrip, 373.3, '916 silver unchanged')
-  const drawn916 = Number((bis916.sampleDrawnSeed + ((1 * 17) % 9) * 0.37 + 1 * 0.11).toFixed(3))
+  const drawn916 = blankLotSampleDrawnMg('916', 1, 0)
   const p916 = autoGenerateJobPair(drawn916, '916', 0, 1, 'blank', 1, 123)
   assert(p916.fstar >= 916.34 && p916.fstar <= 919.7, `916 F* in ~916.34–919.70 (got ${p916.fstar})`)
   assert(p916.wotgcaa1 >= 149 && p916.wotgcaa1 <= 153, `916 WOTGCAA ≈ 150 mg (got ${p916.wotgcaa1})`)
@@ -431,12 +431,66 @@ for (const c of AUTO_PURITIES) {
   const bis999 = getBisDefaults('999')
   assertEq(bis999.sampleDrawnSeed, 300, '999 drawn seed unchanged')
   assertEq(bis999.silverStrip, 407.0, '999 silver unchanged')
-  const drawn999 = Number((bis999.sampleDrawnSeed + ((1 * 17) % 9) * 0.37 + 1 * 0.11).toFixed(3))
+  const drawn999 = blankLotSampleDrawnMg('999', 1, 0)
   const p999 = autoGenerateJobPair(drawn999, '999', 0, 1, 'blank', 1, 123)
   assert(p999.fstar <= 999.05, `999 F* stays ≤ ~999.05 (got ${p999.fstar})`)
   assert(p999.fstar < 1000, '999 Model C never produces F* > 1000')
   assert(Math.abs(p999.wotgcaa1 - 150) < 3, `999 WOTGCAA ≈ 150 mg (got ${p999.wotgcaa1})`)
   assert(p999.fineness1 < 1000.2, '999 resulting fineness stays realistic')
+}
+
+// --- New sheets must not reuse the previous sheet's blank-lot sample sequence ---
+{
+  const lot1s0 = blankLotSampleDrawnMg('916', 1, 0)
+  const lot1s8 = blankLotSampleDrawnMg('916', 1, 8)
+  const lot1s9 = blankLotSampleDrawnMg('916', 1, 9)
+  const lot1s10 = blankLotSampleDrawnMg('916', 1, 10)
+  assertEq(lot1s0, 333.07, 'sheet 0 keeps the historical 916 lot-1 drawn')
+  assert(lot1s8 !== lot1s9, 'Sheet 8 and Sheet 9 lot-1 Sample Drawn must differ')
+  assert(lot1s9 !== lot1s10, 'Sheet 9 and Sheet 10 lot-1 Sample Drawn must differ')
+  const [sw8a, sw8b] = splitSampleWeights(lot1s8, blankLotSplitSeed(1, 8))
+  const [sw9a, sw9b] = splitSampleWeights(lot1s9, blankLotSplitSeed(1, 9))
+  assert(sw8a !== sw9a && sw8b !== sw9b, 'Sheet 8 and Sheet 9 sample weights must differ')
+  for (const sheet of [8, 9, 10]) {
+    const d750 = blankLotSampleDrawnMg('750', 1, sheet)
+    assert(d750 >= 403 && d750 <= 406, `750 sheet ${sheet} stays in 403–406 band (got ${d750})`)
+  }
+  assertEq(getBisDefaults('916').silverStrip, 373.3, '916 silver is a BIS default, not copied from a prior sheet')
+  assertEq(getBisDefaults('916').lead, 4.0, '916 lead is a BIS default, not copied from a prior sheet')
+
+  // Runtime UI wiring (the previous mix-in never reached blankLotSampleDrawnMg with 9/10)
+  assertEq(parseFireAssaySheetNumber(''), 0, 'empty React sheetNo state is 0')
+  assertEq(parseFireAssaySheetNumber('9'), 9, 'dropdown "9" parses as 9')
+  assertEq(parseFireAssaySheetNumber('10'), 10, 'dropdown "10" parses as 10')
+  // Purity select: React sheetNo is still '' while next available is already 9
+  assertEq(sheetNumberForNewSheetGeneration(undefined, '9'), 9, 'purity select must use next available 9, not stale 0')
+  assertEq(sheetNumberForNewSheetGeneration('', '9'), 9, 'empty override must not win over next available')
+  // New Sheet / dropdown: intended 10 while React state is still 9
+  assertEq(sheetNumberForNewSheetGeneration('10', '9'), 10, 'startNewSheet(10) must pass 10 even if state is still 9')
+  assertEq(sheetNumberForNewSheetGeneration(10, '11'), 10, 'numeric override 10 is kept')
+
+  const ui9 = sheetNumberForNewSheetGeneration('9', '9')
+  const ui10 = sheetNumberForNewSheetGeneration('10', '9')
+  const ui11 = sheetNumberForNewSheetGeneration('11', '9')
+  assertEq(ui9, 9, 'Sheet 9 generation receives sheetNumber=9')
+  assertEq(ui10, 10, 'Sheet 10 generation receives sheetNumber=10')
+  assertEq(ui11, 11, 'Sheet 11 generation receives sheetNumber=11')
+
+  const seq = (sheet: number) =>
+    [1, 2, 3, 4, 5].map((lot) => {
+      const drawn = blankLotSampleDrawnMg('916', lot, sheet)
+      const [sw] = splitSampleWeights(drawn, blankLotSplitSeed(lot, sheet))
+      return `${drawn.toFixed(3)}/${sw.toFixed(3)}`
+    })
+  const seq0 = seq(0)
+  const seq9 = seq(ui9)
+  const seq10 = seq(ui10)
+  const seq11 = seq(ui11)
+  assertEq(seq0[0], '333.070/164.217', 'user screenshot is the sheetNumber=0 historical sequence')
+  assert(seq9.join('|') !== seq0.join('|'), 'Sheet 9 must not keep the stale sheetNumber=0 sequence')
+  assert(seq9.join('|') !== seq10.join('|'), 'Sheet 9 and Sheet 10 UI sequences must differ')
+  assert(seq10.join('|') !== seq11.join('|'), 'Sheet 10 and Sheet 11 UI sequences must differ')
+  assert(seq9.join('|') !== seq11.join('|'), 'Sheet 9 and Sheet 11 UI sequences must differ')
 }
 
 // --- Model C job-level F* (same job across lots) ---

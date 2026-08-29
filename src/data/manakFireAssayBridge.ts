@@ -106,6 +106,27 @@ export function nextAvailableSheetNo(purity: string, shift = 'Day'): string {
   return String(Math.max(...existing) + 1)
 }
 
+/** Positive integer sheet id, or 0 if the raw value is not a real sheet number. */
+export function parseFireAssaySheetNumber(raw: string | number | undefined | null): number {
+  const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').trim())
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+}
+
+/**
+ * Sheet number that NEW-SHEET row generation must use.
+ * Pass the intended sheet (dropdown / New Sheet No) as `sheetNoOverride`.
+ * When that is missing (purity select), use `nextAvailable` computed in the same tick —
+ * do not read React `sheetNo` state, which has often not flushed yet and is `''` → 0.
+ */
+export function sheetNumberForNewSheetGeneration(
+  sheetNoOverride: string | number | undefined | null,
+  nextAvailable: string | number,
+): number {
+  const fromOverride = parseFireAssaySheetNumber(sheetNoOverride)
+  if (fromOverride > 0) return fromOverride
+  return parseFireAssaySheetNumber(nextAvailable)
+}
+
 export function fireAssaySheetExists(purity: string, shift: string, sheetNo: string): boolean {
   return Boolean(getFireAssaySheet(purity, shift || 'Day', sheetNo))
 }

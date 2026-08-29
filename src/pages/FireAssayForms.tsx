@@ -4,6 +4,8 @@ import { useToast } from '../components/ui'
 import { getSession } from '../data/auth'
 import { store } from '../data/store'
 import {
+  blankLotSampleDrawnMg,
+  blankLotSplitSeed,
   blankLotWotgcaaJitter,
   copperForCg,
   deltaMg,
@@ -22,9 +24,12 @@ import {
 import { finenessFromMasses, pairMeanFineness } from '../data/fireAssayViewLayout'
 import {
   fireAssaySheetExists,
+  getFireAssaySheet,
   listFireAssaySheetNos,
   nextAvailableSheetNo,
+  parseFireAssaySheetNumber,
   publishManakFireAssaySheet,
+  sheetNumberForNewSheetGeneration,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
 import { hasAvailableCgWeightForSheet } from '../data/cgWeightAvailability'
@@ -183,10 +188,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   const findDuplicateJob = (value: string, rowKey: string, list: SheetRow[]) =>
     findDuplicateLotQualifiedJob(value, rowKey, list)
 
-  const assaySheetNumber = (): number => {
-    const n = Number(String(sheetNo || '').trim())
-    return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
-  }
+  const assaySheetNumber = (): number => parseFireAssaySheetNumber(sheetNo)
 
   /** Re-apply job-level Model C F* to a strip pair, keeping existing sample weights. */
   const reseedPairFromJob = (
@@ -355,14 +357,27 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   }
 
   /** Gold Shark: purity select → BIS requirements auto-fill. */
-  const applyPurityDefaults = (nextPurity: string, opts?: { quiet?: boolean }) => {
+  const applyPurityDefaults = (
+    nextPurity: string,
+    opts?: { quiet?: boolean; freshSheet?: boolean; sheetNoOverride?: string },
+  ) => {
     setPurity(nextPurity)
     if (!nextPurity) {
       setSheetNo('')
       return
     }
-    // Auto next sheet no (if sheet 1 exists → 2)
-    syncNextSheetNo(nextPurity, shift || 'Day')
+    const nextAvailable = nextAvailableSheetNo(nextPurity, shift || 'Day')
+    const sheetNoForGeneration =
+      opts?.sheetNoOverride != null && String(opts.sheetNoOverride).trim() !== ''
+        ? String(opts.sheetNoOverride).trim()
+        : nextAvailable
+    if (opts?.sheetNoOverride != null) {
+      setSheetNo(opts.sheetNoOverride)
+      setSheetTick((t) => t + 1)
+    } else {
+      // Auto next sheet no (if sheet 1 exists → 2). State flushes after this tick.
+      syncNextSheetNo(nextPurity, shift || 'Day')
+    }
     const bis = getBisDefaults(nextPurity)
     setSilverCg1(String(bis.silverCg1))
     setSilverCg2(String(bis.silverCg2))
@@ -415,10 +430,23 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       }
     }
 
+    if (opts?.freshSheet) {
+      setSelectedJobs([])
+      setJobQuery('')
+    }
+
     // Selecting purity auto-creates No. of Rows (Job Card empty for paste)
     if (noJobPick) {
-      const prevCards = rows.map((r) => r.jobCardNo)
-      const generated = generateSheetRowsFor(nextPurity)
+      // A new sheet must not keep the previous sheet's job cards or lot values.
+      const prevCards = opts?.freshSheet ? [] : rows.map((r) => r.jobCardNo)
+      const sheetNumber = sheetNumberForNewSheetGeneration(sheetNoForGeneration, nextAvailable)
+      // Fresh sheets must not seed from the previous sheet's avgDelta.
+      const generated = generateSheetRowsFor(
+        nextPurity,
+        undefined,
+        sheetNumber,
+        opts?.freshSheet ? 0 : undefined,
+      )
       const withCards = generated.map((r, i) => ({
         ...r,
         jobCardNo: prevCards[i] || '',
@@ -428,10 +456,53 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       return
     }
 
+    if (opts?.freshSheet) {
+      setRows([])
+      return
+    }
+
     setRows((prev) => {
       if (!prev.length) return prev
       return autofillRows(prev, nextPurity, Number(avgDelta) || 0, bis.silverStrip, bis.lead)
     })
+  }
+
+  /** Clear previous sheet grid/CG picks, then refill from current purity + unused CG. */
+  const startNewSheet = (nextNo: string) => {
+    if (!purity) {
+      toast('Pehle Purity select karo')
+      return
+    }
+    applyPurityDefaults(purity, {
+      quiet: true,
+      freshSheet: true,
+      sheetNoOverride: nextNo,
+    })
+    toast(`New Sheet No ${nextNo} — Create Sheet dabao`)
+  }
+
+  const loadSavedSheetRows = (n: string) => {
+    setSheetNo(n)
+    const saved = getFireAssaySheet(purity, shift || 'Day', n)
+    if (!saved) return
+    const source = saved.viewRows?.length ? saved.viewRows : saved.rows || []
+    if (!source.length) return
+    setRows(
+      source.map((r, i) => ({
+        key: `saved-${saved.sheetNo}-${i}-${r.lotNo || Math.floor(i / 2) + 1}`,
+        sampleDrawn: (Number(r.sampleDrawn) || 0).toFixed(3),
+        jobCardNo: r.jobCardNo || '',
+        sampleWeight: (Number(r.sampleWeight) || 0).toFixed(3),
+        silver: (Number(r.silver) || 0).toFixed(1),
+        lead: (Number(r.lead) || 0).toFixed(1),
+        wotgcaa: (Number(r.wotgcaa) || 0).toFixed(3),
+        fineness: (Number(r.fineness) || 0).toFixed(3),
+        meanFineness: (Number(r.meanFineness) || 0).toFixed(3),
+        partyName: r.partyName || '',
+        requestNo: r.requestNo || '',
+        lotNo: r.lotNo || Math.floor(i / 2) + 1,
+      })),
+    )
   }
 
   const onCgSelect = (which: 1 | 2, id: string) => {
@@ -482,10 +553,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     sheetNumber: number,
     jobCardNo = '',
   ): SheetRow[] => {
-    const bis = getBisDefaults(pur)
-    // Slight per-lot variation like Gold Shark (~330 mg band)
-    const drawn = Number((bis.sampleDrawnSeed + ((lotNo * 17) % 9) * 0.37 + lotNo * 0.11).toFixed(3))
-    const [sw1, sw2] = splitSampleWeights(drawn, lotNo)
+    // Per-lot Gold Shark band, plus sheet mix so Sheet N+1 is not Sheet N's sequence
+    const drawn = blankLotSampleDrawnMg(pur, lotNo, sheetNumber)
+    const [sw1, sw2] = splitSampleWeights(drawn, blankLotSplitSeed(lotNo, sheetNumber))
     const [j1, j2] = blankLotWotgcaaJitter(lotNo)
     const seeded = seedStripPairAssay(sw1, sw2, pur, avg, j1, j2, {
       sheetNumber,
@@ -523,11 +593,21 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   }
 
   /** Create exactly No. of Rows (default 22) — no job selection required. */
-  const generateSheetRowsFor = (pur: string, count?: number): SheetRow[] => {
+  const generateSheetRowsFor = (
+    pur: string,
+    count?: number,
+    sheetNumberOverride?: number,
+    avgOverride?: number,
+  ): SheetRow[] => {
     const p = pur || '916'
     const bis = getBisDefaults(p)
-    const avg = Number(avgDelta) || 0
-    const sheetNumber = assaySheetNumber()
+    const avg = avgOverride != null ? avgOverride : Number(avgDelta) || 0
+    const sheetNumber = sheetNumberForNewSheetGeneration(
+      sheetNumberOverride != null && Number.isFinite(sheetNumberOverride) && sheetNumberOverride > 0
+        ? sheetNumberOverride
+        : assaySheetNumber(),
+      nextAvailableSheetNo(p, shift || 'Day'),
+    )
     const target = Math.max(2, Math.min(50, count ?? (Number(noOfRows) || 22)))
     const pairCount = Math.ceil(target / 2)
     const next: SheetRow[] = []
@@ -562,7 +642,10 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     }
     const bis = getBisDefaults(purity)
     const avg = Number(avgDelta) || 0
-    const sheetNumber = assaySheetNumber()
+    const sheetNumber = sheetNumberForNewSheetGeneration(
+      assaySheetNumber(),
+      nextAvailableSheetNo(purity, shift || 'Day'),
+    )
     const target = Math.max(2, Number(noOfRows) || 22)
     const maxPairs = Math.ceil(target / 2)
     const picked = selectedJobs.slice(0, maxPairs)
@@ -1016,7 +1099,25 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           </div>
           <div className="field">
             <label>Sheet no (same no = overwrite)</label>
-            <select value={sheetNo} onChange={(e) => setSheetNo(e.target.value)}>
+            <select
+              value={sheetNo}
+              onChange={(e) => {
+                const n = e.target.value
+                if (!n) {
+                  setSheetNo('')
+                  return
+                }
+                if (!purity) {
+                  setSheetNo(n)
+                  return
+                }
+                if (usedSheetNos.includes(n)) {
+                  loadSavedSheetRows(n)
+                  return
+                }
+                startNewSheet(n)
+              }}
+            >
               <option value="">Select</option>
               {Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => (
                 <option key={n} value={n}>
@@ -1034,9 +1135,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
                   toast('Pehle Purity select karo')
                   return
                 }
-                const n = nextAvailableSheetNo(purity, shift || 'Day')
-                setSheetNo(n)
-                toast(`New Sheet No ${n} — Create Sheet dabao`)
+                startNewSheet(nextAvailableSheetNo(purity, shift || 'Day'))
               }}
             >
               New Sheet No
