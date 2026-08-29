@@ -64,16 +64,64 @@
   }
 
   /**
-   * Manak Fire Assaying Details: manual typing often blocked — balance sends
-   * keyboard-wedge scan. Simulate char-by-char key events into the focused field.
+   * Live Manak (huid.manakonline.in) opens Web Serial from PAGE JS when a weight
+   * field is clicked/activated during a user-gesture window (Phase 1 button click).
+   * The chooser says "huid.manakonline.in wants to connect to a serial port".
+   * This extension never calls the Web Serial API — but click()/focus()/Enter on
+   * those fields forwards the gesture to the portal's serial-port chooser handler.
+   *
+   * Legitimate path: assign the posted value without activating the field, then
+   * click the existing Save. Wait until transient user activation has expired
+   * so a Save handler cannot open the chooser either.
    */
-  ManakFill.setByScanWeight = async function setByScanWeight(el, value) {
+  ManakFill.SCAN_WEIGHT_MODE = 'posted-value-no-serial-gesture'
+  ManakFill.SERIAL_API_USED = false
+
+  ManakFill.syncScanHiddenFields = function syncScanHiddenFields(el, value) {
+    if (!el) return
+    const v = String(value)
+    const doc = el.ownerDocument || root.document
+    const seen = new Set()
+    const apply = (h) => {
+      if (!h || seen.has(h) || h === el) return
+      seen.add(h)
+      h.value = v
+      try {
+        h.setAttribute('value', v)
+      } catch {
+        /* ignore */
+      }
+    }
+    const id = el.id || ''
+    const name = el.name || ''
+    if (id && doc.getElementById) {
+      apply(doc.getElementById(`hdn${id}`))
+      apply(doc.getElementById(`${id}_hidden`))
+      apply(doc.getElementById(`hdn${id.replace(/^txt/i, '')}`))
+    }
+    if (name) {
+      try {
+        apply(doc.querySelector(`input[type="hidden"][name="${name}"]`))
+      } catch {
+        /* ignore */
+      }
+    }
+    const cell = el.closest?.('td, th') || el.parentElement
+    if (cell) {
+      Array.from(cell.querySelectorAll('input[type="hidden"]')).forEach(apply)
+    }
+  }
+
+  /**
+   * Assign a weight for ASP.NET postback WITHOUT activating the portal's
+   * Web Serial path: no focus, no element.click(), no keydown/Enter.
+   */
+  ManakFill.setPostedWeight = function setPostedWeight(el, value) {
     if (!el || value == null || value === '') return false
     if (ManakFill.isUnsafeTarget(el)) return false
     const num = Number(value)
     if (!(num > 0) && num !== 0) return false
-    const text = Number.isInteger(num) ? String(num) : Number(num).toFixed(3)
-
+    const v = Number.isInteger(num) ? String(num) : Number(num).toFixed(3)
     try {
       el.removeAttribute('readonly')
       el.removeAttribute('disabled')
@@ -82,88 +130,127 @@
     } catch {
       /* ignore */
     }
-
-    try {
-      el.focus()
-      el.click?.()
-    } catch {
-      /* ignore */
-    }
-    await ManakFill.delay(60)
-
-    // Clear existing (Ctrl+A / select + delete)
-    try {
-      el.select?.()
-    } catch {
-      /* ignore */
-    }
     const proto = el.tagName === 'TEXTAREA' ? root.HTMLTextAreaElement.prototype : root.HTMLInputElement.prototype
     const desc = Object.getOwnPropertyDescriptor(proto, 'value')
-    if (desc && desc.set) desc.set.call(el, '')
-    else el.value = ''
-    el.dispatchEvent(new root.Event('input', { bubbles: true }))
-
-    let built = ''
-    for (const ch of text) {
-      const code = ch.charCodeAt(0)
-      const keyOpts = {
-        key: ch,
-        code: ch === '.' ? 'Period' : `Digit${ch}`,
-        keyCode: code,
-        which: code,
-        bubbles: true,
-        cancelable: true,
-      }
-      el.dispatchEvent(new root.KeyboardEvent('keydown', keyOpts))
-      el.dispatchEvent(new root.KeyboardEvent('keypress', keyOpts))
-      built += ch
-      if (desc && desc.set) desc.set.call(el, built)
-      else el.value = built
-      el.dispatchEvent(new root.Event('input', { bubbles: true }))
-      el.dispatchEvent(new root.KeyboardEvent('keyup', keyOpts))
-      await ManakFill.delay(25)
-    }
-
-    // Many scale wedges end with Enter
-    const enterOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }
-    el.dispatchEvent(new root.KeyboardEvent('keydown', enterOpts))
-    el.dispatchEvent(new root.KeyboardEvent('keypress', enterOpts))
-    el.dispatchEvent(new root.KeyboardEvent('keyup', enterOpts))
-    el.dispatchEvent(new root.Event('change', { bubbles: true }))
-    el.dispatchEvent(new root.Event('blur', { bubbles: true }))
-
+    if (desc && desc.set) desc.set.call(el, v)
+    else el.value = v
     try {
-      if (root.jQuery) root.jQuery(el).val(el.value).trigger('input').trigger('change')
+      el.defaultValue = v
+      el.setAttribute('value', v)
     } catch {
       /* ignore */
     }
-
-    await ManakFill.delay(80)
-    return Math.abs(Number(el.value) - num) < 0.05 || String(el.value).includes(String(Math.floor(num)))
+    ManakFill.syncScanHiddenFields(el, v)
+    el.dispatchEvent(new root.Event('input', { bubbles: true }))
+    el.dispatchEvent(new root.Event('change', { bubbles: true }))
+    try {
+      if (root.jQuery) root.jQuery(el).val(v).trigger('input').trigger('change')
+    } catch {
+      /* ignore */
+    }
+    try {
+      el.dataset.shrijaWeight = 'posted'
+    } catch {
+      /* ignore */
+    }
+    return Math.abs(Number(el.value) - num) < 0.05
   }
 
-  /** Prefer scan simulation (Fire Assaying); fall back to native set.
-   *  opts.skipIfFilled — don't overwrite field that already has a weight (>0).
-   *  opts.force — overwrite anyway (badge retry).
+  /**
+   * The serial chooser is only allowed while transient user activation is live.
+   * Phase 1/2 buttons grant that window; wait it out before touching portal controls.
    */
+  ManakFill.waitUntilSerialGestureExpired = async function waitUntilSerialGestureExpired(opts = {}) {
+    const max = opts.activationWaitMs != null ? opts.activationWaitMs : 5500
+    if (!(max > 0)) return 'skipped'
+    const document = opts.document || root.document
+    const nav = (document && document.defaultView && document.defaultView.navigator) || root.navigator
+    const start = Date.now()
+    try {
+      if (!nav || !nav.userActivation) {
+        await ManakFill.delay(max)
+        return 'no-api'
+      }
+      while (nav.userActivation.isActive && Date.now() - start < max) {
+        await ManakFill.delay(50)
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'cleared'
+  }
+
+  /** @deprecated Live Manak serial is triggered by field click/Enter. Use setPostedWeight. */
+  ManakFill.setByScanWeight = async function setByScanWeight(el, value) {
+    return ManakFill.setPostedWeight(el, value)
+  }
+
+  ManakFill.dispatchScanChar = function dispatchScanChar() {
+    return false
+  }
+
   ManakFill.forceSetWeight = async function forceSetWeight(el, value, attempts = 3, opts = {}) {
     if (!el) return false
     const v = Number(value)
     if (!(v > 0)) return false
     const cur = Number(el.value || 0)
     if (!opts.force && opts.skipIfFilled !== false && cur > 0.01) {
-      // Already filled — keep Manak/user value
       return true
     }
     for (let i = 0; i < attempts; i++) {
-      const okScan = await ManakFill.setByScanWeight(el, v)
-      if (okScan) return true
-      const formatted = Number.isInteger(v) ? String(v) : v.toFixed(3)
-      ManakFill.setNativeValue(el, formatted)
-      await ManakFill.delay(150)
-      if (Math.abs(Number(el.value) - v) < 0.05) return true
+      if (ManakFill.setPostedWeight(el, v)) return true
+      await ManakFill.delay(80)
     }
     return Math.abs(Number(el.value) - v) < 0.05
+  }
+
+  /**
+   * Wait for ASP.NET UpdatePanel / sampling Save postback — not BIS furnace timing.
+   * Hook names: afterSampleSave | afterButtonSave
+   */
+  ManakFill.waitForWeightPostback = async function waitForWeightPostback(opts = {}, hookName) {
+    if (hookName && typeof opts[hookName] === 'function') {
+      await opts[hookName]()
+      return 'hook'
+    }
+    const document = opts.document || root.document
+    const win = (document && document.defaultView) || root
+    try {
+      const prm =
+        win.Sys &&
+        win.Sys.WebForms &&
+        win.Sys.WebForms.PageRequestManager &&
+        typeof win.Sys.WebForms.PageRequestManager.getInstance === 'function' &&
+        win.Sys.WebForms.PageRequestManager.getInstance()
+      if (prm && typeof prm.add_endRequest === 'function') {
+        await new Promise((resolve) => {
+          const ms = opts.postbackTimeoutMs != null ? opts.postbackTimeoutMs : 5000
+          const t = setTimeout(resolve, ms)
+          const handler = function () {
+            try {
+              prm.remove_endRequest(handler)
+            } catch {
+              /* ignore */
+            }
+            clearTimeout(t)
+            resolve()
+          }
+          try {
+            prm.add_endRequest(handler)
+          } catch {
+            clearTimeout(t)
+            resolve()
+          }
+        })
+        await ManakFill.delay(80)
+        return 'updatepanel'
+      }
+    } catch {
+      /* ignore */
+    }
+    const wait = opts.postbackWaitMs != null ? opts.postbackWaitMs : 400
+    if (wait > 0) await ManakFill.delay(wait)
+    return 'delay'
   }
 
   ManakFill.shortText = function shortText(el) {
@@ -221,19 +308,66 @@
     return { lot: 0, card: t }
   }
 
-  ManakFill.resolveStripRows = function resolveStripRows(sheet, preferredLot, selectText) {
+  ManakFill.sheetFilledRows = function sheetFilledRows(sheet) {
     const filled = (sheet.rows || []).filter((r) => r.jobCardNo || r.manakJobCard)
     const fromView = (sheet.viewRows || []).filter((r) => r.jobCardNo || r.manakJobCard)
-    const allRows = filled.length ? filled : fromView
+    return filled.length ? filled : fromView
+  }
+
+  ManakFill.rowManakJob = function rowManakJob(r) {
+    return String(r.manakJobCard || ManakFill.parseShrijaJob(r.jobCardNo).card || '')
+  }
+
+  ManakFill.rowMatchesJob = function rowMatchesJob(r, jobCard) {
+    if (!jobCard) return false
+    const want = String(jobCard)
+    const card = ManakFill.rowManakJob(r)
+    return card === want || String(r.jobCardNo || '').includes(want)
+  }
+
+  ManakFill.rowMatchesLot = function rowMatchesLot(r, lotNum) {
+    if (lotNum == null || Number.isNaN(Number(lotNum))) return false
+    const n = Number(lotNum)
+    if (Number(r.lotNo) === n) return true
+    return ManakFill.parseShrijaJob(r.jobCardNo).lot === n
+  }
+
+  /**
+   * Strict Job Card + Lot lookup. Never falls back to first row / first lot / another job.
+   * Used by Phase 2 (M2). Empty rows if either key is missing or no pair matches.
+   */
+  ManakFill.resolveStripRowsByJobAndLot = function resolveStripRowsByJobAndLot(sheet, jobCard, lotNum) {
+    const allRows = ManakFill.sheetFilledRows(sheet)
+    const card = String(jobCard || '').trim()
+    const lot = lotNum != null && lotNum !== '' ? Number(lotNum) : NaN
+    if (!card || Number.isNaN(lot)) {
+      return { rows: [], lotNum: Number.isNaN(lot) ? null : lot, jobCard: card, error: 'job_and_lot_required' }
+    }
+    const pair = allRows.filter((r) => ManakFill.rowMatchesJob(r, card) && ManakFill.rowMatchesLot(r, lot))
+    if (pair.length >= 2) return { rows: pair.slice(0, 2), lotNum: lot, jobCard: card }
+    if (pair.length === 1) return { rows: pair, lotNum: lot, jobCard: card }
+    return { rows: [], lotNum: lot, jobCard: card, error: 'no_matching_job_lot' }
+  }
+
+  /** Stale shrija-manak-m2-pending must never auto-apply to the current (or any) Job/Lot. */
+  ManakFill.ignoreM2Pending = function ignoreM2Pending(_pending, _currentJob, _currentLot) {
+    return true
+  }
+
+  ManakFill.resolveStripRows = function resolveStripRows(sheet, preferredLot, selectText) {
+    const allRows = ManakFill.sheetFilledRows(sheet)
     const fromOpt = ManakFill.parseLotOptionText(selectText)
     const lotNum = preferredLot != null ? Number(preferredLot) : fromOpt.lot
     const jobCard = fromOpt.jobCard || ''
 
+    // When both Job and Lot are known, use that pair — not the first two rows of the job.
+    if (jobCard && lotNum != null && !Number.isNaN(Number(lotNum))) {
+      const byBoth = ManakFill.resolveStripRowsByJobAndLot(sheet, jobCard, lotNum)
+      if (byBoth.rows.length) return byBoth
+    }
+
     if (jobCard) {
-      const byCard = allRows.filter((r) => {
-        const card = String(r.manakJobCard || ManakFill.parseShrijaJob(r.jobCardNo).card || '')
-        return card === jobCard || String(r.jobCardNo).includes(jobCard)
-      })
+      const byCard = allRows.filter((r) => ManakFill.rowMatchesJob(r, jobCard))
       if (byCard.length >= 2) return { rows: byCard.slice(0, 2), lotNum: byCard[0].lotNo, jobCard }
       if (byCard.length === 1) {
         const lot = byCard[0].lotNo
@@ -386,23 +520,39 @@
 
   ManakFill.findSaveBeside = function findSaveBeside(input) {
     if (!input) return null
+    const isSave = (el) => {
+      const t = `${el.value || ''} ${el.textContent || ''}`.replace(/\s+/g, ' ').trim()
+      if (!t) return false
+      if (/initial|cornet|huid/i.test(t)) return false
+      return /^save$/i.test(t)
+    }
+    const following = (anchor, el) => {
+      const pos = anchor.compareDocumentPosition(el)
+      return Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING)
+    }
+
+    // 1) Immediate following siblings / next cells (Sample Drawn SAVE vs Button SAVE on the same row)
+    let sib = input.nextElementSibling
+    for (let i = 0; i < 8 && sib; i++) {
+      if (isSave(sib)) return sib
+      const inner = sib.querySelector?.('input[type="button"], input[type="submit"], button')
+      if (inner && isSave(inner) && following(input, inner)) return inner
+      const tip = (sib.textContent || '').replace(/\s+/g, ' ')
+      if (/Button Weight|Sample Drawn/i.test(tip) && tip.length < 80 && !sib.querySelector('input[type="button"], button')) {
+        // Hit the other sampling label — stop sibling walk; document-order search below still runs
+        break
+      }
+      sib = sib.nextElementSibling
+    }
+
     const row = input.closest('tr') || input.parentElement
     const scopes = [row, row?.parentElement, input.closest('table')].filter(Boolean)
     for (const scope of scopes) {
-      const btn = Array.from(scope.querySelectorAll('input[type="button"], input[type="submit"], button')).find(
-        (el) => {
-          const t = `${el.value || ''} ${el.textContent || ''}`.trim()
-          return /^save$/i.test(t) || (/^save$/i.test(t.replace(/\s+/g, '')))
-        },
+      const buttons = Array.from(scope.querySelectorAll('input[type="button"], input[type="submit"], button')).filter(
+        isSave,
       )
-      if (btn) return btn
-      const btn2 = Array.from(scope.querySelectorAll('input[type="button"], input[type="submit"], button')).find(
-        (el) => {
-          const t = `${el.value || ''} ${el.textContent || ''}`
-          return /save/i.test(t) && !/initial|cornet|huid/i.test(t)
-        },
-      )
-      if (btn2) return btn2
+      const next = buttons.find((btn) => following(input, btn))
+      if (next) return next
     }
     return null
   }
@@ -555,8 +705,6 @@
       cg.leadCg1 || 4,
       cg.leadCg2 || 4,
     ]
-    const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
-
     const cols = ManakFill.collectAssayInputs(document)
     let filledM1 = 0
     for (let i = 0; i < 4; i++) {
@@ -571,18 +719,11 @@
         ManakFill.clickByText(/Initial\s*Weight/i, document)
     }
 
-    // M2 only if unlocked
-    const m2Open = cols.m2.some((el) => el && !el.disabled && !el.readOnly)
-    if (m2Open) {
-      cols.m2.forEach((el, i) => ManakFill.setNativeValue(el, m2s[i]))
-      if (clickSave) {
-        ManakFill.clickByText(/Save\s*\(?\s*Cornet\s*Weight\s*\)?/i, document)
-      }
-    }
-
+    // Combined fillLot is Phase 1 only — never auto-fill M2 / Save Cornet.
     const purityVal = purity && 'value' in purity ? purity.value : null
     return {
       ok: true,
+      phase: 1,
       filledM1,
       drawn,
       lotNum: resolved.lotNum,
@@ -592,8 +733,294 @@
       m1Values: cols.m1.map((el) => el?.value),
       silverValues: cols.silver.map((el) => el?.value),
       purityUntouched: purityVal == null || purityVal === '' || purityVal === '916',
-      m2Pending: !m2Open,
-      m2Values: m2s,
+      filledM2: false,
+      clickedSaveInitial: Boolean(clickSave),
+      clickedSaveCornet: false,
+      m2Pending: false,
+      m2Values: cols.m2.map((el) => el?.value),
+    }
+  }
+
+  async function setPhaseWeight(el, value) {
+    if (!el || value == null || value === '') return false
+    return ManakFill.setPostedWeight(el, value)
+  }
+
+  function phase1Fail(error, message, extra = {}) {
+    return {
+      ok: false,
+      phase: 1,
+      error,
+      message,
+      filledM2: false,
+      clickedSaveInitial: false,
+      clickedSaveCornet: false,
+      startedPhase2: false,
+      ...extra,
+    }
+  }
+
+  /**
+   * Phase 1: post Sample Drawn + Save, post Button Weight + Save, then M1 / Silver / Copper / Lead.
+   * Never activates weight fields (click/focus/Enter) — that opens BIS Web Serial.
+   * Never fills M2. Never clicks Save Initial Weight or Save Cornet Weight.
+   */
+  ManakFill.fillPhase1 = async function fillPhase1(sheet, selectText, opts = {}) {
+    const document = opts.document || root.document
+    const startAt = opts.startAt || 'sample'
+    const resolved = ManakFill.resolveStripRows(sheet, opts.lot, selectText)
+    if (!resolved.rows.length) return phase1Fail('no_matching_lot', 'No matching Job + Lot')
+
+    const stripRows = resolved.rows
+    const drawn = Number(opts.drawn != null ? opts.drawn : stripRows[0]?.sampleDrawn || 0)
+    if (!(drawn > 0)) return phase1Fail('sample_drawn_zero', 'Sample Drawn Weight was not accepted by BIS portal.')
+
+    let { sampleDrawn, buttonWt } = ManakFill.findSamplingInputs(document)
+    if (!sampleDrawn) return phase1Fail('sample_drawn_field_missing', 'Sample Drawn Weight was not accepted by BIS portal.')
+    if (!buttonWt) return phase1Fail('button_weight_field_missing', 'Button Weight was not accepted by BIS portal.')
+    if (sampleDrawn === buttonWt) return phase1Fail('sample_button_same_field', 'Sample Drawn Weight was not accepted by BIS portal.')
+
+    let clickedSampleSave = false
+    let clickedButtonSave = false
+
+    await ManakFill.waitUntilSerialGestureExpired(opts)
+
+    if (startAt === 'sample') {
+      if (!ManakFill.setPostedWeight(sampleDrawn, drawn)) {
+        return phase1Fail('sample_drawn_not_accepted', 'Sample Drawn Weight was not accepted by BIS portal.')
+      }
+      const s1 = ManakFill.findSaveBeside(sampleDrawn)
+      if (!s1) {
+        return phase1Fail('sample_drawn_save_missing', 'Sample Drawn Weight was not accepted by BIS portal.')
+      }
+      if (typeof opts.onBeforeSampleSaveClick === 'function') await opts.onBeforeSampleSaveClick()
+      s1.click()
+      clickedSampleSave = true
+      await ManakFill.waitForWeightPostback(opts, 'afterSampleSave')
+      const afterDrawn = ManakFill.findSamplingInputs(document)
+      sampleDrawn = afterDrawn.sampleDrawn
+      buttonWt = afterDrawn.buttonWt
+      if (!sampleDrawn || Number(sampleDrawn.value) < 0.01) {
+        return phase1Fail('sample_drawn_not_accepted', 'Sample Drawn Weight was not accepted by BIS portal.', {
+          clickedSampleSave: true,
+        })
+      }
+    } else if (startAt === 'button') {
+      if (!sampleDrawn || Number(sampleDrawn.value) < 0.01) {
+        return phase1Fail('sample_drawn_not_accepted', 'Sample Drawn Weight was not accepted by BIS portal.')
+      }
+    } else if (startAt === 'm1') {
+      if (!sampleDrawn || Number(sampleDrawn.value) < 0.01) {
+        return phase1Fail('sample_drawn_not_accepted', 'Sample Drawn Weight was not accepted by BIS portal.')
+      }
+      if (!buttonWt || Number(buttonWt.value) < 0.01) {
+        return phase1Fail('button_weight_not_accepted', 'Button Weight was not accepted by BIS portal.')
+      }
+    }
+
+    if (startAt === 'sample' || startAt === 'button') {
+      if (!buttonWt) {
+        const found = ManakFill.findSamplingInputs(document)
+        buttonWt = found.buttonWt
+        sampleDrawn = found.sampleDrawn || sampleDrawn
+      }
+      if (!buttonWt) {
+        return phase1Fail('button_weight_field_missing', 'Button Weight was not accepted by BIS portal.', {
+          clickedSampleSave,
+        })
+      }
+      if (!ManakFill.setPostedWeight(buttonWt, drawn)) {
+        return phase1Fail('button_weight_not_accepted', 'Button Weight was not accepted by BIS portal.', {
+          clickedSampleSave,
+        })
+      }
+      const s2 = ManakFill.findSaveBeside(buttonWt)
+      if (!s2) {
+        return phase1Fail('button_weight_save_missing', 'Button Weight was not accepted by BIS portal.', {
+          clickedSampleSave,
+        })
+      }
+      if (typeof opts.onBeforeButtonSaveClick === 'function') await opts.onBeforeButtonSaveClick()
+      s2.click()
+      clickedButtonSave = true
+      await ManakFill.waitForWeightPostback(opts, 'afterButtonSave')
+      const afterBtn = ManakFill.findSamplingInputs(document)
+      sampleDrawn = afterBtn.sampleDrawn || sampleDrawn
+      buttonWt = afterBtn.buttonWt || buttonWt
+      if (!buttonWt || Number(buttonWt.value) < 0.01) {
+        return phase1Fail('button_weight_not_accepted', 'Button Weight was not accepted by BIS portal.', {
+          clickedSampleSave,
+          clickedButtonSave: true,
+        })
+      }
+    }
+
+    const sampling = ManakFill.findSamplingInputs(document)
+    sampleDrawn = sampling.sampleDrawn || sampleDrawn
+    buttonWt = sampling.buttonWt || buttonWt
+
+    const cg = sheet.cg || {}
+    const m1s = [stripRows[0]?.sampleWeight, stripRows[1]?.sampleWeight, cg.cg1, cg.cg2]
+    const silvers = [stripRows[0]?.silver, stripRows[1]?.silver, cg.silverCg1, cg.silverCg2]
+    const coppers = [0, 0, cg.copperCg1 ?? 0, cg.copperCg2 ?? 0]
+    const leads = [
+      stripRows[0]?.lead || 4,
+      stripRows[1]?.lead || 4,
+      cg.leadCg1 || 4,
+      cg.leadCg2 || 4,
+    ]
+    const m1Names = ['M1 Strip 1', 'M1 Strip 2', 'Check Gold C1', 'Check Gold C2']
+    const agNames = ['Silver Strip 1', 'Silver Strip 2', 'Silver C1', 'Silver C2']
+    const cuNames = ['Copper Strip 1', 'Copper Strip 2', 'Copper C1', 'Copper C2']
+    const pbNames = ['Lead Strip 1', 'Lead Strip 2', 'Lead C1', 'Lead C2']
+
+    const cols = ManakFill.collectAssayInputs(document)
+    const m2Before = cols.m2.map((el) => el?.value)
+    let filledM1 = 0
+    for (let i = 0; i < 4; i++) {
+      if (!(await setPhaseWeight(cols.m1[i], m1s[i]))) {
+        return phase1Fail('m1_set_failed', `${m1Names[i]} could not be filled.`, {
+          failedField: m1Names[i],
+          clickedSampleSave,
+          clickedButtonSave,
+        })
+      }
+      filledM1 += 1
+      if (!(await setPhaseWeight(cols.silver[i], silvers[i]))) {
+        return phase1Fail('silver_set_failed', `${agNames[i]} could not be filled.`, {
+          failedField: agNames[i],
+          clickedSampleSave,
+          clickedButtonSave,
+        })
+      }
+      if (Number(coppers[i]) > 0) {
+        if (!(await setPhaseWeight(cols.copper[i], coppers[i]))) {
+          return phase1Fail('copper_set_failed', `${cuNames[i]} could not be filled.`, {
+            failedField: cuNames[i],
+            clickedSampleSave,
+            clickedButtonSave,
+          })
+        }
+      } else if (cols.copper[i] && !ManakFill.setPostedWeight(cols.copper[i], coppers[i])) {
+        return phase1Fail('copper_set_failed', `${cuNames[i]} could not be filled.`, {
+          failedField: cuNames[i],
+          clickedSampleSave,
+          clickedButtonSave,
+        })
+      }
+      if (!(await setPhaseWeight(cols.lead[i], leads[i]))) {
+        return phase1Fail('lead_set_failed', `${pbNames[i]} could not be filled.`, {
+          failedField: pbNames[i],
+          clickedSampleSave,
+          clickedButtonSave,
+        })
+      }
+    }
+
+    const m2After = cols.m2.map((el) => el?.value)
+    const m2Unchanged = m2Before.every((v, i) => String(v ?? '') === String(m2After[i] ?? ''))
+
+    return {
+      ok: true,
+      phase: 1,
+      filledM1,
+      drawn,
+      lotNum: resolved.lotNum,
+      jobCard: resolved.jobCard,
+      sampleDrawnValue: sampleDrawn?.value,
+      buttonWtValue: buttonWt?.value,
+      m1Values: cols.m1.map((el) => el?.value),
+      silverValues: cols.silver.map((el) => el?.value),
+      copperValues: cols.copper.map((el) => el?.value),
+      leadValues: cols.lead.map((el) => el?.value),
+      filledM2: false,
+      m2Unchanged,
+      m2Values: m2After,
+      clickedSampleSave,
+      clickedButtonSave,
+      clickedSaveInitial: false,
+      clickedSaveCornet: false,
+      startedPhase2: false,
+      usedScanForSample: false,
+      usedScanForButton: false,
+      usedPostedWeight: true,
+    }
+  }
+
+  /**
+   * Phase 2: M2 / cornet after assaying only, resolved by Job Card + Lot.
+   * Same posted-value path as Phase 1 — no field click/Enter (no serial chooser).
+   * Never fills Phase 1 fields. Never clicks Save Cornet Weight.
+   */
+  ManakFill.fillPhase2 = async function fillPhase2(sheet, selectText, opts = {}) {
+    const document = opts.document || root.document
+    const fromOpt = ManakFill.parseLotOptionText(selectText)
+    const lotNum = opts.lot != null && opts.lot !== '' ? Number(opts.lot) : fromOpt.lot
+    const jobCard = String(opts.jobCard || fromOpt.jobCard || '').trim()
+    const resolved = ManakFill.resolveStripRowsByJobAndLot(sheet, jobCard, lotNum)
+    if (!resolved.rows.length) {
+      return { ok: false, phase: 2, error: resolved.error || 'no_matching_job_lot', lotNum, jobCard }
+    }
+
+    const stripRows = resolved.rows
+    const cg = sheet.cg || {}
+    const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
+    const m2Names = ['M2 Strip 1', 'M2 Strip 2', 'M2 C1', 'M2 C2']
+    const cols = ManakFill.collectAssayInputs(document)
+    const m1Before = cols.m1.map((el) => el?.value)
+    const silverBefore = cols.silver.map((el) => el?.value)
+
+    await ManakFill.waitUntilSerialGestureExpired(opts)
+
+    let filledM2 = 0
+    for (let i = 0; i < 4; i++) {
+      if (!cols.m2[i]) {
+        return {
+          ok: false,
+          phase: 2,
+          error: 'm2_field_missing',
+          failedField: m2Names[i],
+          message: `${m2Names[i]} input cannot be accepted.`,
+          lotNum: resolved.lotNum,
+          jobCard: resolved.jobCard,
+          clickedSaveCornet: false,
+        }
+      }
+      const ok = ManakFill.setPostedWeight(cols.m2[i], m2s[i])
+      if (!ok) {
+        return {
+          ok: false,
+          phase: 2,
+          error: 'm2_not_accepted',
+          failedField: m2Names[i],
+          message: `${m2Names[i]} input cannot be accepted.`,
+          lotNum: resolved.lotNum,
+          jobCard: resolved.jobCard,
+          clickedSaveCornet: false,
+        }
+      }
+      filledM2 += 1
+    }
+
+    const m1After = cols.m1.map((el) => el?.value)
+    const phase1Untouched =
+      m1Before.every((v, i) => String(v ?? '') === String(m1After[i] ?? '')) &&
+      silverBefore.every((v, i) => String(v ?? '') === String(cols.silver[i]?.value ?? ''))
+
+    return {
+      ok: true,
+      phase: 2,
+      filledM2,
+      lotNum: resolved.lotNum,
+      jobCard: resolved.jobCard,
+      m2Intended: m2s,
+      m2Values: cols.m2.map((el) => el?.value),
+      m1Values: m1After,
+      phase1Untouched,
+      clickedSaveInitial: false,
+      clickedSaveCornet: false,
+      usedScanForM2: false,
+      usedPostedWeight: true,
     }
   }
 

@@ -117,7 +117,7 @@ function showSyncedBadge() {
         })
         document.documentElement.appendChild(b)
       }
-      b.textContent = `Extension OK · Sheet ${data[KEY].sheetNo || '?'} · Manak pe Lot select = AUTO`
+      b.textContent = `Extension OK · Sheet ${data[KEY].sheetNo || '?'} · Manak Phase 1 / Phase 2`
     })
   } catch {
     /* context invalidated */

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "2.1.0",
-  "description": "AUTO once per Lot; skip filled fields; Sample/Button sized for exact strip M1 (correct fineness).",
+  "version": "2.2.2",
+  "description": "Phase 1 posted sampling + Save then M1; Phase 2 M2 (Job+Lot). Does not open serial port. No Save Initial / Save Cornet auto-click.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",
@@ -35,6 +35,6 @@
     }
   ],
   "action": {
-    "default_title": "Shrija → Manak AUTO"
+    "default_title": "Shrija → Manak Phase 1 / Phase 2"
   }
 }
