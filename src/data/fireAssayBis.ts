@@ -125,6 +125,25 @@ export function splitSampleWeights(sampleDrawnMg: number, seed = 0): [number, nu
 }
 
 /**
+ * Blank-lot Sample Drawn / Button Weight (mg).
+ * Existing per-lot Gold Shark band: seed + ((lot×17)%9)×0.37 + lot×0.11
+ * Sheet number uses the same small-band jitter so a new sheet is not a copy of
+ * the previous sheet's lot sequence. `sheetNumber === 0` is the historical formula.
+ */
+export function blankLotSampleDrawnMg(purity: string, lotNo: number, sheetNumber = 0): number {
+  const bis = getBisDefaults(purity)
+  const lotJitter = ((lotNo * 17) % 9) * 0.37 + lotNo * 0.11
+  const sheetJitter =
+    sheetNumber > 0 ? ((sheetNumber * 13) % 11) * 0.07 + (sheetNumber % 5) * 0.03 : 0
+  return Number((bis.sampleDrawnSeed + lotJitter + sheetJitter).toFixed(3))
+}
+
+/** Existing splitSampleWeights seed: lot-only when sheet is 0; sheet-mixed otherwise. */
+export function blankLotSplitSeed(lotNo: number, sheetNumber = 0): number {
+  return lotNo + (sheetNumber > 0 ? sheetNumber * 31 : 0)
+}
+
+/**
  * Deterministic u ∈ [0, 1) from Model C job-level seed parts.
  * Not Math.random — same inputs always yield the same u.
  * Assay F* is Job-level: purity + sheet + base job card (not lot / not pair).
