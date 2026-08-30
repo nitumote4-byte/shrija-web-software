@@ -26,6 +26,8 @@ export type ManakFireAssaySheet = {
   version: 1
   source: 'shrija-hallmark-suite'
   createdAt: string
+  /** Calendar day (YYYY-MM-DD). Optional on historical records — see fireAssaySheetDate. */
+  date?: string
   purity: string
   shift: string
   sheetNo: string
@@ -53,8 +55,114 @@ export type ManakFireAssaySheet = {
   viewRows?: ManakFireAssayRow[]
 }
 
-function sheetArchiveKey(purity: string, shift: string, sheetNo: string) {
+/** YYYY-MM-DD from a date picker, stored `date`, or ISO `createdAt`. */
+export function fireAssayCalendarDate(raw?: string | null): string {
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(raw || '').trim())
+  return m ? m[1] : ''
+}
+
+/** Effective Fire Assay calendar day already used by the app (date field, else createdAt). */
+export function fireAssaySheetDate(
+  sheet: Pick<ManakFireAssaySheet, 'createdAt'> & { date?: string },
+): string {
+  return fireAssayCalendarDate(sheet.date) || fireAssayCalendarDate(sheet.createdAt)
+}
+
+export function todayFireAssayDate(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+/** Legacy identity: purity|shift|sheetNo (pre date-wise numbering). */
+function legacySheetArchiveKey(purity: string, shift: string, sheetNo: string) {
   return `${purity}|${shift || 'Day'}|${sheetNo}`
+}
+
+/** Date-wise identity: date|purity|shift|sheetNo so 30-Aug/1 and 31-Aug/1 can both exist. */
+function datedSheetArchiveKey(date: string, purity: string, shift: string, sheetNo: string) {
+  return `${date}|${purity}|${shift || 'Day'}|${sheetNo}`
+}
+
+export function listFireAssaySheetNosFrom(
+  sheets: Iterable<ManakFireAssaySheet>,
+  purity?: string,
+  shift?: string,
+  date?: string,
+): string[] {
+  const day = fireAssayCalendarDate(date)
+  const nos = new Set<string>()
+  for (const s of sheets) {
+    if (purity && s.purity !== purity) continue
+    if (shift && s.shift !== shift) continue
+    if (day && fireAssaySheetDate(s) !== day) continue
+    if (s.sheetNo) nos.add(s.sheetNo)
+  }
+  return [...nos].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b))
+}
+
+export function nextSheetNoAfter(existingNos: string[]): string {
+  const existing = existingNos
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n > 0)
+  if (!existing.length) return '1'
+  return String(Math.max(...existing) + 1)
+}
+
+/**
+ * Sheet Number dropdown: saved numbers for the selected date + exactly one next number.
+ * Labels are the number only — no "(saved)" / "(new)", no unused future slots.
+ */
+export function fireAssaySheetSelectOptions(
+  savedNos: string[],
+  nextNew: string,
+): { value: string; label: string }[] {
+  const saved = savedNos.map((n) => String(n).trim()).filter(Boolean)
+  const savedSet = new Set(saved)
+  let next = String(nextNew || '').trim()
+  if (!next || savedSet.has(next)) next = nextSheetNoAfter(saved)
+  savedSet.add(next)
+  return [...savedSet]
+    .sort((a, b) => Number(a) - Number(b) || a.localeCompare(b))
+    .map((n) => ({ value: n, label: n }))
+}
+
+export function lookupFireAssaySheet(
+  map: Record<string, ManakFireAssaySheet>,
+  purity: string,
+  shift: string,
+  sheetNo: string,
+  date?: string,
+): ManakFireAssaySheet | null {
+  if (!purity || !sheetNo) return null
+  const sh = shift || 'Day'
+  const day = fireAssayCalendarDate(date)
+  if (day) {
+    const dated = map[datedSheetArchiveKey(day, purity, sh, sheetNo)]
+    if (dated) return dated
+    const legacy = map[legacySheetArchiveKey(purity, sh, sheetNo)]
+    if (legacy && fireAssaySheetDate(legacy) === day) return legacy
+    return null
+  }
+  return map[legacySheetArchiveKey(purity, sh, sheetNo)] || null
+}
+
+/**
+ * Choose archive key without migrating historical records.
+ * Same date under the legacy key stays on that key; a new date gets a dated key
+ * so it cannot overwrite another day's sheet with the same number.
+ */
+export function fireAssayArchiveWriteKey(
+  map: Record<string, ManakFireAssaySheet>,
+  sheet: ManakFireAssaySheet,
+): string {
+  const date = fireAssaySheetDate(sheet)
+  const datedKey = date
+    ? datedSheetArchiveKey(date, sheet.purity, sheet.shift, sheet.sheetNo)
+    : ''
+  const legacyKey = legacySheetArchiveKey(sheet.purity, sheet.shift, sheet.sheetNo)
+  if (datedKey && map[datedKey]) return datedKey
+  const legacy = map[legacyKey]
+  if (legacy && fireAssaySheetDate(legacy) === date) return legacyKey
+  return datedKey || legacyKey
 }
 
 export function loadFireAssaySheetArchive(): Record<string, ManakFireAssaySheet> {
@@ -70,8 +178,15 @@ export function loadFireAssaySheetArchive(): Record<string, ManakFireAssaySheet>
 
 export function saveFireAssaySheetArchive(sheet: ManakFireAssaySheet) {
   const map = loadFireAssaySheetArchive()
-  const key = sheetArchiveKey(sheet.purity, sheet.shift, sheet.sheetNo)
-  map[key] = sheet
+  const key = fireAssayArchiveWriteKey(map, sheet)
+  const prev = map[key]
+  map[key] = prev
+    ? {
+        ...sheet,
+        createdAt: prev.createdAt || sheet.createdAt,
+        date: prev.date || sheet.date,
+      }
+    : sheet
   tenantSet(FIRE_ASSAY_SHEETS_KEY, JSON.stringify(map))
   return key
 }
@@ -80,30 +195,18 @@ export function getFireAssaySheet(
   purity: string,
   shift: string,
   sheetNo: string,
+  date?: string,
 ): ManakFireAssaySheet | null {
-  if (!purity || !sheetNo) return null
-  const map = loadFireAssaySheetArchive()
-  return map[sheetArchiveKey(purity, shift, sheetNo)] || null
+  return lookupFireAssaySheet(loadFireAssaySheetArchive(), purity, shift, sheetNo, date)
 }
 
-export function listFireAssaySheetNos(purity?: string, shift?: string): string[] {
-  const map = loadFireAssaySheetArchive()
-  const nos = new Set<string>()
-  for (const s of Object.values(map)) {
-    if (purity && s.purity !== purity) continue
-    if (shift && s.shift !== shift) continue
-    if (s.sheetNo) nos.add(s.sheetNo)
-  }
-  return [...nos].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b))
+export function listFireAssaySheetNos(purity?: string, shift?: string, date?: string): string[] {
+  return listFireAssaySheetNosFrom(Object.values(loadFireAssaySheetArchive()), purity, shift, date)
 }
 
-/** Next free sheet number for purity+shift (if 1 exists → 2). */
-export function nextAvailableSheetNo(purity: string, shift = 'Day'): string {
-  const existing = listFireAssaySheetNos(purity, shift)
-    .map((n) => Number(n))
-    .filter((n) => Number.isFinite(n) && n > 0)
-  if (!existing.length) return '1'
-  return String(Math.max(...existing) + 1)
+/** Next free sheet number for purity+shift+date (if that date has 1 → 2; empty date → 1). */
+export function nextAvailableSheetNo(purity: string, shift = 'Day', date?: string): string {
+  return nextSheetNoAfter(listFireAssaySheetNos(purity, shift, date))
 }
 
 /** Positive integer sheet id, or 0 if the raw value is not a real sheet number. */
@@ -127,8 +230,13 @@ export function sheetNumberForNewSheetGeneration(
   return parseFireAssaySheetNumber(nextAvailable)
 }
 
-export function fireAssaySheetExists(purity: string, shift: string, sheetNo: string): boolean {
-  return Boolean(getFireAssaySheet(purity, shift || 'Day', sheetNo))
+export function fireAssaySheetExists(
+  purity: string,
+  shift: string,
+  sheetNo: string,
+  date?: string,
+): boolean {
+  return Boolean(getFireAssaySheet(purity, shift || 'Day', sheetNo, date))
 }
 
 export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {

@@ -4,9 +4,12 @@ import { useToast } from '../components/ui'
 import { store } from '../data/store'
 import { tenantSet } from '../data/tenant'
 import {
+  fireAssaySheetDate,
+  fireAssaySheetSelectOptions,
   getFireAssaySheet,
   listFireAssaySheetNos,
   loadFireAssaySheetArchive,
+  nextSheetNoAfter,
   publishManakFireAssaySheet,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
@@ -178,14 +181,15 @@ export function ViewFireAssay() {
     const fromArchive = listFireAssaySheetNos(
       purityFilter || undefined,
       shift || undefined,
+      date,
     )
     const fromStore = data.fireAssays
+      .filter((a) => !date || a.date === date)
       .map((a) => a.assayNo.replace(/^FS-/, ''))
       .filter(Boolean)
-    return [...new Set([...fromArchive, ...fromStore, '1', '2', '3', '4', '5'])].sort(
-      (a, b) => Number(a) - Number(b) || a.localeCompare(b),
-    )
-  }, [tick, purityFilter, shift, data.fireAssays])
+    const saved = [...new Set([...fromArchive, ...fromStore])]
+    return fireAssaySheetSelectOptions(saved, nextSheetNoAfter(saved)).map((o) => o.value)
+  }, [tick, purityFilter, shift, date, data.fireAssays])
 
   const applySheet = (sheet: ManakFireAssaySheet, silent?: boolean) => {
     setLoadedSheet(sheet)
@@ -225,15 +229,19 @@ export function ViewFireAssay() {
       }
       return
     }
-    const sheet = getFireAssaySheet(p, s || 'Day', sn)
+    const sheet = getFireAssaySheet(p, s || 'Day', sn, date)
     if (sheet) {
       applySheet(sheet, opts?.silent)
       return
     }
-    // Fallback: latest archive sheet matching purity
+    // Fallback: archive sheet matching purity + date (do not open another day's sheet)
     const archive = loadFireAssaySheetArchive()
     const match = Object.values(archive).find(
-      (x) => x.purity === p && x.sheetNo === sn && (!s || x.shift === s),
+      (x) =>
+        x.purity === p &&
+        x.sheetNo === sn &&
+        (!s || x.shift === s) &&
+        fireAssaySheetDate(x) === date,
     )
     if (match) {
       applySheet(match, opts?.silent)
@@ -258,6 +266,13 @@ export function ViewFireAssay() {
   const onShiftChange = (v: string) => {
     setShift(v)
     if (purityFilter && v && sheetNo) openSavedSheet({ purity: purityFilter, shift: v, sheetNo })
+  }
+
+  const onDateChange = (v: string) => {
+    setDate(v)
+    setSheetNo('')
+    setLoadedSheet(null)
+    setRows(controlRowsFromSheet(null, mode))
   }
 
   const onSheetChange = (v: string) => {
@@ -330,6 +345,7 @@ export function ViewFireAssay() {
       version: 1,
       source: 'shrija-hallmark-suite',
       createdAt: new Date().toISOString(),
+      date,
       purity: purityFilter || purity || '916',
       shift: shift || 'Day',
       sheetNo: sheetNo || '1',
@@ -353,6 +369,7 @@ export function ViewFireAssay() {
     }
     const next: ManakFireAssaySheet = {
       ...base,
+      date: base.date || date,
       purity: purityFilter || base.purity,
       shift: shift || base.shift,
       sheetNo: sheetNo || base.sheetNo,
@@ -477,7 +494,7 @@ export function ViewFireAssay() {
               </option>
             ))}
           </select>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} />
           <select value={shift} onChange={(e) => onShiftChange(e.target.value)}>
             <option value="">Select Shift</option>
             <option value="Day">Day</option>
