@@ -6006,6 +6006,134 @@ table.data-table tr:hover td {
   animation: toast-in 0.3s ease;
 }
 
+.status-notice {
+  position: fixed;
+  top: 5.25rem;
+  right: 1.25rem;
+  z-index: 120;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: min(400px, calc(100vw - 1.5rem));
+  padding: 0.95rem 1.05rem;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  pointer-events: none;
+  font-family: inherit;
+}
+
+.status-notice-icon {
+  flex-shrink: 0;
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+}
+
+.status-notice-copy {
+  min-width: 0;
+  padding-top: 0.08rem;
+}
+
+.status-notice-title {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--navy);
+}
+
+.status-notice-message {
+  margin: 0.28rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #475569;
+  font-weight: 500;
+}
+
+.status-notice-error {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff 0%, #fff7f7 100%);
+}
+
+.status-notice-error .status-notice-icon {
+  background: #fef2f2;
+  color: #b42318;
+}
+
+.status-notice-warning {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fff 0%, #fffbeb 100%);
+}
+
+.status-notice-warning .status-notice-icon {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.status-notice-success {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #fff 0%, #f0fdf4 100%);
+}
+
+.status-notice-success .status-notice-icon {
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.status-notice-info {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #fff 0%, #eff6ff 100%);
+}
+
+.status-notice-info .status-notice-icon {
+  background: #eff6ff;
+  color: var(--navy);
+}
+
+.status-notice-in {
+  animation: status-notice-in 0.28s ease forwards;
+}
+
+.status-notice-out {
+  animation: status-notice-out 0.28s ease forwards;
+}
+
+@keyframes status-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes status-notice-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@media (max-width: 640px) {
+  .status-notice {
+    top: 4.5rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+  }
+}
+
 .empty-state {
   text-align: center;
   padding: 2rem 1rem;

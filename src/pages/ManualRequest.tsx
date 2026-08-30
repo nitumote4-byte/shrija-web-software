@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Loader2, Plus, Trash2, X } from 'lucide-react'
+import { useStatusNotice } from '../components/StatusNotice'
 import { useToast } from '../components/ui'
 import { store } from '../data/store'
+import { noticeForVerdict, verifyVoucherParty } from '../utils/voucherPartyMatch'
 import { readVoucherFile } from '../utils/voucherReader'
 
 const PURITY_OPTIONS = ['22K916', '18K750', '14K585', '24K999', 'Silver925']
@@ -73,6 +75,7 @@ function emptyEntry(nos: { requestNo: string; receiptNo: string }): ItemEntry {
 export function ManualRequest() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
+  const { showNotice, Notice } = useStatusNotice()
   const fileRef = useRef<HTMLInputElement>(null)
   const voucherFileRef = useRef<File | null>(null)
 
@@ -139,10 +142,26 @@ export function ManualRequest() {
     setRowItemOpen(null)
   }
 
-  const fillFromVoucher = async (file: File, selectedPartyName: string) => {
+  const fillFromVoucher = async (
+    file: File,
+    selectedPartyName: string,
+    selectedPartyLicense: string,
+  ) => {
     setReading(true)
     try {
-      const { lines } = await readVoucherFile(file, selectedPartyName)
+      const { lines, partyIdentity } = await readVoucherFile(file, selectedPartyName)
+      const verdict = verifyVoucherParty(
+        { name: selectedPartyName, licenseNo: selectedPartyLicense },
+        partyIdentity,
+      )
+      const notice = noticeForVerdict(verdict)
+      if (notice) showNotice(notice)
+      if (!verdict.allowAutoMap) {
+        setRows([])
+        setVoucherLoaded(false)
+        resetEntry(batchNos)
+        return
+      }
       const nos = {
         requestNo: lines[0]?.requestNo || defaultNos().requestNo,
         receiptNo: lines[0]?.receiptNo || defaultNos().receiptNo,
@@ -198,7 +217,8 @@ export function ManualRequest() {
     const shift = overrides?.night ?? night
     const file = overrides?.file === undefined ? voucherFileRef.current : overrides.file
     if (!pid || !shift || !file) return
-    await fillFromVoucher(file, pname)
+    const selected = data.parties.find((p) => p.id === pid)
+    await fillFromVoucher(file, pname, selected?.licenseNo || '')
   }
 
   const pickParty = (id: string, name: string) => {
@@ -364,6 +384,7 @@ export function ManualRequest() {
 
   return (
     <div className="manual-request-page">
+      {Notice}
       {/* ——— Header form (Gold Shark step 1/2) ——— */}
       <div className="panel manual-form-panel">
         <div className="manual-form-row">

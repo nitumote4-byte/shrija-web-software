@@ -1,4 +1,5 @@
 import { normalizeItemCategoryName } from './itemCategoryMatch'
+import { extractVoucherPartyIdentity, type VoucherPartyIdentity } from './voucherPartyMatch'
 
 export type VoucherLine = {
   item: string
@@ -375,7 +376,7 @@ async function extractPlainText(file: File): Promise<string> {
 export async function readVoucherFile(
   file: File,
   _partyName: string,
-): Promise<{ lines: VoucherLine[]; source: string }> {
+): Promise<{ lines: VoucherLine[]; source: string; partyIdentity: VoucherPartyIdentity }> {
   const lower = file.name.toLowerCase()
   let text = ''
 
@@ -394,5 +395,6 @@ export async function readVoucherFile(
     text = ''
   }
 
-  return parseVoucherText(text, file.name)
+  const parsed = parseVoucherText(text, file.name)
+  return { ...parsed, partyIdentity: extractVoucherPartyIdentity(text) }
 }
