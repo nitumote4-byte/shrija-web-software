@@ -21,6 +21,17 @@ export function getStoreVersion() {
   return storeVersion
 }
 
+/** Bumps when a Fire Assay sheet is published so Request List / QM / Billing re-read archive values. */
+let fireAssayArchiveVersion = 0
+
+export function getFireAssayArchiveVersion() {
+  return fireAssayArchiveVersion
+}
+
+export function bumpFireAssayArchiveVersion() {
+  fireAssayArchiveVersion += 1
+}
+
 export function resetTenantCache() {
   if (flushTimer) {
     clearTimeout(flushTimer)

@@ -98,6 +98,18 @@ export function unusedSampleFromRoughRows(rows: Array<{ unusedSample?: number }>
   return Number(rows.reduce((s, r) => s + (Number(r.unusedSample) || 0), 0).toFixed(3))
 }
 
+export type FireAssayLookupOpts = {
+  requestNo?: string
+  allowRequestNo?: (requestNo: string) => boolean
+}
+
+export type FireAssayCornetResult = {
+  status: 'ready' | 'pending'
+  total: number | null
+}
+
+const CORNET_PENDING: FireAssayCornetResult = { status: 'pending', total: null }
+
 function rowJobKey(row: {
   jobCardNo?: string
   manakJobCard?: string
@@ -110,43 +122,87 @@ function sheetSourceRows(sheet: ManakFireAssaySheet): ManakFireAssayRow[] {
   return sheet.viewRows || []
 }
 
+function rowMatchesFireAssayLookup(
+  row: { jobCardNo?: string; manakJobCard?: string; requestNo?: string },
+  jobKey: string,
+  opts?: FireAssayLookupOpts,
+): boolean {
+  if (rowJobKey(row) !== jobKey) return false
+  // When both sides know a Request No, never cross that boundary (A must not get B).
+  if (opts?.requestNo && row.requestNo && row.requestNo !== opts.requestNo) return false
+  if (row.requestNo && opts?.allowRequestNo && !opts.allowRequestNo(row.requestNo)) return false
+  return true
+}
+
+function newestSheetRowsForJob(
+  jobCardNo: string,
+  sheets: ManakFireAssaySheet[] = Object.values(loadFireAssaySheetArchive()),
+): ManakFireAssayRow[] | null {
+  const key = canonicalJobCardNo(jobCardNo)
+  if (!key) return null
+  const ordered = [...sheets].sort((a, b) =>
+    String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
+  )
+  for (const sheet of ordered) {
+    const source = sheetSourceRows(sheet)
+    if (source.some((r) => rowJobKey(r) === key)) return source
+  }
+  return null
+}
+
 export function fireAssaySampleWeightFromRows(
   rows: Array<{ jobCardNo?: string; manakJobCard?: string; sampleWeight?: unknown; requestNo?: string }>,
   jobCardNo: string,
-  opts?: { requestNo?: string; allowRequestNo?: (requestNo: string) => boolean },
+  opts?: FireAssayLookupOpts,
 ): FireAssaySampleWeightResult {
   const key = canonicalJobCardNo(jobCardNo)
   if (!key) return PENDING
-  const matched = rows.filter((r) => {
-    if (rowJobKey(r) !== key) return false
-    if (opts?.requestNo && r.requestNo && r.requestNo !== opts.requestNo) return false
-    if (r.requestNo && opts?.allowRequestNo && !opts.allowRequestNo(r.requestNo)) return false
-    return true
-  })
+  const matched = rows.filter((r) => rowMatchesFireAssayLookup(r, key, opts))
   return totalFromFireAssaySamples(matched.map((r) => parseFireAssaySampleWeight(r.sampleWeight)))
 }
 
 /**
  * Current Fire Assay record for an exact Job Card: newest archived sheet that
  * contains that job (do not sum historical duplicate sheets).
+ * Match key: canonical Job Card (lot prefix stripped). Request No is a
+ * boundary when both the sheet row and the caller have one. Centre isolation
+ * is `allowRequestNo` from the caller's outlet. Sheet number / date are not keys.
  */
 export function fireAssaySampleWeightFromArchive(
   jobCardNo: string,
-  opts?: { requestNo?: string; allowRequestNo?: (requestNo: string) => boolean },
+  opts?: FireAssayLookupOpts,
+  sheets?: ManakFireAssaySheet[],
 ): FireAssaySampleWeightResult {
+  const source = newestSheetRowsForJob(jobCardNo, sheets)
+  if (!source) return PENDING
+  return fireAssaySampleWeightFromRows(source, jobCardNo, opts)
+}
+
+/** Sum of WOTGCAA (mg) for an exact Job Card on the given sheet rows. */
+export function fireAssayCornetFromRows(
+  rows: Array<{ jobCardNo?: string; manakJobCard?: string; wotgcaa?: unknown; requestNo?: string }>,
+  jobCardNo: string,
+  opts?: FireAssayLookupOpts,
+): FireAssayCornetResult {
   const key = canonicalJobCardNo(jobCardNo)
-  if (!key) return PENDING
+  if (!key) return CORNET_PENDING
+  const total = rows
+    .filter((r) => rowMatchesFireAssayLookup(r, key, opts))
+    .reduce((s, r) => s + (Number(r.wotgcaa) || 0), 0)
+  if (!(total > 0)) return CORNET_PENDING
+  return { status: 'ready', total: Number(total.toFixed(3)) }
+}
 
-  const sheets = Object.values(loadFireAssaySheetArchive()).sort((a, b) =>
-    String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
-  )
-
-  for (const sheet of sheets) {
-    const source = sheetSourceRows(sheet)
-    const hasJob = source.some((r) => rowJobKey(r) === key)
-    if (!hasJob) continue
-    return fireAssaySampleWeightFromRows(source, jobCardNo, opts)
-  }
-
-  return PENDING
+/**
+ * Authoritative Cornet Weight (mg) from the same newest Fire Assay archive
+ * sheet used for Sample Weight. Same Job Card / Request No / centre rules.
+ */
+export function fireAssayCornetFromArchive(
+  jobCardNo: string,
+  opts?: FireAssayLookupOpts,
+  sheets?: ManakFireAssaySheet[],
+): FireAssayCornetResult {
+  const source = newestSheetRowsForJob(jobCardNo, sheets)
+  if (!source) return CORNET_PENDING
+  return fireAssayCornetFromRows(source, jobCardNo, opts)
 }

@@ -1,4 +1,5 @@
 import {
+  fireAssayCornetFromArchive,
   fireAssaySampleWeightFromArchive,
   parseFireAssaySampleWeight,
   totalFromFireAssaySamples,
@@ -629,6 +630,24 @@ function normalizeJobCardKey(raw: string | undefined | null): string {
 function findRequestByNo(data: StoreShape, requestNo: string) {
   if (!requestNo) return undefined
   return data.requests.find((r) => r.requestNo === requestNo)
+}
+
+/** Centre-scoped Request Nos allowed when matching Fire Assay archive rows. */
+function fireAssayLookupOpts(requestNo?: string, centreId?: string) {
+  const data = load()
+  const allowed = new Set<string>()
+  for (const req of data.requests) {
+    if (centreId && req.centreId && req.centreId !== centreId) continue
+    if (req.requestNo) allowed.add(req.requestNo)
+  }
+  for (const row of data.roughSheets) {
+    if (centreId && row.centreId && row.centreId !== centreId) continue
+    if (row.requestNo) allowed.add(row.requestNo)
+  }
+  return {
+    requestNo,
+    allowRequestNo: (no: string) => allowed.has(no),
+  }
 }
 
 function seed(): StoreShape {
@@ -1481,10 +1500,6 @@ export const store = {
         errors.push(`${rough.requestNo}: Save Job Card first`)
         continue
       }
-      if (!(Number(rough.sampleWeight) > 0)) {
-        errors.push(`${rough.requestNo}: Enter sample weight before send`)
-        continue
-      }
       const req = findRequestByNo(data, rough.requestNo)
       if (!req) {
         errors.push(`${rough.requestNo}: Request not found`)
@@ -2138,20 +2153,23 @@ export const store = {
     if (!normalizeJobCardKey(jobCardNo)) {
       return fireAssaySampleWeightFromArchive('')
     }
-    const data = load()
-    const allowed = new Set<string>()
-    for (const req of data.requests) {
-      if (centreId && req.centreId && req.centreId !== centreId) continue
-      if (req.requestNo) allowed.add(req.requestNo)
+    return fireAssaySampleWeightFromArchive(jobCardNo || '', fireAssayLookupOpts(requestNo, centreId))
+  },
+
+  /**
+   * Authoritative Cornet Weight (mg) from the same Fire Assay archive sheet
+   * as Sample Weight. Newest sheet that contains the Job Card; Request No is
+   * a boundary when both sides have one; centre via allowed request numbers.
+   */
+  getFireAssayCornet(
+    jobCardNo?: string,
+    requestNo?: string,
+    centreId?: string,
+  ) {
+    if (!normalizeJobCardKey(jobCardNo)) {
+      return fireAssayCornetFromArchive('')
     }
-    for (const row of data.roughSheets) {
-      if (centreId && row.centreId && row.centreId !== centreId) continue
-      if (row.requestNo) allowed.add(row.requestNo)
-    }
-    return fireAssaySampleWeightFromArchive(jobCardNo || '', {
-      requestNo,
-      allowRequestNo: (no) => allowed.has(no),
-    })
+    return fireAssayCornetFromArchive(jobCardNo || '', fireAssayLookupOpts(requestNo, centreId))
   },
 
   addFireAssay(input: Omit<FireAssay, 'id' | 'assayNo' | 'date'> & { assayNo?: string; date?: string }) {

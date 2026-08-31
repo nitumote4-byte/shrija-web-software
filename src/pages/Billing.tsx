@@ -60,6 +60,26 @@ function nextInvoiceNo(prefix: string, startFrom: string, existingCount: number)
   return `${prefix || ''}${start + existingCount}`
 }
 
+function liveSampleWeight(r: {
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
+  sampleWeight?: number
+}) {
+  const fa = store.getFireAssaySampleWeight(r.jobCardNo, r.requestNo, r.centreId)
+  return fa.status === 'ready' && fa.total != null ? fa.total : Number(r.sampleWeight) || 0
+}
+
+function liveCornetMg(r: {
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
+  cornet?: number
+}) {
+  const fa = store.getFireAssayCornet(r.jobCardNo, r.requestNo, r.centreId)
+  return fa.status === 'ready' && fa.total != null ? fa.total : Number(r.cornet) || 0
+}
+
 function buildLines(
   request: HallmarkRequest,
   rough: RoughSheetEntry[],
@@ -233,11 +253,11 @@ export function Billing() {
       )
       const weightReceived =
         related.reduce((s, r) => s + r.weight, 0) || request.weight
-      const sampleWeight = related.reduce((s, r) => s + r.sampleWeight, 0)
+      const sampleWeight = related.reduce((s, r) => s + liveSampleWeight(r), 0)
       // Residue handed back to the party = Fire Assay cornet beads for this
-      // request. Day sheets hold cornet in mg; the challan reports grams.
+      // request. Day sheets / archive hold cornet in mg; the challan reports grams.
       const fireboxScrap = Number(
-        (related.reduce((s, r) => s + (Number(r.cornet) || 0), 0) / 1000).toFixed(3),
+        (related.reduce((s, r) => s + liveCornetMg(r), 0) / 1000).toFixed(3),
       )
       // Unused sample return is persisted by Fire Assay (drawn − assayed strips).
       const unusedSample = unusedSampleFromRoughRows(related)

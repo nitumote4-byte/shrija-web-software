@@ -1,21 +1,39 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CloudUpload } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { getSession } from '../data/auth'
 import { isOscSession } from '../data/roles'
 import { store, oscTransferLabel, type RoughSheetEntry } from '../data/store'
+import { getFireAssayArchiveVersion } from '../data/tenantCache'
 
 type SheetRow = RoughSheetEntry & {
   checked: boolean
   dirty?: boolean
 }
 
+function liveSampleWeight(r: {
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
+  sampleWeight?: number
+}) {
+  const fa = store.getFireAssaySampleWeight(r.jobCardNo, r.requestNo, r.centreId)
+  return fa.status === 'ready' && fa.total != null ? fa.total : Number(r.sampleWeight) || 0
+}
+
+function liveCornet(r: {
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
+  cornet?: number
+}) {
+  const fa = store.getFireAssayCornet(r.jobCardNo, r.requestNo, r.centreId)
+  return fa.status === 'ready' && fa.total != null ? fa.total : Number(r.cornet) || 0
+}
+
 function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
   return entries.map((r) => {
-    const fa = store.getFireAssaySampleWeight(r.jobCardNo, r.requestNo, r.centreId)
-    const sampleWeight =
-      fa.status === 'ready' && fa.total != null ? fa.total : Number(r.sampleWeight) || 0
     return {
       ...r,
       jobCardNo: r.jobCardNo || '',
@@ -23,9 +41,9 @@ function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
       co: r.co || '',
       sampleTagId: r.sampleTagId || '',
       sampleQty: r.sampleQty ?? 1,
-      cornet: r.cornet ?? 0,
+      cornet: liveCornet(r),
       rejectPic: r.rejectPic ?? 0,
-      sampleWeight,
+      sampleWeight: liveSampleWeight(r),
       checked: false,
       dirty: false,
     }
@@ -67,11 +85,16 @@ export function RequestList() {
   const [jobCardQ, setJobCardQ] = useState('')
   const [tick, setTick] = useState(0)
   const [rows, setRows] = useState<SheetRow[]>(() => toSheetRows(store.getAll().roughSheets))
+  const faArchiveVersion = getFireAssayArchiveVersion()
 
   const reload = () => {
     setRows(toSheetRows(store.getAll().roughSheets))
     setTick((t) => t + 1)
   }
+
+  useEffect(() => {
+    setRows(toSheetRows(store.getAll().roughSheets))
+  }, [faArchiveVersion])
 
   void tick
 
@@ -131,12 +154,17 @@ export function RequestList() {
           next.dirty = true
           if (patch.jobCardNo !== undefined) {
             next.jobCardSaved = false
-            const fa = store.getFireAssaySampleWeight(
-              patch.jobCardNo,
-              next.requestNo,
-              next.centreId,
-            )
-            if (fa.status === 'ready' && fa.total != null) next.sampleWeight = fa.total
+            next.sampleWeight = liveSampleWeight({
+              jobCardNo: patch.jobCardNo,
+              requestNo: next.requestNo,
+              centreId: next.centreId,
+              sampleWeight: next.sampleWeight,
+            })
+            next.cornet = liveCornet({
+              jobCardNo: patch.jobCardNo,
+              requestNo: next.requestNo,
+              centreId: next.centreId,
+            })
           }
         }
         return next

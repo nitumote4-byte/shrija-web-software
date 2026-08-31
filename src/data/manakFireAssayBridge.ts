@@ -1,4 +1,5 @@
 import { tenantGet, tenantSet } from './tenant'
+import { bumpFireAssayArchiveVersion } from './tenantCache'
 
 export const MANAK_FIRE_ASSAY_KEY = 'shrija-manak-fire-assay-sheet'
 export const MANAK_FIRE_ASSAY_EVENT = 'shrija:manak-fire-assay-sheet'
@@ -255,6 +256,7 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
   } catch {
     /* ignore */
   }
+  bumpFireAssayArchiveVersion()
 
   // DOM bridge (shared with extension content script — CustomEvent does NOT cross isolated world)
   try {

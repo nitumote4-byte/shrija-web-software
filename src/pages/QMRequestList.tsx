@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CloudUpload } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { isOscSession } from '../data/roles'
 import { store, oscTransferLabel, type RoughSheetEntry } from '../data/store'
 import { BILL_GENERATED_DELETE_BLOCKED } from '../data/requestBillingDeletion'
+import { getFireAssayArchiveVersion } from '../data/tenantCache'
 
 const SAMPLING_METHODS = ['Cutting', 'Drill', 'Cut', 'Scrap', 'Touch'] as const
 
@@ -31,6 +32,16 @@ function formatSampleWeight(n: number) {
   return n.toFixed(3)
 }
 
+function liveCornet(r: {
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
+  cornet?: number
+}) {
+  const fa = store.getFireAssayCornet(r.jobCardNo, r.requestNo, r.centreId)
+  return fa.status === 'ready' && fa.total != null ? fa.total : Number(r.cornet) || 0
+}
+
 function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
   return entries.map((r) => {
     const fa = store.getFireAssaySampleWeight(r.jobCardNo, r.requestNo, r.centreId)
@@ -50,7 +61,7 @@ function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
       sampleTagId: r.sampleTagId || '',
       sampleQty: r.sampleQty ?? 1,
       samplingMethod: r.samplingMethod || '',
-      cornet: r.cornet ?? 0,
+      cornet: liveCornet(r),
       rejectPic: r.rejectPic ?? 0,
       sampleWeight,
       sampleWeightText,
@@ -97,11 +108,16 @@ export function QMRequestList() {
   const [editMode, setEditMode] = useState(true)
   const [tick, setTick] = useState(0)
   const [rows, setRows] = useState<SheetRow[]>(() => toSheetRows(store.getAll().roughSheets))
+  const faArchiveVersion = getFireAssayArchiveVersion()
 
   const reload = () => {
     setRows(toSheetRows(store.getAll().roughSheets))
     setTick((t) => t + 1)
   }
+
+  useEffect(() => {
+    setRows(toSheetRows(store.getAll().roughSheets))
+  }, [faArchiveVersion])
 
   void tick
 
@@ -162,6 +178,11 @@ export function QMRequestList() {
               next.sampleWeight = fa.total
               next.sampleWeightText = fa.total.toFixed(3)
             }
+            next.cornet = liveCornet({
+              jobCardNo: patch.jobCardNo,
+              requestNo: next.requestNo,
+              centreId: next.centreId,
+            })
           }
         }
         return next
