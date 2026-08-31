@@ -7,7 +7,15 @@ import { store } from '../data/store'
 import { CENTRE_NAME } from '../data/modules'
 import { getFirmProfile, saveFirmProfile, type CentreOutlet } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
+import { getSession } from '../data/auth'
+import { getWorkingPeriodName } from '../data/operationalPeriod'
 import { DEFAULT_MIN_BILL_AMOUNT, parseMinBillAmount } from '../utils/minBillCharge'
+import {
+  formatInvoiceMonthToken,
+  nextInvoiceNo,
+  normalizeInvoiceCenterType,
+  type InvoiceCenterType,
+} from '../utils/documentNumbers'
 
 function SubPageShell({
   title,
@@ -1988,6 +1996,7 @@ type InvoiceColId = (typeof INVOICE_COLS)[number]['id']
 type InvoiceSettingsData = {
   startFrom: string
   prefix: string
+  centerType: InvoiceCenterType
   qrDataUrl: string
   sealDataUrl: string
   columns: Record<InvoiceColId, boolean>
@@ -1997,7 +2006,8 @@ type InvoiceSettingsData = {
 
 const DEFAULT_INVOICE_SETTINGS: InvoiceSettingsData = {
   startFrom: '1',
-  prefix: '',
+  prefix: 'SMG',
+  centerType: 'MAIN',
   qrDataUrl: '',
   sealDataUrl: '',
   columns: {
@@ -2015,19 +2025,32 @@ const DEFAULT_INVOICE_SETTINGS: InvoiceSettingsData = {
   minBillAmount: DEFAULT_MIN_BILL_AMOUNT,
 }
 
+function defaultInvoiceCenterType(): InvoiceCenterType {
+  return getSession()?.centreKind === 'osc' ? 'OSC' : 'MAIN'
+}
+
 function loadInvoiceSettings(): InvoiceSettingsData {
   try {
     const raw = tenantGet('shrija-invoice-settings')
-    if (!raw) return DEFAULT_INVOICE_SETTINGS
+    if (!raw) {
+      return { ...DEFAULT_INVOICE_SETTINGS, centerType: defaultInvoiceCenterType() }
+    }
     const parsed = JSON.parse(raw) as Partial<InvoiceSettingsData>
     return {
       ...DEFAULT_INVOICE_SETTINGS,
       ...parsed,
+      prefix:
+        parsed.prefix != null && String(parsed.prefix).trim() !== ''
+          ? String(parsed.prefix)
+          : DEFAULT_INVOICE_SETTINGS.prefix,
       columns: { ...DEFAULT_INVOICE_SETTINGS.columns, ...(parsed.columns || {}) },
       minBillAmount: parseMinBillAmount(parsed.minBillAmount),
+      centerType: parsed.centerType
+        ? normalizeInvoiceCenterType(parsed.centerType)
+        : defaultInvoiceCenterType(),
     }
   } catch {
-    return DEFAULT_INVOICE_SETTINGS
+    return { ...DEFAULT_INVOICE_SETTINGS, centerType: defaultInvoiceCenterType() }
   }
 }
 
@@ -2040,11 +2063,53 @@ function readImageFile(file: File): Promise<string> {
   })
 }
 
+function InvoiceNumberPreview({
+  startFrom,
+  prefix,
+  centerType,
+}: {
+  startFrom: string
+  prefix: string
+  centerType: InvoiceCenterType
+}) {
+  const monthToken = formatInvoiceMonthToken()
+  let invoices: Array<{
+    invoiceNo?: string
+    date?: string
+    invoiceDateTime?: string
+    operationalPeriod?: string
+    month?: string
+  }> = []
+  try {
+    invoices = store.getAllRaw().invoices || []
+  } catch {
+    invoices = []
+  }
+  const preview = nextInvoiceNo({
+    prefix,
+    startFrom,
+    invoices,
+    date: new Date(),
+    periodName: getWorkingPeriodName(),
+    centerType,
+  })
+  return (
+    <div className="invset-number-preview">
+      <div className="invset-number-preview-label">Invoice Number Preview</div>
+      <div className="invset-number-preview-value">{preview}</div>
+      <p className="invset-hint">
+        Month ({monthToken}) follows the calendar automatically. Serial resets each month.
+      </p>
+    </div>
+  )
+}
+
 export function InvoiceSettings() {
   const { toast, Toast } = useToast()
   const initial = loadInvoiceSettings()
   const [startFrom, setStartFrom] = useState(initial.startFrom)
   const [prefix, setPrefix] = useState(initial.prefix)
+  const [centerType, setCenterType] = useState<InvoiceCenterType>(initial.centerType)
   const [qrDataUrl, setQrDataUrl] = useState(initial.qrDataUrl)
   const [sealDataUrl, setSealDataUrl] = useState(initial.sealDataUrl)
   const [columns, setColumns] = useState(initial.columns)
@@ -2074,6 +2139,7 @@ export function InvoiceSettings() {
     const data: InvoiceSettingsData = {
       startFrom,
       prefix,
+      centerType,
       qrDataUrl,
       sealDataUrl,
       columns,
@@ -2113,14 +2179,27 @@ export function InvoiceSettings() {
               />
             </div>
             <div className="field">
+              <label>Center Type</label>
+              <select
+                value={centerType}
+                onChange={(e) => setCenterType(normalizeInvoiceCenterType(e.target.value))}
+              >
+                <option value="MAIN">MAIN</option>
+                <option value="OSC">OSC</option>
+              </select>
+            </div>
+            <div className="field">
               <label>Invoice Prefix</label>
               <input
                 value={prefix}
                 onChange={(e) => setPrefix(e.target.value)}
-                placeholder="e.g. VH/ (period auto-added as 26-27/001)"
+                placeholder="SMG"
               />
+              <p className="invset-hint">Company code only. Month is added automatically.</p>
             </div>
           </div>
+
+          <InvoiceNumberPreview startFrom={startFrom} prefix={prefix} centerType={centerType} />
 
           <div className="invset-uploads">
             <div className="invset-upload">

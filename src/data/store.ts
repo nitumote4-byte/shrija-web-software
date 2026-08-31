@@ -6,7 +6,7 @@ import {
   unusedSampleWeightGrams,
   unusedSampleWeightMg,
 } from './fireAssaySampleWeight'
-import { getActiveTenantId } from './tenant'
+import { getActiveTenantId, tenantGet } from './tenant'
 import { getStoreCache, getStoreVersion, setStoreCache } from './tenantCache'
 import { getSession } from './auth'
 import {
@@ -443,6 +443,20 @@ function numberingPeriod() {
 
 function periodStamp() {
   return workingPeriodStamp()
+}
+
+function loadInvoiceNumberingSettings(): { prefix: string; startFrom: string | number } {
+  try {
+    const raw = tenantGet('shrija-invoice-settings')
+    if (!raw) return { prefix: 'SMG', startFrom: 1 }
+    const parsed = JSON.parse(raw) as { prefix?: string; startFrom?: string }
+    return {
+      prefix: parsed.prefix || 'SMG',
+      startFrom: parsed.startFrom || 1,
+    }
+  } catch {
+    return { prefix: 'SMG', startFrom: 1 }
+  }
 }
 
 function nextHmRequestNo(data: StoreShape, date: string) {
@@ -1846,10 +1860,8 @@ export const store = {
   ) {
     const data = load()
     const stamp = sessionCentreStamp()
-    const centreInvoices = data.invoices.filter((i) =>
-      stamp.centreKind === 'osc' ? i.centreId === stamp.centreId : !isOscRecord(i),
-    )
     const date = input.date || today()
+    const numbering = loadInvoiceNumberingSettings()
     const inv: Invoice = {
       ...input,
       ...stamp,
@@ -1859,11 +1871,12 @@ export const store = {
       invoiceNo:
         input.invoiceNo ||
         nextInvoiceNo({
-          prefix: 'INV-',
-          startFrom: 1,
-          invoices: centreInvoices,
+          prefix: numbering.prefix,
+          startFrom: numbering.startFrom,
+          invoices: data.invoices,
           date,
           periodName: numberingPeriod(),
+          centerType: stamp.centreKind === 'osc' ? 'OSC' : 'MAIN',
         }),
       date,
       ...periodStamp(),

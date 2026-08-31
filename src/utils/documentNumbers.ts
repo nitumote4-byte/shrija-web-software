@@ -1,6 +1,7 @@
 /**
- * FY-aware document numbering.
- * Sequences reset per Indian Financial Year (1 Apr → 31 Mar).
+ * Document numbering.
+ * Regular invoices: monthly serials `{brand}/{MAIN|OSC}/{MON}/{NNN}` (reset each calendar month).
+ * Monthly bills / credit notes / keyed docs remain FY-aware (1 Apr → 31 Mar).
  * Existing stored numbers are never rewritten — only new numbers use these helpers.
  */
 
@@ -19,7 +20,28 @@ export type NumberedDoc = {
   invoiceDateTime?: string
   operationalPeriod?: string
   month?: string
+  centreKind?: 'main' | 'osc'
 }
+
+export type InvoiceCenterType = 'MAIN' | 'OSC'
+
+export const INVOICE_MONTH_TOKENS = [
+  'JAN',
+  'FEB',
+  'MAR',
+  'APR',
+  'MAY',
+  'JUN',
+  'JUL',
+  'AUG',
+  'SEP',
+  'OCT',
+  'NOV',
+  'DEC',
+] as const
+
+const CENTER_TOKENS = new Set(['MAIN', 'OSC'])
+const MONTH_TOKEN_SET = new Set<string>(INVOICE_MONTH_TOKENS)
 
 /** True when the configured prefix already embeds a year / FY token. */
 export function prefixIncludesYearToken(prefix: string): boolean {
@@ -29,6 +51,72 @@ export function prefixIncludesYearToken(prefix: string): boolean {
 
 function padSeq(seq: number, width = 3) {
   return String(Math.max(0, seq)).padStart(width, '0')
+}
+
+/** Calendar month token from a business date (or today). Always `AUG`, never a stored literal. */
+export function formatInvoiceMonthToken(date?: DateInput): string {
+  const d = parseBusinessDate(date)
+  return INVOICE_MONTH_TOKENS[d.getMonth()]
+}
+
+/** `YYYY-MM` key used to reset serials independently each calendar month. */
+export function calendarMonthKey(date?: DateInput): string {
+  const d = parseBusinessDate(date)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+export function normalizeInvoiceCenterType(raw?: string | null): InvoiceCenterType {
+  const s = String(raw || '')
+    .trim()
+    .toUpperCase()
+  if (s === 'OSC' || s === 'OFF-SITE' || s === 'OFFSITE') return 'OSC'
+  return 'MAIN'
+}
+
+/**
+ * Company/brand portion only (e.g. `SMG`).
+ * Strips trailing centre / month / FY tokens so operators never have to type the full number.
+ */
+export function normalizeInvoiceBrandPrefix(prefix: string): string {
+  let p = String(prefix || '').trim()
+  p = p.replace(/[/-]+$/g, '')
+  if (!p) return 'SMG'
+  const parts = p.split(/[/]+/).filter(Boolean)
+  while (parts.length > 1) {
+    const last = parts[parts.length - 1].replace(/-+$/g, '').toUpperCase()
+    if (
+      CENTER_TOKENS.has(last) ||
+      MONTH_TOKEN_SET.has(last) ||
+      /^\d{2}-\d{2}$/.test(last) ||
+      /^20\d{2}$/.test(last) ||
+      /^M-\d{2}-\d{2}$/.test(last)
+    ) {
+      parts.pop()
+      continue
+    }
+    break
+  }
+  const brand = parts.join('/').replace(/-+$/g, '')
+  return brand || 'SMG'
+}
+
+export function formatInvoiceNumber(
+  brand: string,
+  centerType: InvoiceCenterType,
+  monthToken: string,
+  seq: number,
+): string {
+  return `${normalizeInvoiceBrandPrefix(brand)}/${normalizeInvoiceCenterType(centerType)}/${monthToken}/${padSeq(seq)}`
+}
+
+function parseSerialAfterStem(invoiceNo: string, stem: string): number | null {
+  const n = String(invoiceNo || '').trim()
+  const s = String(stem || '')
+  if (!n || !s || n.length <= s.length) return null
+  if (n.slice(0, s.length).toUpperCase() !== s.toUpperCase()) return null
+  const rest = n.slice(s.length)
+  if (!/^\d+$/.test(rest)) return null
+  return Number(rest)
 }
 
 /**
@@ -113,8 +201,9 @@ export function nextSequenceInFinancialYear<
 
 /**
  * Regular (non-CN) invoice number for a bill date.
- * Empty prefix → `26-27/001`
- * Prefix `VH/` → `VH/26-27/001`
+ * `{brand}/{MAIN|OSC}/{MON}/{NNN}` — serial resets each calendar month, per centre, per OFP.
+ * Empty / missing brand → `SMG`. Month is always taken from `date` (defaults to today).
+ * Sequence uses max existing serial in-scope (not count), then skips any globally used number.
  */
 export function nextInvoiceNo(opts: {
   prefix: string
@@ -123,16 +212,38 @@ export function nextInvoiceNo(opts: {
   date: DateInput
   /** Working Operational Financial Period name, e.g. "2026-27" */
   periodName?: string
+  /** MAIN or OSC — independent sequences. Defaults to MAIN. */
+  centerType?: string | null
 }): string {
   const period = resolveNumberingPeriod(opts.date, opts.periodName)
-  const seq = nextSequenceInFinancialYear(
-    opts.invoices,
-    opts.date,
-    opts.startFrom,
-    (inv) => !isCreditNoteInvoiceNo(inv.invoiceNo),
-    period,
-  )
-  return formatFySequence(opts.prefix || '', getFinancialYearShort(period), seq)
+  const monthToken = formatInvoiceMonthToken(opts.date)
+  const monthKey = calendarMonthKey(opts.date)
+  const brand = normalizeInvoiceBrandPrefix(opts.prefix)
+  const center = normalizeInvoiceCenterType(opts.centerType)
+  const stem = `${brand}/${center}/${monthToken}/`
+  const start = Number(opts.startFrom)
+  const base = Number.isFinite(start) && start > 0 ? Math.floor(start) : 1
+
+  const serials: number[] = []
+  const used = new Set<string>()
+  for (const inv of opts.invoices) {
+    const no = String(inv.invoiceNo || '').trim()
+    if (!no) continue
+    used.add(no)
+    if (isCreditNoteInvoiceNo(no)) continue
+    if (documentPeriodName(inv) !== period) continue
+    if (calendarMonthKey(documentBusinessDate(inv)) !== monthKey) continue
+    const seq = parseSerialAfterStem(no, stem)
+    if (seq != null) serials.push(seq)
+  }
+
+  let seq = serials.length ? Math.max(base, Math.max(...serials) + 1) : base
+  let candidate = formatInvoiceNumber(brand, center, monthToken, seq)
+  while (used.has(candidate)) {
+    seq += 1
+    candidate = formatInvoiceNumber(brand, center, monthToken, seq)
+  }
+  return candidate
 }
 
 /**

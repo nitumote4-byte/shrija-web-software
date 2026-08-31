@@ -73,7 +73,7 @@ assertEq(getFinancialYearStartYear('2027-01-15'), 2026, 'Jan start year')
   assertEq(buckets[11].year, 2027, 'Mar year')
 }
 
-// --- Invoice numbering per FY ---
+// --- Regular invoice numbering (monthly serial, calendar month token) ---
 {
   const fyA = [
     { invoiceNo: '25-26/001', date: '2025-04-10' },
@@ -81,18 +81,26 @@ assertEq(getFinancialYearStartYear('2027-01-15'), 2026, 'Jan start year')
     { invoiceNo: '25-26/003', date: '2026-03-20' },
   ]
   const n1 = nextInvoiceNo({ prefix: '', startFrom: 1, invoices: fyA, date: '2026-03-31' })
-  assertEq(n1, '25-26/004', 'continues within FY 2025-26')
+  assertEq(n1, 'SMG/MAIN/MAR/001', 'legacy FY numbers do not consume monthly serial')
 
   const n2 = nextInvoiceNo({ prefix: '', startFrom: 1, invoices: fyA, date: '2026-04-01' })
-  assertEq(n2, '26-27/001', 'resets on new FY 2026-27')
+  assertEq(n2, 'SMG/MAIN/APR/001', 'new calendar month starts at start-from')
 
   const n3 = nextInvoiceNo({
-    prefix: 'VH/',
+    prefix: 'SMG',
     startFrom: 1,
-    invoices: [{ invoiceNo: 'VH/26-27/001', date: '2026-05-01' }],
-    date: '2026-06-01',
+    invoices: [{ invoiceNo: 'SMG/MAIN/JUN/001', date: '2026-06-01' }],
+    date: '2026-06-15',
   })
-  assertEq(n3, 'VH/26-27/002', 'prefix + FY short')
+  assertEq(n3, 'SMG/MAIN/JUN/002', 'continues within the same month')
+
+  const n4 = nextInvoiceNo({
+    prefix: 'SMG',
+    startFrom: 1,
+    invoices: [{ invoiceNo: 'SMG/MAIN/JUN/001', date: '2026-06-01' }],
+    date: '2026-07-01',
+  })
+  assertEq(n4, 'SMG/MAIN/JUL/001', 'resets when the calendar month changes')
 
   assert(prefixIncludesYearToken('VH/2024/'), 'detects calendar year in prefix')
   assert(prefixIncludesYearToken('VH/26-27/'), 'detects FY short in prefix')
@@ -170,7 +178,7 @@ assertEq(getFinancialYearStartYear('2027-01-15'), 2026, 'Jan start year')
     date: '2026-08-01',
   })
 
-  assertEq(generated, 'INV-26-27/002', 'historical invoice preserved — next FY-aware number')
+  assertEq(generated, 'INV/MAIN/AUG/001', 'historical invoice preserved — next monthly number')
   assertEq(historical.invoiceNo, 'INV-2026-001', 'historical invoice preserved — invoiceNo unchanged')
   assertEq(historical.date, '2026-07-01', 'historical invoice preserved — date unchanged')
   assertEq(
@@ -284,7 +292,7 @@ assertEq(getFinancialYearStartYear('2027-01-15'), 2026, 'Jan start year')
     monthOrDate: '2026-04',
   })
 
-  assertEq(invNew, '26-27/001', 'FY reset works — invoice')
+  assertEq(invNew, 'SMG/MAIN/APR/001', 'FY reset works — invoice monthly serial in April')
   assertEq(monNew, 'M-26-27/001', 'FY reset works — monthly')
   assertEq(cnNew, 'CN-26-27/1', 'FY reset works — credit note')
   assertEq(
@@ -312,7 +320,7 @@ assertEq(getFinancialYearStartYear('2027-01-15'), 2026, 'Jan start year')
     invoices: [marchDoc],
     date: '2026-03-31',
   })
-  assertEq(nextInMarchFy, '25-26/002', 'historical date determines FY — counted in 25-26')
+  assertEq(nextInMarchFy, 'SMG/MAIN/MAR/001', 'historical date determines FY — March monthly serial')
 
   const nextInAprilFy = nextInvoiceNo({
     prefix: '',
@@ -320,7 +328,7 @@ assertEq(getFinancialYearStartYear('2027-01-15'), 2026, 'Jan start year')
     invoices: [marchDoc],
     date: '2026-04-01',
   })
-  assertEq(nextInAprilFy, '26-27/001', 'historical date determines FY — not counted in 26-27')
+  assertEq(nextInAprilFy, 'SMG/MAIN/APR/001', 'historical date determines FY — April not counted')
   assertEq(marchDoc.invoiceNo, '25-26/001', 'historical date determines FY — march doc number intact')
   console.log('[financial-year] historical date determines FY')
 }

@@ -164,7 +164,7 @@ let state = emptyState()
     date: '2026-08-31',
     periodName: '2025-26',
   })
-  assertEq(nextInOld, '25-26/001', 'working 2025-26 numbering ignores 2026-27 docs')
+  assertEq(nextInOld, 'SMG/MAIN/AUG/001', 'working 2025-26 numbering ignores 2026-27 docs')
   const nextInSame = nextInvoiceNo({
     prefix: '',
     startFrom: 1,
@@ -172,7 +172,7 @@ let state = emptyState()
     date: '2026-08-31',
     periodName: '2026-27',
   })
-  assertEq(nextInSame, '26-27/002', 'working 2026-27 continues that period')
+  assertEq(nextInSame, 'SMG/MAIN/AUG/001', 'legacy INV-2026-001 does not consume monthly serial')
   assertEq(historical.invoiceNo, snapshot.invoiceNo, 'historical invoiceNo unchanged')
   assertEq(JSON.stringify(historical), JSON.stringify(snapshot), 'historical object not mutated')
 
@@ -183,6 +183,31 @@ let state = emptyState()
     periodName: '2025-26',
   })
   assertEq(hm, 'HM-25-26-001', 'HM sequence is per working period')
+
+  const currentPeriodInv = {
+    invoiceNo: 'SMG/MAIN/AUG/001',
+    date: '2026-08-10',
+    operationalPeriod: '2026-27',
+  }
+  const nextInPriorOfp = nextInvoiceNo({
+    prefix: 'SMG',
+    startFrom: 1,
+    invoices: [currentPeriodInv],
+    date: '2026-08-31',
+    periodName: '2025-26',
+    centerType: 'MAIN',
+  })
+  assertEq(nextInPriorOfp, 'SMG/MAIN/AUG/002', 'OFP switch skips a globally used invoice number')
+  assertEq(currentPeriodInv.invoiceNo, 'SMG/MAIN/AUG/001', 'OFP switch does not rewrite stored numbers')
+  const nextInWorkingOfp = nextInvoiceNo({
+    prefix: 'SMG',
+    startFrom: 1,
+    invoices: [currentPeriodInv],
+    date: '2026-08-31',
+    periodName: '2026-27',
+    centerType: 'MAIN',
+  })
+  assertEq(nextInWorkingOfp, 'SMG/MAIN/AUG/002', 'working OFP continues that month serial')
   console.log('[operational-period] document numbering period context')
 }
 

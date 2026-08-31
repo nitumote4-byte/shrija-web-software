@@ -4661,6 +4661,30 @@ button {
   margin-bottom: 1rem;
 }
 
+.invset-number-preview {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  background: #f8fafc;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.invset-number-preview-label {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.invset-number-preview-value {
+  margin-top: 0.2rem;
+  font-size: 1.08rem;
+  font-weight: 750;
+  color: var(--navy);
+  letter-spacing: 0.03em;
+}
+
 .invset-uploads {
   display: grid;
   grid-template-columns: 1fr 1fr;

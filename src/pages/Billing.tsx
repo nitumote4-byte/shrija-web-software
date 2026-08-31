@@ -11,6 +11,7 @@ import {
   type InvoiceLine,
   type RoughSheetEntry,
 } from '../data/store'
+import { getSession } from '../data/auth'
 import { tenantGet } from '../data/tenant'
 import {
   applyInvoicePaperForPrint,
@@ -19,7 +20,7 @@ import {
   saveInvoicePaperSize,
   type InvoicePaperSize,
 } from '../utils/invoicePaper'
-import { nextInvoiceNo } from '../utils/documentNumbers'
+import { nextInvoiceNo, normalizeInvoiceCenterType } from '../utils/documentNumbers'
 import { getWorkingPeriodName } from '../data/operationalPeriod'
 import {
   actualFromLines,
@@ -34,6 +35,7 @@ import {
 type InvoiceSettings = {
   startFrom: string
   prefix: string
+  centerType: 'MAIN' | 'OSC'
   minBillCharges: boolean
   minBillAmount: number
 }
@@ -42,6 +44,7 @@ function loadInvoiceSettings(): InvoiceSettings {
   const defaults: InvoiceSettings = {
     startFrom: '1',
     prefix: '',
+    centerType: getSession()?.centreKind === 'osc' ? 'OSC' : 'MAIN',
     minBillCharges: false,
     minBillAmount: parseMinBillAmount(undefined),
   }
@@ -52,12 +55,22 @@ function loadInvoiceSettings(): InvoiceSettings {
     return {
       ...defaults,
       ...parsed,
+      centerType: parsed.centerType
+        ? normalizeInvoiceCenterType(parsed.centerType)
+        : defaults.centerType,
       minBillCharges: Boolean(parsed.minBillCharges),
       minBillAmount: parseMinBillAmount(parsed.minBillAmount),
     }
   } catch {
     return defaults
   }
+}
+
+function resolveInvoiceCenterType(settings: InvoiceSettings): 'MAIN' | 'OSC' {
+  if (settings.centerType === 'OSC' || settings.centerType === 'MAIN') return settings.centerType
+  const session = getSession()
+  if (session?.centreKind === 'osc') return 'OSC'
+  return 'MAIN'
 }
 
 function liveSampleWeight(r: {
@@ -275,9 +288,10 @@ export function Billing() {
       const invoiceNo = nextInvoiceNo({
         prefix: settings.prefix,
         startFrom: settings.startFrom,
-        invoices: data.invoices,
+        invoices: store.getAllRaw().invoices || [],
         date: dateOnly,
         periodName: getWorkingPeriodName(),
+        centerType: resolveInvoiceCenterType(settings),
       })
       const careOf = related.map((r) => r.co).find((c) => c && c.trim()) || ''
 
