@@ -7,30 +7,35 @@ const options = [
     description: '22-row BIS sheet, no job pick; Create Sheet → Manak lot fill (no Chrome open).',
     path: '/create-fire-assay/cg-auto',
     icon: FlaskConical,
+    accent: 'rose',
   },
   {
     title: 'Cornet Fire Assay',
     description: 'CG weight + purity BIS auto-fill, Fill Rows, Create Sheet → Manak.',
     path: '/create-fire-assay/cornet-auto',
     icon: Flame,
+    accent: 'orange',
   },
   {
     title: 'Cornet Fire Assay MS M2',
     description: 'Cornet sheet variant (MS M2).',
     path: '/create-fire-assay/cornet-ms-m2',
     icon: Flame,
+    accent: 'amber',
   },
   {
     title: 'Manual Fire Assay',
     description: 'Manual sheet with Excel template upload.',
     path: '/create-fire-assay/manual',
     icon: Hand,
+    accent: 'slate',
   },
   {
     title: 'View Fire Assay',
     description: 'Search and view fire assay records.',
     path: '/view-fire-assay',
     icon: Eye,
+    accent: 'purple',
   },
 ]
 
@@ -46,7 +51,7 @@ export function CreateFireAssay() {
         {options.map((item) => {
           const Icon = item.icon
           return (
-            <Link key={item.path} to={item.path} className="fire-assay-card">
+            <Link key={item.path} to={item.path} className="fire-assay-card" data-accent={item.accent}>
               <div className="fire-assay-card-icon">
                 <Icon size={28} strokeWidth={1.75} />
               </div>

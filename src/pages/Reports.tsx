@@ -137,7 +137,7 @@ export function Reports() {
         {reports.map((item) => {
           const Icon = item.icon
           return (
-            <Link key={item.path} to={item.path} className="others-link-card">
+            <Link key={item.path} to={item.path} className="others-link-card" style={{ ['--tile-accent' as string]: item.color }}>
               <div className="others-link-icon" style={{ background: item.color }}>
                 <Icon size={20} />
               </div>

@@ -11,7 +11,7 @@ export function ModuleCard({ module, delay = 0 }: { module: ModuleDef; delay?: n
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="module-icon">
-        <Icon size={22} strokeWidth={1.75} />
+        <Icon size={26} strokeWidth={1.75} />
       </div>
       <h3>{module.title}</h3>
       <p>{module.description}</p>

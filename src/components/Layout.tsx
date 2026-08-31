@@ -1,23 +1,37 @@
-import { Link, Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Bell, Building2, ChevronDown, KeyRound, LogOut, Menu, Search, Settings, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { BrandLogo } from './BrandLogo'
-import { CENTRE_NAME, PRODUCT_NAME, USER_NAME, USER_ROLE, allModules, modules } from '../data/modules'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AppSidebar } from './AppSidebar'
+import { PRODUCT_NAME, USER_NAME, USER_ROLE } from '../data/modules'
+import { getPageTitle, getSearchableNav } from '../data/navigation'
 import { clearSession, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getActiveCentre, getFirmName } from '../data/firmProfile'
-import { canAccessPath } from '../data/roles'
+import { roleLabel } from '../data/roles'
 import { getCachedLicense } from '../data/license'
+
+const MOBILE_MAX = 899
+
+function dayGreeting() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 17) return 'Good afternoon'
+  return 'Good evening'
+}
 
 export function Layout() {
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [allOpen, setAllOpen] = useState(false)
+  const [mobileNav, setMobileNav] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
   const [centreName, setCentreName] = useState(() => getActiveCentre().name || getFirmName())
   const menuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const location = useLocation()
+  const pageTitle = getPageTitle(location.pathname)
+  const greeting = useMemo(() => dayGreeting(), [])
   const session = getSession()
   const displayName = session?.username || USER_NAME
-  const displayRole = (session?.role || USER_ROLE).replace(/\s+/g, '_').toLowerCase()
+  const displayRole = roleLabel(session?.role || USER_ROLE)
   const tenantLabel =
     session?.centreKind === 'osc'
       ? session.centreName || 'Off-Site Centre'
@@ -30,12 +44,10 @@ export function Layout() {
         ? 'Licence expired'
         : null
 
-  const visibleModules = modules.filter((m) => canAccessPath(m.path))
-  const visibleAll = allModules.filter((m) => canAccessPath(m.path))
-
+  const searchable = getSearchableNav()
   const filtered =
     query.trim().length > 0
-      ? visibleModules.filter(
+      ? searchable.filter(
           (m) =>
             m.title.toLowerCase().includes(query.toLowerCase()) ||
             m.description.toLowerCase().includes(query.toLowerCase()),
@@ -59,6 +71,14 @@ export function Layout() {
   }, [])
 
   useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth > MOBILE_MAX) setMobileNav(false)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
     }
@@ -67,9 +87,9 @@ export function Layout() {
   }, [])
 
   useEffect(() => {
-    if (!allOpen) return
+    if (!mobileNav) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setAllOpen(false)
+      if (e.key === 'Escape') setMobileNav(false)
     }
     document.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
@@ -77,212 +97,189 @@ export function Layout() {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
     }
-  }, [allOpen])
-
-  const goModule = (path: string) => {
-    setAllOpen(false)
-    navigate(path)
-  }
+  }, [mobileNav])
 
   return (
-    <div className="app-shell">
-      <header className="top-header">
-        <Link to="/" className="brand">
-          <div className="brand-mark" aria-hidden>
-            <BrandLogo markOnly size={22} />
-          </div>
-          <div className="brand-copy">
-            <span className="brand-text">{centreName || CENTRE_NAME}</span>
-            <span className="brand-product">
-              {PRODUCT_NAME}
-              {session?.tenantId ? ' · Tenant demo' : ''}
-            </span>
-          </div>
-        </Link>
+    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
+      <AppSidebar
+        collapsed={collapsed}
+        mobileOpen={mobileNav}
+        centreName={centreName}
+        onToggleCollapsed={() => setCollapsed((v) => !v)}
+        onNavigate={() => setMobileNav(false)}
+      />
 
-        {session?.tenantId && (
-          <div className="tenant-chip" title={`Tenant ID: ${session.tenantId}`}>
-            <Building2 size={14} />
-            <span>{tenantLabel}</span>
-            {session.centreKind === 'osc' ? <span> · own data</span> : null}
-          </div>
-        )}
-        {licenseWarn && (
-          <button
-            type="button"
-            className="tenant-chip"
-            style={{ cursor: 'pointer', borderColor: '#b45309', color: '#92400e' }}
-            onClick={() => navigate('/license')}
-            title="Open licence page"
-          >
-            {licenseWarn}
-          </button>
-        )}
+      {mobileNav && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setMobileNav(false)}
+        />
+      )}
 
-        <div className="header-actions">
-          <div className="search-box">
-            <Search size={16} />
-            <input
-              type="search"
-              placeholder="Search Modules..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && filtered[0]) {
-                  navigate(filtered[0].path)
-                  setQuery('')
-                }
+      <div className="app-frame">
+        <header className="top-header">
+          <div className="header-left">
+            <button
+              type="button"
+              className="header-menu-btn"
+              aria-label={mobileNav ? 'Close menu' : collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={mobileNav || !collapsed}
+              onClick={() => {
+                if (window.innerWidth <= MOBILE_MAX) setMobileNav((v) => !v)
+                else setCollapsed((v) => !v)
               }}
-              aria-label="Search modules"
-            />
-            {filtered.length > 0 && (
-              <div className="module-search-results">
-                {filtered.slice(0, 6).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      navigate(m.path)
-                      setQuery('')
-                    }}
-                  >
-                    <strong>{m.title}</strong>
-                    <div>{m.description}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button type="button" className="header-icon-btn" aria-label="Notifications">
-            <Bell size={18} />
-          </button>
-
-          <div className="user-menu" ref={menuRef}>
-            <button
-              type="button"
-              className="user-chip user-chip-btn"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-expanded={menuOpen}
             >
-              <div className="user-avatar">{displayName.slice(0, 2).toUpperCase()}</div>
-              <div className="user-meta">
-                <strong>{displayName}</strong>
-                <span>{displayRole}</span>
-              </div>
-              <ChevronDown size={16} className={`chev ${menuOpen ? 'open' : ''}`} />
+              {mobileNav ? <X size={20} /> : <Menu size={20} />}
             </button>
-
-            {menuOpen && (
-              <div className="user-dropdown">
-                <div className="user-dropdown-head">
-                  <div className="user-avatar">{displayName.slice(0, 2).toUpperCase()}</div>
-                  <div>
-                    <strong>{displayName}</strong>
-                    <span>{displayRole}</span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="user-dropdown-item"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    navigate('/license')
-                  }}
-                >
-                  <Settings size={16} /> Licence
-                </button>
-                <button
-                  type="button"
-                  className="user-dropdown-item"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    navigate('/account-settings')
-                  }}
-                >
-                  <KeyRound size={16} /> Change Password
-                </button>
-                <button
-                  type="button"
-                  className="user-dropdown-item"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    navigate('/account-settings')
-                  }}
-                >
-                  <Settings size={16} /> Account Settings
-                </button>
-                <button
-                  type="button"
-                  className="user-dropdown-item logout"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    clearSession()
-                    window.location.assign('/login')
-                  }}
-                >
-                  <LogOut size={16} /> Logout
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <main className="main-content">
-        <Outlet />
-      </main>
-
-      <button
-        type="button"
-        className="all-modules-fab"
-        aria-label="All Modules"
-        onClick={() => setAllOpen(true)}
-      >
-        <Menu size={22} />
-      </button>
-
-      {allOpen && (
-        <div
-          className="all-modules-backdrop"
-          role="presentation"
-          onClick={() => setAllOpen(false)}
-        >
-          <div
-            className="all-modules-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="all-modules-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="all-modules-close"
-              aria-label="Close"
-              onClick={() => setAllOpen(false)}
-            >
-              <X size={18} />
-            </button>
-            <h2 id="all-modules-title">All Modules</h2>
-            <div className="all-modules-grid">
-              {visibleAll.map((mod) => {
-                const Icon = mod.icon
-                return (
-                  <button
-                    key={mod.id}
-                    type="button"
-                    className="all-modules-tile"
-                    onClick={() => goModule(mod.path)}
-                  >
-                    <Icon size={28} strokeWidth={1.75} />
-                    <span>{mod.title}</span>
-                  </button>
-                )
-              })}
+            <div className="header-title-block">
+              <h1 className="header-page-title">{pageTitle}</h1>
+              <p className="header-greeting">
+                {greeting}, {displayName} 👋
+              </p>
             </div>
           </div>
-        </div>
-      )}
+
+          {session?.tenantId && (
+            <div className="tenant-chip" title={`Tenant ID: ${session.tenantId}`}>
+              <Building2 size={14} />
+              <span>{tenantLabel}</span>
+              {session.centreKind === 'osc' ? <span> · own data</span> : null}
+            </div>
+          )}
+          {licenseWarn && (
+            <button
+              type="button"
+              className="tenant-chip"
+              style={{ cursor: 'pointer', borderColor: '#b45309', color: '#92400e' }}
+              onClick={() => navigate('/license')}
+              title="Open licence page"
+            >
+              {licenseWarn}
+            </button>
+          )}
+
+          <div className="header-actions">
+            <div className="search-box">
+              <Search className="search-box-icon" size={18} aria-hidden />
+              <input
+                type="search"
+                placeholder="Search modules..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && filtered[0]) {
+                    navigate(filtered[0].path)
+                    setQuery('')
+                  }
+                }}
+                aria-label="Search modules"
+              />
+              {filtered.length > 0 && (
+                <div className="module-search-results">
+                  {filtered.slice(0, 6).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        navigate(m.path)
+                        setQuery('')
+                      }}
+                    >
+                      <strong>{m.title}</strong>
+                      <div>{m.description}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className={`header-icon-btn header-bell-btn${licenseWarn ? ' has-alert' : ''}`}
+              aria-label={licenseWarn ? `Notifications: ${licenseWarn}` : 'Notifications'}
+              title={licenseWarn ? licenseWarn : 'Notifications'}
+            >
+              <Bell size={20} />
+              {licenseWarn ? <span className="header-bell-dot" aria-hidden /> : null}
+            </button>
+
+            <div className="user-menu" ref={menuRef}>
+              <button
+                type="button"
+                className="user-chip user-chip-btn"
+                onClick={() => setMenuOpen((v) => !v)}
+                aria-expanded={menuOpen}
+              >
+                <div className="user-avatar">{displayName.slice(0, 2).toUpperCase()}</div>
+                <div className="user-meta">
+                  <strong>{displayName}</strong>
+                  <span>{displayRole}</span>
+                </div>
+                <ChevronDown size={16} className={`chev ${menuOpen ? 'open' : ''}`} />
+              </button>
+
+              {menuOpen && (
+                <div className="user-dropdown">
+                  <div className="user-dropdown-head">
+                    <div className="user-avatar">{displayName.slice(0, 2).toUpperCase()}</div>
+                    <div>
+                      <strong>{displayName}</strong>
+                      <span>{displayRole}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="user-dropdown-item"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      navigate('/license')
+                    }}
+                  >
+                    <Settings size={16} /> Licence
+                  </button>
+                  <button
+                    type="button"
+                    className="user-dropdown-item"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      navigate('/account-settings')
+                    }}
+                  >
+                    <KeyRound size={16} /> Change Password
+                  </button>
+                  <button
+                    type="button"
+                    className="user-dropdown-item"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      navigate('/account-settings')
+                    }}
+                  >
+                    <Settings size={16} /> Account Settings
+                  </button>
+                  <button
+                    type="button"
+                    className="user-dropdown-item logout"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      clearSession()
+                      window.location.assign('/login')
+                    }}
+                  >
+                    <LogOut size={16} /> Logout
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <main className="app-main main-content">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

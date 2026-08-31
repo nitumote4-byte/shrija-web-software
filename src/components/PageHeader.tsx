@@ -13,7 +13,7 @@ export function PageHeader({
   return (
     <>
       <Link to="/" className="back-link">
-        <ArrowLeft size={16} /> Back to Dashboard
+        <ArrowLeft size={18} /> Back to Dashboard
       </Link>
       <div className="page-header">
         <div>

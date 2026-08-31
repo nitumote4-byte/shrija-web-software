@@ -23,13 +23,14 @@ import {
 } from '../data/fireAssayJobCard'
 import { finenessFromMasses, pairMeanFineness } from '../data/fireAssayViewLayout'
 import {
-  fireAssaySheetExists,
+  fireAssaySheetSelectOptions,
   getFireAssaySheet,
   listFireAssaySheetNos,
   nextAvailableSheetNo,
   parseFireAssaySheetNumber,
   publishManakFireAssaySheet,
   sheetNumberForNewSheetGeneration,
+  todayFireAssayDate,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
 import { hasAvailableCgWeightForSheet } from '../data/cgWeightAvailability'
@@ -72,6 +73,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
   const [purity, setPurity] = useState('')
   const [shift, setShift] = useState('Day')
+  const [sheetDate, setSheetDate] = useState(() => todayFireAssayDate())
   const [sheetNo, setSheetNo] = useState('')
   const [noOfRows, setNoOfRows] = useState('22')
   const [sheetTick, setSheetTick] = useState(0)
@@ -166,21 +168,26 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   const usedSheetNos = useMemo(() => {
     void sheetTick
     if (!purity) return [] as string[]
-    return listFireAssaySheetNos(purity, shift || 'Day')
-  }, [purity, shift, sheetTick])
+    return listFireAssaySheetNos(purity, shift || 'Day', sheetDate)
+  }, [purity, shift, sheetDate, sheetTick])
 
   const suggestedSheetNo = useMemo(() => {
     void sheetTick
     if (!purity) return ''
-    return nextAvailableSheetNo(purity, shift || 'Day')
-  }, [purity, shift, sheetTick])
+    return nextAvailableSheetNo(purity, shift || 'Day', sheetDate)
+  }, [purity, shift, sheetDate, sheetTick])
 
-  const syncNextSheetNo = (pur: string, sh: string) => {
+  const sheetSelectOptions = useMemo(
+    () => fireAssaySheetSelectOptions(usedSheetNos, suggestedSheetNo),
+    [usedSheetNos, suggestedSheetNo],
+  )
+
+  const syncNextSheetNo = (pur: string, sh: string, date = sheetDate) => {
     if (!pur) {
       setSheetNo('')
       return
     }
-    setSheetNo(nextAvailableSheetNo(pur, sh || 'Day'))
+    setSheetNo(nextAvailableSheetNo(pur, sh || 'Day', date))
     setSheetTick((t) => t + 1)
   }
 
@@ -359,14 +366,15 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   /** Gold Shark: purity select → BIS requirements auto-fill. */
   const applyPurityDefaults = (
     nextPurity: string,
-    opts?: { quiet?: boolean; freshSheet?: boolean; sheetNoOverride?: string },
+    opts?: { quiet?: boolean; freshSheet?: boolean; sheetNoOverride?: string; dateOverride?: string },
   ) => {
     setPurity(nextPurity)
     if (!nextPurity) {
       setSheetNo('')
       return
     }
-    const nextAvailable = nextAvailableSheetNo(nextPurity, shift || 'Day')
+    const activeDate = opts?.dateOverride ?? sheetDate
+    const nextAvailable = nextAvailableSheetNo(nextPurity, shift || 'Day', activeDate)
     const sheetNoForGeneration =
       opts?.sheetNoOverride != null && String(opts.sheetNoOverride).trim() !== ''
         ? String(opts.sheetNoOverride).trim()
@@ -375,8 +383,8 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       setSheetNo(opts.sheetNoOverride)
       setSheetTick((t) => t + 1)
     } else {
-      // Auto next sheet no (if sheet 1 exists → 2). State flushes after this tick.
-      syncNextSheetNo(nextPurity, shift || 'Day')
+      // Auto next sheet no for THIS date (if that date has sheet 1 → 2). State flushes after this tick.
+      syncNextSheetNo(nextPurity, shift || 'Day', activeDate)
     }
     const bis = getBisDefaults(nextPurity)
     setSilverCg1(String(bis.silverCg1))
@@ -468,7 +476,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   }
 
   /** Clear previous sheet grid/CG picks, then refill from current purity + unused CG. */
-  const startNewSheet = (nextNo: string) => {
+  const startNewSheet = (nextNo: string, opts?: { quiet?: boolean; dateOverride?: string }) => {
     if (!purity) {
       toast('Pehle Purity select karo')
       return
@@ -477,13 +485,23 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       quiet: true,
       freshSheet: true,
       sheetNoOverride: nextNo,
+      dateOverride: opts?.dateOverride,
     })
-    toast(`New Sheet No ${nextNo} — Create Sheet dabao`)
+    if (!opts?.quiet) toast(`New Sheet No ${nextNo} — Create Sheet dabao`)
+  }
+
+  const onSheetDateChange = (nextDate: string) => {
+    setSheetDate(nextDate)
+    setSheetNo('')
+    setSheetTick((t) => t + 1)
+    if (!purity) return
+    const nextNo = nextAvailableSheetNo(purity, shift || 'Day', nextDate)
+    startNewSheet(nextNo, { quiet: true, dateOverride: nextDate })
   }
 
   const loadSavedSheetRows = (n: string) => {
     setSheetNo(n)
-    const saved = getFireAssaySheet(purity, shift || 'Day', n)
+    const saved = getFireAssaySheet(purity, shift || 'Day', n, sheetDate)
     if (!saved) return
     const source = saved.viewRows?.length ? saved.viewRows : saved.rows || []
     if (!source.length) return
@@ -606,7 +624,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       sheetNumberOverride != null && Number.isFinite(sheetNumberOverride) && sheetNumberOverride > 0
         ? sheetNumberOverride
         : assaySheetNumber(),
-      nextAvailableSheetNo(p, shift || 'Day'),
+      nextAvailableSheetNo(p, shift || 'Day', sheetDate),
     )
     const target = Math.max(2, Math.min(50, count ?? (Number(noOfRows) || 22)))
     const pairCount = Math.ceil(target / 2)
@@ -644,7 +662,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     const avg = Number(avgDelta) || 0
     const sheetNumber = sheetNumberForNewSheetGeneration(
       assaySheetNumber(),
-      nextAvailableSheetNo(purity, shift || 'Day'),
+      nextAvailableSheetNo(purity, shift || 'Day', sheetDate),
     )
     const target = Math.max(2, Number(noOfRows) || 22)
     const maxPairs = Math.ceil(target / 2)
@@ -713,13 +731,14 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       return
     }
 
-    // Same Sheet No pe Create Sheet = UPDATE (overwrite). Naya sheet chahiye to Sheet dropdown badlo.
+    // Same DATE + Sheet No pe Create Sheet = UPDATE (overwrite). Naya sheet chahiye to Sheet dropdown badlo.
     let activeSheet = String(sheetNo || '').trim()
     if (!activeSheet) {
-      activeSheet = nextAvailableSheetNo(purity, shift || 'Day')
+      activeSheet = nextAvailableSheetNo(purity, shift || 'Day', sheetDate)
       setSheetNo(activeSheet)
     }
-    const overwriting = fireAssaySheetExists(purity, shift || 'Day', activeSheet)
+    const existingSheet = getFireAssaySheet(purity, shift || 'Day', activeSheet, sheetDate)
+    const overwriting = Boolean(existingSheet)
 
     const sheetRows = rows.map((r, i) => {
       const parsed = parseLotJobCard(r.jobCardNo)
@@ -760,6 +779,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           analyst: 'Lab',
           assayType: meta.assayType,
           assayNo: `FS-${activeSheet}`,
+          date: sheetDate,
         })
         returnedIds.push(req.id)
       }
@@ -777,6 +797,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           analyst: 'Lab',
           assayType: meta.assayType,
           assayNo: `FS-${activeSheet}`,
+          date: sheetDate,
         })
       }
     }
@@ -784,7 +805,8 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     const sheet: ManakFireAssaySheet = {
       version: 1,
       source: 'shrija-hallmark-suite',
-      createdAt: new Date().toISOString(),
+      createdAt: existingSheet?.createdAt || new Date().toISOString(),
+      date: existingSheet?.date || sheetDate,
       purity,
       shift: shift || 'Day',
       sheetNo: String(activeSheet),
@@ -881,8 +903,8 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
 
     toast(
       overwriting
-        ? `Sheet FS-${activeSheet} UPDATED — Manak kholo → Lot select = AUTO fill (koi Fill button nahi).`
-        : `Sheet FS-${activeSheet} ready — Manak kholo → Lot select = AUTO fill. Naya sheet: New Sheet No.`,
+        ? `Sheet FS-${activeSheet} UPDATED — Manak kholo → Auto FS Phase 1, then Phase 2.`
+        : `Sheet FS-${activeSheet} ready — Manak kholo → Auto FS Phase 1, then Phase 2. Naya sheet: New Sheet No.`,
     )
   }
 
@@ -1089,7 +1111,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
               onChange={(e) => {
                 const sh = e.target.value
                 setShift(sh)
-                if (purity) syncNextSheetNo(purity, sh || 'Day')
+                if (purity) syncNextSheetNo(purity, sh || 'Day', sheetDate)
               }}
             >
               <option value="">Select</option>
@@ -1098,7 +1120,11 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
             </select>
           </div>
           <div className="field">
-            <label>Sheet no (same no = overwrite)</label>
+            <label>Date</label>
+            <input type="date" value={sheetDate} onChange={(e) => onSheetDateChange(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Sheet no (same date + no = overwrite)</label>
             <select
               value={sheetNo}
               onChange={(e) => {
@@ -1119,10 +1145,9 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
               }}
             >
               <option value="">Select</option>
-              {Array.from({ length: 20 }, (_, i) => String(i + 1)).map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                  {usedSheetNos.includes(n) ? ' (saved)' : n === suggestedSheetNo ? ' (new)' : ''}
+              {sheetSelectOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
             </select>
@@ -1135,7 +1160,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
                   toast('Pehle Purity select karo')
                   return
                 }
-                startNewSheet(nextAvailableSheetNo(purity, shift || 'Day'))
+                startNewSheet(nextAvailableSheetNo(purity, shift || 'Day', sheetDate))
               }}
             >
               New Sheet No

@@ -344,7 +344,7 @@ function IconBadge({ card }: { card: Pick<HubCard, 'color' | 'symbol' | 'icon'> 
 
 function StockCard({ card }: { card: HubCard }) {
   return (
-    <Link to={card.path} className="others-link-card qm-stock-card">
+    <Link to={card.path} className="others-link-card qm-stock-card" style={{ ['--tile-accent' as string]: card.color }}>
       <IconBadge card={card} />
       <div className="others-link-text">
         <strong>{card.title}</strong>
