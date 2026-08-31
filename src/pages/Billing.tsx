@@ -24,7 +24,10 @@ import {
   invoiceTotalsFromActual,
   parseMinBillAmount,
 } from '../utils/minBillCharge'
-import { unusedSampleFromRoughRows } from '../data/fireAssaySampleWeight'
+import {
+  hasCompletedFireAssayForBillingJobs,
+  unusedSampleFromRoughRows,
+} from '../data/fireAssaySampleWeight'
 
 type InvoiceSettings = {
   startFrom: string
@@ -223,10 +226,17 @@ export function Billing() {
           return
         }
 
-        const fireAssayCompleted = data.fireAssays.some(
-          (a) => a.requestNo === request.requestNo && a.status === 'Completed',
-        )
-        if (!fireAssayCompleted) {
+        const billingJobNos = [
+          request.jobCardNo,
+          ...data.roughSheets
+            .filter(
+              (r) =>
+                r.requestNo === request.requestNo ||
+                (!r.requestNo && r.partyId === request.partyId && r.date === request.date),
+            )
+            .map((r) => r.jobCardNo),
+        ]
+        if (!hasCompletedFireAssayForBillingJobs(billingJobNos)) {
           toast('Please complete Fire Assay first.')
           return
         }

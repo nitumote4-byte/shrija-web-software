@@ -206,3 +206,29 @@ export function fireAssayCornetFromArchive(
   if (!source) return CORNET_PENDING
   return fireAssayCornetFromRows(source, jobCardNo, opts)
 }
+
+/**
+ * Billing Generate Invoice: a Job Number is complete when it appears on a
+ * saved Fire Assay archive sheet. Uses the same lot-prefix canonical key as
+ * Sample / Cornet lookup. Request No, Create-Sheet-from-this-request, and
+ * store.fireAssays are not consulted.
+ */
+export function hasCompletedFireAssayForJob(
+  jobCardNo: string | undefined | null,
+  sheets: ManakFireAssaySheet[] = Object.values(loadFireAssaySheetArchive()),
+): boolean {
+  return newestSheetRowsForJob(String(jobCardNo || ''), sheets) != null
+}
+
+/** True when every distinct billing Job Number has an archived Fire Assay record. */
+export function hasCompletedFireAssayForBillingJobs(
+  jobCardNos: Array<string | undefined | null>,
+  sheets?: ManakFireAssaySheet[],
+): boolean {
+  const keys = [
+    ...new Set(jobCardNos.map((n) => canonicalJobCardNo(n)).filter(Boolean)),
+  ]
+  if (keys.length === 0) return false
+  const list = sheets ?? Object.values(loadFireAssaySheetArchive())
+  return keys.every((k) => newestSheetRowsForJob(k, list) != null)
+}
