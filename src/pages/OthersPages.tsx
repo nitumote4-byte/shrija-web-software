@@ -2117,7 +2117,7 @@ export function InvoiceSettings() {
               <input
                 value={prefix}
                 onChange={(e) => setPrefix(e.target.value)}
-                placeholder="e.g. VH/2024/"
+                placeholder="e.g. VH/ (period auto-added as 26-27/001)"
               />
             </div>
           </div>

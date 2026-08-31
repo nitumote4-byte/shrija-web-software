@@ -21,6 +21,8 @@ import {
   matchItemMasterName,
   type EnsureItemMasterResult,
 } from '../utils/itemCategoryMatch'
+import { nextInvoiceNo, nextKeyedDocumentNo, nextMonthlyInvoiceNo } from '../utils/documentNumbers'
+import { getWorkingPeriodName, recordBelongsToPeriod, workingPeriodStamp } from './operationalPeriod'
 import {
   calcXrfAverage,
   DEFAULT_XRF_STANDARD_SETTINGS,
@@ -111,6 +113,8 @@ export type HallmarkRequest = {
   receiptNo?: string
   jobCardNo?: string
   night?: string
+  /** Working Operational Financial Period name at create time, e.g. "2026-27". */
+  operationalPeriod?: string
   /** Centre / outlet where job was received */
   centreId?: string
   centreKind?: 'main' | 'osc'
@@ -152,6 +156,7 @@ export type RoughSheetEntry = {
   /** Unused sample return (grams) persisted from Fire Assay: drawn − assayed strips. */
   unusedSample?: number
   rejectPic?: number
+  operationalPeriod?: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -205,6 +210,7 @@ export type Invoice = {
   careOf?: string
   invoiceDateTime?: string
   updatedAt?: string
+  operationalPeriod?: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -241,6 +247,7 @@ export type MonthlyInvoice = {
   useIgst: boolean
   status: 'Unpaid' | 'Paid' | 'Partial'
   updatedAt?: string
+  operationalPeriod?: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -257,6 +264,7 @@ export type FundEntry = {
   partyName?: string
   chequeNo?: string
   bankName?: string
+  operationalPeriod?: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -279,6 +287,7 @@ export type ExpenseEntry = {
   gstRate?: number
   /** amount + gst */
   grossAmount?: number
+  operationalPeriod?: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -309,6 +318,7 @@ export type FireAssay = {
   status: 'In Lab' | 'Completed'
   date: string
   analyst: string
+  operationalPeriod?: string
   assayType:
     | 'Cg Auto'
     | 'Cornet Auto'
@@ -335,6 +345,7 @@ export type TouchRecord = {
   weight: number
   date: string
   amount: number
+  operationalPeriod?: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -347,6 +358,7 @@ export type XrayEntry = {
   reading: number
   purity: string
   date: string
+  operationalPeriod?: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -367,6 +379,7 @@ export type PendingRoughRequest = {
   date: string
   status: 'Pending' | 'Saved'
   ahcFileName?: string
+  operationalPeriod?: string
   centreId?: string
   centreKind?: 'main' | 'osc'
 }
@@ -422,6 +435,50 @@ function uid(prefix: string) {
 
 function today() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function numberingPeriod() {
+  return getWorkingPeriodName()
+}
+
+function periodStamp() {
+  return workingPeriodStamp()
+}
+
+function nextHmRequestNo(data: StoreShape, date: string) {
+  return nextKeyedDocumentNo({
+    key: 'HM',
+    existing: data.requests.map((r) => ({
+      no: r.requestNo,
+      date: r.date,
+      operationalPeriod: r.operationalPeriod,
+    })),
+    date,
+    periodName: numberingPeriod(),
+  })
+}
+
+function keepInWorkingPeriod<T extends { operationalPeriod?: string; date?: string; invoiceDateTime?: string }>(
+  rows: T[],
+  working: string,
+) {
+  return rows.filter((row) => recordBelongsToPeriod(row, working))
+}
+
+function scopeStoreForWorkingPeriod(data: StoreShape): StoreShape {
+  const working = numberingPeriod()
+  return {
+    ...data,
+    requests: keepInWorkingPeriod(data.requests, working),
+    roughSheets: keepInWorkingPeriod(data.roughSheets, working),
+    pendingRough: keepInWorkingPeriod(data.pendingRough, working),
+    invoices: keepInWorkingPeriod(data.invoices, working),
+    monthlyInvoices: keepInWorkingPeriod(data.monthlyInvoices || [], working),
+    funds: keepInWorkingPeriod(data.funds, working),
+    expenses: keepInWorkingPeriod(data.expenses, working),
+    touches: keepInWorkingPeriod(data.touches, working),
+    xray: keepInWorkingPeriod(data.xray, working),
+  }
 }
 
 function nowIso() {
@@ -1255,7 +1312,7 @@ let scopedCacheKey = ''
 
 function scopedCacheToken() {
   const s = getSession()
-  return `${getStoreVersion()}|${s?.tenantId || ''}|${s?.centreId || ''}|${s?.centreKind || ''}`
+  return `${getStoreVersion()}|${s?.tenantId || ''}|${s?.centreId || ''}|${s?.centreKind || ''}|${numberingPeriod()}`
 }
 
 export const store = {
@@ -1263,7 +1320,7 @@ export const store = {
   getAll: () => {
     const key = scopedCacheToken()
     if (scopedCache && scopedCacheKey === key) return scopedCache
-    scopedCache = scopeStoreForSession(load())
+    scopedCache = scopeStoreForWorkingPeriod(scopeStoreForSession(load()))
     scopedCacheKey = key
     return scopedCache
   },
@@ -1446,13 +1503,15 @@ export const store = {
 
   addRequest(input: Omit<HallmarkRequest, 'id' | 'requestNo' | 'date'>) {
     const data = load()
-    const n = data.requests.length + 1
+    const date = today()
+    const requestNo = nextHmRequestNo(data, date)
     const req: HallmarkRequest = {
       ...sessionCentreStamp(true),
       ...input,
       id: uid('r'),
-      requestNo: `HM-2026-${String(n).padStart(3, '0')}`,
-      date: today(),
+      requestNo,
+      date,
+      ...periodStamp(),
     }
     data.requests.unshift(req)
     save(data)
@@ -1627,6 +1686,7 @@ export const store = {
       id: uid('rs'),
       date: today(),
       status: input.status ?? 'Pending',
+      ...periodStamp(),
     }
     data.roughSheets.unshift(entry)
     save(data)
@@ -1717,7 +1777,8 @@ export const store = {
 
       const category = findCategory(data, row.purity)
       const requestNo =
-        row.requestNo || `HM-2026-${String(data.requests.length + 1).padStart(3, '0')}`
+        row.requestNo ||
+        nextHmRequestNo(data, row.date || today())
       row.requestNo = requestNo
 
       const existing = findRequestByNo(data, requestNo)
@@ -1746,6 +1807,7 @@ export const store = {
           remarks: `Rough accepted · Sample ${row.sampleWeight}g · ${row.samplingMethod}`,
           item: row.item,
           jobCardNo: row.jobCardNo,
+          ...periodStamp(),
         })
       }
     }
@@ -1787,15 +1849,24 @@ export const store = {
     const centreInvoices = data.invoices.filter((i) =>
       stamp.centreKind === 'osc' ? i.centreId === stamp.centreId : !isOscRecord(i),
     )
-    const n = centreInvoices.length + 1
+    const date = input.date || today()
     const inv: Invoice = {
       ...input,
       ...stamp,
       centreId: stamp.centreId,
       centreKind: stamp.centreKind,
       id: uid('inv'),
-      invoiceNo: input.invoiceNo || `INV-2026-${String(n).padStart(3, '0')}`,
-      date: input.date || today(),
+      invoiceNo:
+        input.invoiceNo ||
+        nextInvoiceNo({
+          prefix: 'INV-',
+          startFrom: 1,
+          invoices: centreInvoices,
+          date,
+          periodName: numberingPeriod(),
+        }),
+      date,
+      ...periodStamp(),
       sac: input.sac || '998346',
       updatedAt: new Date().toISOString(),
     }
@@ -1817,7 +1888,13 @@ export const store = {
     const data = load()
     const row = data.invoices.find((i) => i.id === id)
     if (!row) return null
-    Object.assign(row, patch, { updatedAt: new Date().toISOString() })
+    const keptPeriod = row.operationalPeriod
+    const keptNo = row.invoiceNo
+    Object.assign(row, patch, {
+      updatedAt: new Date().toISOString(),
+      operationalPeriod: keptPeriod,
+      invoiceNo: keptNo,
+    })
     if (row.amount != null && (row.cgst != null || row.sgst != null || row.igst != null)) {
       row.tax = Number(((row.cgst || 0) + (row.sgst || 0) + (row.igst || 0)).toFixed(2))
       row.total = Number((row.amount + row.tax).toFixed(2))
@@ -1861,13 +1938,22 @@ export const store = {
     },
   ) {
     const data = load()
-    const n = (data.monthlyInvoices?.length || 0) + 1
+    const date = input.date || today()
     const inv: MonthlyInvoice = {
       ...sessionCentreStamp(),
       ...input,
       id: uid('minv'),
-      invoiceNo: input.invoiceNo || `M-${String(n).padStart(3, '0')}`,
-      date: input.date || today(),
+      invoiceNo:
+        input.invoiceNo ||
+        nextMonthlyInvoiceNo({
+          prefix: '',
+          startFrom: 1,
+          monthlyInvoices: data.monthlyInvoices || [],
+          date,
+          periodName: numberingPeriod(),
+        }),
+      date,
+      ...periodStamp(),
       sac: input.sac || '998346',
       period: input.period || 'Monthly Summary',
       updatedAt: new Date().toISOString(),
@@ -1882,7 +1968,13 @@ export const store = {
     const data = load()
     const row = (data.monthlyInvoices || []).find((i) => i.id === id)
     if (!row) return null
-    Object.assign(row, patch, { updatedAt: new Date().toISOString() })
+    const keptPeriod = row.operationalPeriod
+    const keptNo = row.invoiceNo
+    Object.assign(row, patch, {
+      updatedAt: new Date().toISOString(),
+      operationalPeriod: keptPeriod,
+      invoiceNo: keptNo,
+    })
     row.tax = Number(((row.cgst || 0) + (row.sgst || 0) + (row.igst || 0)).toFixed(2))
     row.total = Number((row.amount + row.tax).toFixed(2))
     save(data)
@@ -1916,6 +2008,7 @@ export const store = {
       centreKind: stamp.centreKind,
       id: uid('f'),
       voucherNo: input.voucherNo || String(n),
+      ...periodStamp(),
     }
     data.funds.unshift(entry)
     const partyForStatus = entry.partyName || entry.source
@@ -1984,6 +2077,7 @@ export const store = {
       partyName,
       paidTo: partyName || input.paidTo,
       mode: input.mode || 'Cash',
+      ...periodStamp(),
     }
     data.expenses.unshift(entry)
     save(data)
@@ -2174,12 +2268,24 @@ export const store = {
 
   addFireAssay(input: Omit<FireAssay, 'id' | 'assayNo' | 'date'> & { assayNo?: string; date?: string }) {
     const data = load()
-    const n = data.fireAssays.length + 1
+    const date = input.date || today()
     const entry: FireAssay = {
       ...input,
       id: uid('fa'),
-      assayNo: input.assayNo || `FA-2026-${String(n).padStart(3, '0')}`,
-      date: input.date || today(),
+      assayNo:
+        input.assayNo ||
+        nextKeyedDocumentNo({
+          key: 'FA',
+          existing: data.fireAssays.map((a) => ({
+            no: a.assayNo,
+            date: a.date,
+            operationalPeriod: a.operationalPeriod,
+          })),
+          date,
+          periodName: numberingPeriod(),
+        }),
+      date,
+      ...periodStamp(),
     }
     data.fireAssays.unshift(entry)
     save(data)
@@ -2251,13 +2357,23 @@ export const store = {
 
   addTouch(input: Omit<TouchRecord, 'id' | 'touchNo' | 'date'>) {
     const data = load()
-    const n = data.touches.length + 1
+    const date = today()
     const entry: TouchRecord = {
       ...sessionCentreStamp(),
       ...input,
       id: uid('t'),
-      touchNo: `TH-2026-${String(n).padStart(3, '0')}`,
-      date: today(),
+      touchNo: nextKeyedDocumentNo({
+        key: 'TH',
+        existing: data.touches.map((t) => ({
+          no: t.touchNo,
+          date: t.date,
+          operationalPeriod: t.operationalPeriod,
+        })),
+        date,
+        periodName: numberingPeriod(),
+      }),
+      date,
+      ...periodStamp(),
     }
     data.touches.unshift(entry)
     save(data)
@@ -2266,13 +2382,23 @@ export const store = {
 
   addXray(input: Omit<XrayEntry, 'id' | 'sheetNo' | 'date'>) {
     const data = load()
-    const n = data.xray.length + 1
+    const date = today()
     const entry: XrayEntry = {
       ...sessionCentreStamp(),
       ...input,
       id: uid('x'),
-      sheetNo: `XRF-2026-${String(n).padStart(3, '0')}`,
-      date: today(),
+      sheetNo: nextKeyedDocumentNo({
+        key: 'XRF',
+        existing: data.xray.map((x) => ({
+          no: x.sheetNo,
+          date: x.date,
+          operationalPeriod: x.operationalPeriod,
+        })),
+        date,
+        periodName: numberingPeriod(),
+      }),
+      date,
+      ...periodStamp(),
     }
     data.xray.unshift(entry)
     save(data)
@@ -2581,7 +2707,7 @@ export const store = {
 
   nextRequestNo() {
     const data = load()
-    return `HM-2026-${String(data.requests.length + 1).padStart(3, '0')}`
+    return nextHmRequestNo(data, today())
   },
 
   /**
@@ -2719,7 +2845,7 @@ export const store = {
       const category = findCategory(data, purity)
       const requestNo =
         (row.requestNo && String(row.requestNo).trim()) ||
-        `HM-2026-${String(data.requests.length + 1).padStart(3, '0')}`
+        nextHmRequestNo(data, input.date || today())
 
       let req = findRequestByNo(data, requestNo)
       if (!req) {
@@ -2742,6 +2868,7 @@ export const store = {
           jobCardNo: row.jobCardNo,
           night: input.night,
           ...sessionCentreStamp(true),
+          ...periodStamp(),
         }
         data.requests.unshift(req)
       }
@@ -2770,6 +2897,7 @@ export const store = {
         cornet: 0,
         rejectPic: 0,
         ...sessionCentreStamp(),
+        ...periodStamp(),
       })
 
       return req
@@ -2798,7 +2926,7 @@ export const store = {
       const category = findCategory(data, purity)
       const requestNo =
         (row.requestNo && String(row.requestNo).trim()) ||
-        `HM-2026-${String(data.requests.length + 1).padStart(3, '0')}`
+        nextHmRequestNo(data, row.date || today())
 
       // Upsert HallmarkRequest — keep Manak request number
       let req = findRequestByNo(data, requestNo)
@@ -2822,6 +2950,7 @@ export const store = {
           jobCardNo: row.jobCardNo,
           night: input.night,
           ...sessionCentreStamp(true),
+          ...periodStamp(),
         }
         data.requests.unshift(req)
       } else {
@@ -2862,6 +2991,7 @@ export const store = {
         cornet: 0,
         rejectPic: 0,
         ...sessionCentreStamp(),
+        ...periodStamp(),
       })
 
       return req
@@ -2896,6 +3026,7 @@ export const store = {
       date: today(),
       status: 'Pending',
       ...sessionCentreStamp(),
+      ...periodStamp(),
     }
     data.pendingRough.unshift(entry)
     save(data)
@@ -2986,6 +3117,7 @@ export const store = {
         date: row.date || today(),
         status: 'Pending',
         ...sessionCentreStamp(),
+        ...periodStamp(),
       }
       data.pendingRough.unshift(entry)
       created.push(entry)
@@ -3006,6 +3138,7 @@ export const store = {
       item,
       id: uid('pr'),
       status: 'Pending',
+      ...periodStamp(),
     }
     data.pendingRough.unshift(entry)
     save(data)

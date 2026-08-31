@@ -11,8 +11,7 @@ import {
 import { getSession } from '../data/auth'
 import { USER_NAME } from '../data/modules'
 import { store } from '../data/store'
-
-const FY_MONTHS = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
+import { FY_MONTH_LABELS, getFinancialYearMonthBuckets } from '../utils/financialYear'
 
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
@@ -78,8 +77,8 @@ function PerformanceChart({ values }: { values: number[] }) {
           const y = pad.t + innerH - (v / max) * innerH
           return <circle key={i} cx={x} cy={y} r="3.5" fill="#b8923a" />
         })}
-        {FY_MONTHS.map((m, i) => {
-          const x = pad.l + (i / Math.max(1, FY_MONTHS.length - 1)) * innerW
+        {FY_MONTH_LABELS.map((m, i) => {
+          const x = pad.l + (i / Math.max(1, FY_MONTH_LABELS.length - 1)) * innerW
           return (
             <text key={m} x={x} y={h - 8} textAnchor="middle" className="dash-chart-label">
               {m}
@@ -198,15 +197,10 @@ export function AnalyticsDashboard() {
       ['Hallmarked', 'Billed', 'Delivered'].includes(r.status),
     ).length
 
-    // FY month buckets Apr→Mar relative to current FY
-    const fyStartYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1
-    const monthly = FY_MONTHS.map((_, i) => {
-      const monthIndex = (i + 3) % 12
-      const year = i < 9 ? fyStartYear : fyStartYear + 1
-      const from = new Date(year, monthIndex, 1)
-      const to = new Date(year, monthIndex + 1, 0)
-      return piecesIn(from, to)
-    })
+    // FY month buckets Apr→Mar relative to current FY (shared utility)
+    const monthly = getFinancialYearMonthBuckets(today).map((bucket) =>
+      piecesIn(bucket.from, bucket.to),
+    )
 
     const groups = [...new Set(data.parties.map((p) => p.groupName).filter(Boolean))]
 

@@ -269,6 +269,7 @@ const PAGE_TITLE_ALIASES: Record<string, string> = {
   '/': 'Dashboard',
   '/account-settings': 'Account Settings',
   '/license': 'Licence',
+  '/others/operational-period': 'Operational Financial Period',
 }
 
 /** Header title for the current route — presentation only. */

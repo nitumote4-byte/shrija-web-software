@@ -41,6 +41,8 @@ import {
   statementFileBase,
   type PartyLedgerDoc,
 } from '../utils/partyStatementPdf'
+import { nextCreditNoteNo } from '../utils/documentNumbers'
+import { getWorkingPeriodName } from '../data/operationalPeriod'
 
 /** Local calendar YYYY-MM-DD (avoids UTC day shift in IST late night / early morning). */
 function localYmd(d = new Date()) {
@@ -3191,19 +3193,23 @@ export function CreditNoteReport() {
     toast('Credit note report loaded')
   }
 
-  const nextCnNo = (list: CreditNoteRecord[]) => {
-    const fromNotes = list
-      .map((n) => Number((n.cnNo || '').replace(/\D/g, '')))
-      .filter((n) => !Number.isNaN(n) && n > 0)
+  const nextCnNo = (list: CreditNoteRecord[], monthOrDate: string) => {
+    const fromNotes = list.map((n) => ({
+      cnNo: n.cnNo,
+      month: n.month,
+      date: n.generatedAt || n.paidAt,
+    }))
     const fromInvoices = (data.invoices || [])
-      .map((inv) => {
-        const no = (inv.invoiceNo || '').toUpperCase()
-        if (!no.startsWith('CN')) return 0
-        return Number(no.replace(/\D/g, '')) || 0
-      })
-      .filter((n) => n > 0)
-    const max = Math.max(0, ...fromNotes, ...fromInvoices)
-    return `CN-${max + 1}`
+      .filter((inv) => (inv.invoiceNo || '').toUpperCase().startsWith('CN'))
+      .map((inv) => ({
+        invoiceNo: inv.invoiceNo,
+        date: inv.date,
+      }))
+    return nextCreditNoteNo({
+      existing: [...fromNotes, ...fromInvoices],
+      monthOrDate,
+      periodName: getWorkingPeriodName(),
+    })
   }
 
   const upsertNote = (saved: CreditNoteRecord) => {
@@ -3274,7 +3280,7 @@ export function CreditNoteReport() {
       toast('Click CN ? first')
       return
     }
-    const cnNo = row.cnNo || nextCnNo(notes)
+    const cnNo = row.cnNo || nextCnNo(notes, row.month || month)
     const updatedRow: CreditNoteRecord = {
       ...row,
       cnNo,
@@ -3295,6 +3301,7 @@ export function CreditNoteReport() {
       total: -Math.abs(amount),
       status: 'Paid',
       invoiceNo: cnNo,
+      date: row.month ? `${row.month}-01` : undefined,
       sac: '000000',
     })
     setPreview({ kind: 'invoice', row: updatedRow })

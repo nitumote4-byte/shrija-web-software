@@ -8,6 +8,7 @@ import { clearSession, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getActiveCentre, getFirmName } from '../data/firmProfile'
 import { roleLabel } from '../data/roles'
 import { getCachedLicense } from '../data/license'
+import { OperationalPeriodBadge } from './OperationalPeriodBadge'
 
 const MOBILE_MAX = 899
 
@@ -148,6 +149,7 @@ export function Layout() {
               {session.centreKind === 'osc' ? <span> · own data</span> : null}
             </div>
           )}
+          {session?.tenantId ? <OperationalPeriodBadge compact /> : null}
           {licenseWarn && (
             <button
               type="button"

@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Building2,
+  CalendarRange,
   ClipboardList,
   Database,
   FileStack,
@@ -131,6 +132,13 @@ const links: OtherLink[] = [
     description: 'Letterhead, numbering & signatures.',
     path: '/others/invoice-settings',
     icon: Receipt,
+    color: '#1d4ed8',
+  },
+  {
+    title: 'Operational Financial Period',
+    description: 'Create, switch and work in an Operational Financial Period.',
+    path: '/others/operational-period',
+    icon: CalendarRange,
     color: '#1d4ed8',
   },
   {

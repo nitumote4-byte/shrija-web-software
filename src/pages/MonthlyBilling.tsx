@@ -8,6 +8,8 @@ import {
 import { useToast } from '../components/ui'
 import { store, type MonthlyInvoiceLine } from '../data/store'
 import { tenantGet } from '../data/tenant'
+import { nextMonthlyInvoiceNo } from '../utils/documentNumbers'
+import { getWorkingPeriodName } from '../data/operationalPeriod'
 import {
   applyInvoicePaperForPrint,
   loadInvoicePaperSize,
@@ -16,20 +18,20 @@ import {
   type InvoicePaperSize,
 } from '../utils/invoicePaper'
 
-function nextMonthlyNo(existingCount: number) {
-  let prefix = 'M-'
-  let start = 1
+function loadMonthlyNumberSettings() {
+  let prefix = ''
+  let startFrom: string | number = 1
   try {
     const raw = tenantGet('shrija-invoice-settings')
     if (raw) {
       const parsed = JSON.parse(raw) as { prefix?: string; startFrom?: string }
-      if (parsed.prefix) prefix = `${parsed.prefix}M-`
-      start = Number(parsed.startFrom) || 1
+      prefix = parsed.prefix || ''
+      startFrom = parsed.startFrom || 1
     }
   } catch {
     /* defaults */
   }
-  return `${prefix}${start + existingCount}`
+  return { prefix, startFrom }
 }
 
 export function MonthlyBilling() {
@@ -102,7 +104,15 @@ export function MonthlyBilling() {
     const cgst = useIgst ? 0 : Number((taxable * 0.09).toFixed(2))
     const sgst = useIgst ? 0 : Number((taxable * 0.09).toFixed(2))
     const igst = useIgst ? Number((taxable * 0.18).toFixed(2)) : 0
-    const invoiceNo = nextMonthlyNo(data.monthlyInvoices?.length || 0)
+    const dateOnly = billDate.slice(0, 10)
+    const { prefix, startFrom } = loadMonthlyNumberSettings()
+    const invoiceNo = nextMonthlyInvoiceNo({
+      prefix,
+      startFrom,
+      monthlyInvoices: data.monthlyInvoices || [],
+      date: dateOnly,
+      periodName: getWorkingPeriodName(),
+    })
 
     return {
       invoiceNo,
@@ -144,6 +154,7 @@ export function MonthlyBilling() {
       partyCml: p.partyCml,
       placeOfSupply: p.placeOfSupply,
       stateCode: p.stateCode,
+      date: p.invoiceDateTime.slice(0, 10),
       invoiceDateTime: p.invoiceDateTime,
       period: 'Monthly Summary',
       sac: '998346',

@@ -23,6 +23,8 @@ import { canAccessPath, isLabOnlyRole, isOscSession, roleLabel } from '../data/r
 import { LiveJobTracking } from '../components/LiveJobTracking'
 import { store, type HallmarkRequest } from '../data/store'
 import { getStoreVersion } from '../data/tenantCache'
+import { OFP_CHANGE_EVENT } from '../data/operationalPeriod'
+import { OperationalPeriodBadge } from '../components/OperationalPeriodBadge'
 
 function formatWelcomeDate(d = new Date()) {
   const weekday = d.toLocaleDateString('en-IN', { weekday: 'long' })
@@ -78,6 +80,7 @@ export function Dashboard() {
   const oscDesk = isOscSession(session)
   const [firmName, setFirmName] = useState(() => getFirmName())
   const storeVersion = getStoreVersion()
+  const [ofpTick, setOfpTick] = useState(0)
 
   const canRequests = canAccessPath('/request-list') || canAccessPath('/qm-request-list')
   const canQmList = canAccessPath('/qm-request-list')
@@ -97,9 +100,12 @@ export function Dashboard() {
     const sync = () => setFirmName(getFirmName())
     window.addEventListener(FIRM_PROFILE_EVENT, sync)
     window.addEventListener('storage', sync)
+    const onPeriod = () => setOfpTick((n) => n + 1)
+    window.addEventListener(OFP_CHANGE_EVENT, onPeriod)
     return () => {
       window.removeEventListener(FIRM_PROFILE_EVENT, sync)
       window.removeEventListener('storage', sync)
+      window.removeEventListener(OFP_CHANGE_EVENT, onPeriod)
     }
   }, [])
 
@@ -353,6 +359,7 @@ export function Dashboard() {
     }
   }, [
     storeVersion,
+    ofpTick,
     canRequests,
     canQmList,
     canBilling,
@@ -449,6 +456,8 @@ export function Dashboard() {
           </p>
         )}
       </section>
+
+      <OperationalPeriodBadge />
 
       {kpis.length > 0 && (
         <div className="home-kpi-row home-kpi-row-saas">

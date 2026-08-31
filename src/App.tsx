@@ -151,6 +151,9 @@ const StaffAttendance = lazy(() =>
 const InvoiceSettings = lazy(() =>
   import('./pages/OthersPages').then((m) => ({ default: m.InvoiceSettings })),
 )
+const OperationalPeriodPage = lazy(() =>
+  import('./pages/OperationalPeriod').then((m) => ({ default: m.OperationalPeriodPage })),
+)
 const DataBackup = lazy(() => import('./pages/DataBackup').then((m) => ({ default: m.DataBackup })))
 const LicensePage = lazy(() => import('./pages/License').then((m) => ({ default: m.LicensePage })))
 const PlatformOperator = lazy(() =>
@@ -241,6 +244,7 @@ export default function App() {
               <Route path="others/add-staff" element={<AddStaff />} />
               <Route path="others/staff-attendance" element={<StaffAttendance />} />
               <Route path="others/invoice-settings" element={<InvoiceSettings />} />
+              <Route path="others/operational-period" element={<OperationalPeriodPage />} />
               <Route path="others/backup" element={<DataBackup />} />
               <Route path="others/license" element={<LicensePage />} />
               <Route path="*" element={<Navigate to="/" replace />} />

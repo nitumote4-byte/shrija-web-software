@@ -13540,3 +13540,190 @@ body:has(.app-shell),
   }
 }
 
+/* Operational Financial Period */
+.ofp-kicker {
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #b8923a;
+  margin-bottom: 0.2rem;
+}
+
+.ofp-dash-banner,
+.ofp-working-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.ofp-dash-banner strong,
+.ofp-working-card strong {
+  display: block;
+  font-size: 1.55rem;
+  line-height: 1.15;
+  color: var(--navy);
+}
+
+.ofp-dash-banner p,
+.ofp-working-card p {
+  margin: 0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.ofp-dash-banner.is-prior,
+.ofp-working-card.is-prior,
+.ofp-header-chip.is-prior {
+  border-color: #f3d19a;
+  background: #fffbeb;
+}
+
+.ofp-prior-note {
+  color: #92400e !important;
+  font-weight: 600;
+}
+
+.ofp-dash-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ofp-header-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 180px;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: var(--navy);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ofp-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ofp-panel {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 1.1rem 1.2rem 1.2rem;
+}
+
+.ofp-panel-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--navy);
+}
+
+.ofp-panel-head p {
+  margin: 0.25rem 0 0.85rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.ofp-period-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ofp-period-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.ofp-period-row.is-working {
+  border-color: #b8923a;
+  background: #fffdf6;
+}
+
+.ofp-period-row strong {
+  display: block;
+  font-size: 1.05rem;
+  color: var(--navy);
+}
+
+.ofp-period-row span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.ofp-period-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ofp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: #1a365d;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ofp-confirm-copy {
+  font-size: 0.8rem;
+  color: var(--navy);
+  font-weight: 600;
+}
+
+.ofp-create-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 0.85rem;
+  align-items: end;
+}
+
+@media (max-width: 900px) {
+  .ofp-dash-banner,
+  .ofp-working-card,
+  .ofp-period-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ofp-create-form {
+    grid-template-columns: 1fr;
+  }
+}
+

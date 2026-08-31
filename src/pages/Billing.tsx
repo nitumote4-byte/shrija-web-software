@@ -19,6 +19,8 @@ import {
   saveInvoicePaperSize,
   type InvoicePaperSize,
 } from '../utils/invoicePaper'
+import { nextInvoiceNo } from '../utils/documentNumbers'
+import { getWorkingPeriodName } from '../data/operationalPeriod'
 import {
   actualFromLines,
   invoiceTotalsFromActual,
@@ -56,11 +58,6 @@ function loadInvoiceSettings(): InvoiceSettings {
   } catch {
     return defaults
   }
-}
-
-function nextInvoiceNo(prefix: string, startFrom: string, existingCount: number) {
-  const start = Number(startFrom) || 1
-  return `${prefix || ''}${start + existingCount}`
 }
 
 function liveSampleWeight(r: {
@@ -274,8 +271,14 @@ export function Billing() {
       // Jewellery returned = received − sample drawn; the sample-return figures
       // above are reported separately and must not alter this total
       const weightReturned = Number((weightReceived - sampleWeight).toFixed(3))
-      const invoiceNo = nextInvoiceNo(settings.prefix, settings.startFrom, data.invoices.length)
       const dateOnly = billDate.slice(0, 10)
+      const invoiceNo = nextInvoiceNo({
+        prefix: settings.prefix,
+        startFrom: settings.startFrom,
+        invoices: data.invoices,
+        date: dateOnly,
+        periodName: getWorkingPeriodName(),
+      })
       const careOf = related.map((r) => r.co).find((c) => c && c.trim()) || ''
 
       const bill: ChallanView = {

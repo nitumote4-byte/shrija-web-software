@@ -17,6 +17,7 @@ export function buildLocalBackup(): BackupPayload {
     'shrija-invoice-settings',
     'shrija-reception-creds',
     'shrija-cashflow',
+    'shrija-operational-periods',
   ]
   for (const k of keys) {
     const v = tenantGet(k)
