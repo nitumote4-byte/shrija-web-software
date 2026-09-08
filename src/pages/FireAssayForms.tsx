@@ -108,10 +108,23 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       .sort((a, b) => b.id - a.id)
   }, [cgTick, purity])
 
-  const cg1Row = unusedCg.find((r) => String(r.id) === cg1Id)
-  const cg2Row = unusedCg.find((r) => String(r.id) === cg2Id)
+  const allCg = useMemo(() => {
+    void cgTick
+    return loadCgWeights()
+  }, [cgTick])
+
+  const cg1Row = allCg.find((r) => String(r.id) === cg1Id)
+  const cg2Row = allCg.find((r) => String(r.id) === cg2Id)
   const cg1Val = cg1Row?.weight ?? 0
   const cg2Val = cg2Row?.weight ?? 0
+
+  const cgSelectRows = useMemo(() => {
+    const byId = new Map<number, CgWeightRow>()
+    for (const r of unusedCg) byId.set(r.id, r)
+    if (cg1Row) byId.set(cg1Row.id, cg1Row)
+    if (cg2Row) byId.set(cg2Row.id, cg2Row)
+    return [...byId.values()].sort((a, b) => b.id - a.id)
+  }, [unusedCg, cg1Row, cg2Row])
 
   const delta1 = useMemo(() => {
     const w = Number(wotgcaa1)
@@ -499,10 +512,26 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     startNewSheet(nextNo, { quiet: true, dateOverride: nextDate })
   }
 
+  const applySavedCg = (saved: ManakFireAssaySheet) => {
+    const cg = saved.cg || ({} as ManakFireAssaySheet['cg'])
+    setSilverCg1(cg.silverCg1 ? String(cg.silverCg1) : '')
+    setSilverCg2(cg.silverCg2 ? String(cg.silverCg2) : '')
+    setLeadCg1(cg.leadCg1 != null ? String(cg.leadCg1) : '')
+    setLeadCg2(cg.leadCg2 != null ? String(cg.leadCg2) : '')
+    setWotgcaa1(cg.wotgcaa1 ? String(cg.wotgcaa1) : '')
+    setWotgcaa2(cg.wotgcaa2 ? String(cg.wotgcaa2) : '')
+    setCopperCg1(cg.copperCg1 ? String(cg.copperCg1) : '')
+    setCopperCg2(cg.copperCg2 ? String(cg.copperCg2) : '')
+    setCg1Id(cg.cg1Id ? String(cg.cg1Id) : '')
+    setCg2Id(cg.cg2Id ? String(cg.cg2Id) : '')
+    setCgTick((t) => t + 1)
+  }
+
   const loadSavedSheetRows = (n: string) => {
     setSheetNo(n)
     const saved = getFireAssaySheet(purity, shift || 'Day', n, sheetDate)
     if (!saved) return
+    applySavedCg(saved)
     const source = saved.viewRows?.length ? saved.viewRows : saved.rows || []
     if (!source.length) return
     setRows(
@@ -526,7 +555,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
   const onCgSelect = (which: 1 | 2, id: string) => {
     if (which === 1) setCg1Id(id)
     else setCg2Id(id)
-    const row = unusedCg.find((r) => String(r.id) === id)
+    const row = allCg.find((r) => String(r.id) === id)
     if (!row || !purity) return
     const cu = String(copperForCg(row.weight, purity))
     if (which === 1) {
@@ -720,7 +749,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       }
     }
 
-    // CG comes from QM Stock unused list (loadCgWeights). Do not treat missing as 0.
+    // CG comes from QM Stock (including the selected pair after it is marked used).
     const cgStock = loadCgWeights()
     const cg1Weight =
       cg1Row?.weight ?? cgStock.find((r) => String(r.id) === cg1Id)?.weight
@@ -814,8 +843,8 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       cg: {
         cg1Id: Number(cg1Id) || undefined,
         cg2Id: Number(cg2Id) || undefined,
-        cg1: cg1Val,
-        cg2: cg2Val,
+        cg1: Number(cg1Weight) || cg1Val || 0,
+        cg2: Number(cg2Weight) || cg2Val || 0,
         silverCg1: Number(silverCg1) || 0,
         silverCg2: Number(silverCg2) || 0,
         copperCg1: Number(copperCg1) || 0,
@@ -1244,12 +1273,12 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           </div>
 
           <div className="field">
-            <label>CG Weight 1</label>
+            <label>CG Weight 1{cg1Val ? ` · ${cg1Val.toFixed(3)} mg` : ''}</label>
             <select value={cg1Id} onChange={(e) => onCgSelect(1, e.target.value)}>
               <option value="">Select CG1</option>
-              {unusedCg.map((r) => (
+              {cgSelectRows.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.weight.toFixed(3)} (#{r.id})
+                  {r.weight.toFixed(3)} (#{r.id}{r.used ? ', used' : ''})
                 </option>
               ))}
             </select>
@@ -1257,6 +1286,21 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
           <div className="field">
             <label>Delta In Mg 1</label>
             <input placeholder="Delta1" value={delta1} readOnly className="table-input-disabled" />
+          </div>
+          <div className="field">
+            <label>CG Weight 2{cg2Val ? ` · ${cg2Val.toFixed(3)} mg` : ''}</label>
+            <select value={cg2Id} onChange={(e) => onCgSelect(2, e.target.value)}>
+              <option value="">Select CG2</option>
+              {cgSelectRows.map((r) => (
+                <option key={`cg2-${r.id}`} value={r.id}>
+                  {r.weight.toFixed(3)} (#{r.id}{r.used ? ', used' : ''})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Delta In Mg 2</label>
+            <input placeholder="Delta2" value={delta2} readOnly className="table-input-disabled" />
           </div>
           <div className="field" style={{ gridColumn: 'span 2' }}>
             <label>Average Delta In Mg</label>
@@ -1455,26 +1499,6 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
               )}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <div className="panel cg-form-panel">
-        <div className="cg-form-grid">
-          <div className="field">
-            <label>CG Weight 2</label>
-            <select value={cg2Id} onChange={(e) => onCgSelect(2, e.target.value)}>
-              <option value="">Select CG2</option>
-              {unusedCg.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.weight.toFixed(3)} (#{r.id})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Delta In Mg 2</label>
-            <input placeholder="Delta2" value={delta2} readOnly className="table-input-disabled" />
-          </div>
         </div>
       </div>
 

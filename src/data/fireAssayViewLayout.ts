@@ -103,9 +103,10 @@ export function mapCgToViewFields(
   const copper = which === 1 ? cg?.copperCg1 : cg?.copperCg2
   const cgWt = Number(wt) || 0
   const gold = Number(wotgcaa) || 0
+  const mass = cgWt > 0 ? cgWt.toFixed(3) : ''
   return {
-    sampleDrawn: cgWt ? String(wt) : '',
-    sampleWeight: cgWt ? String(wt) : '',
+    sampleDrawn: mass,
+    sampleWeight: mass,
     silver: silver ? String(silver) : '',
     lead: lead != null && lead !== undefined ? String(lead) : '',
     wotgcaa: gold ? String(wotgcaa) : '',

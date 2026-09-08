@@ -1814,7 +1814,11 @@ export function SamplingSheetReport() {
           item: r.item,
           pieces: r.pic,
           weight: r.weight,
-          sampleWeight: r.sampleWeight,
+          sampleWeight: (() => {
+            const fa = store.getFireAssaySampleWeight(r.jobCardNo, r.requestNo, r.centreId)
+            if (fa.status === 'ready' && fa.total != null) return fa.total
+            return r.sampleWeight
+          })(),
           invoiceNo: invoice?.invoiceNo || '—',
           hm,
           cut,

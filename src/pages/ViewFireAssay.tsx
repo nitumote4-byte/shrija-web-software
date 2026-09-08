@@ -367,6 +367,8 @@ export function ViewFireAssay() {
       },
       rows: [],
     }
+    const cg1Locked = rows.find((r) => r.key === 'cg1')
+    const cg2Locked = rows.find((r) => r.key === 'cg2')
     const next: ManakFireAssaySheet = {
       ...base,
       date: base.date || date,
@@ -375,6 +377,14 @@ export function ViewFireAssay() {
       sheetNo: sheetNo || base.sheetNo,
       cg: {
         ...base.cg,
+        cg1: Number(cg1Locked?.sampleWeight) || base.cg.cg1,
+        cg2: Number(cg2Locked?.sampleWeight) || base.cg.cg2,
+        silverCg1: Number(cg1Locked?.silver) || base.cg.silverCg1,
+        silverCg2: Number(cg2Locked?.silver) || base.cg.silverCg2,
+        leadCg1: Number(cg1Locked?.lead) || base.cg.leadCg1,
+        leadCg2: Number(cg2Locked?.lead) || base.cg.leadCg2,
+        wotgcaa1: Number(cg1Locked?.wotgcaa) || base.cg.wotgcaa1,
+        wotgcaa2: Number(cg2Locked?.wotgcaa) || base.cg.wotgcaa2,
         delta1: Number(delta1) || base.cg.delta1,
         delta2: Number(delta2) || base.cg.delta2,
         avgDelta: Number(avgDelta) || base.cg.avgDelta,
