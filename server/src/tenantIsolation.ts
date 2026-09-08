@@ -203,6 +203,20 @@ function stampOscItem(item: unknown, centreId: string): Record<string, unknown> 
   }
 }
 
+function isOscStoreItem(item: unknown): boolean {
+  if (!item || typeof item !== 'object') return false
+  const rec = item as CentreScopedItem
+  if (String(rec.centreKind || '').toLowerCase() === 'osc') return true
+  if (rec.centreId && String(rec.centreId) !== 'main') return true
+  return false
+}
+
+function rowId(item: unknown): string {
+  if (!item || typeof item !== 'object') return ''
+  const id = (item as { id?: unknown }).id
+  return typeof id === 'string' && id.trim() ? id.trim() : ''
+}
+
 /**
  * OSC writes must not replace other outlets' rows in the tenant JSON store.
  * Incoming rows tagged with a different centreId are dropped.
@@ -229,6 +243,44 @@ export function mergeOscStoreWrite(
   }
 
   return merged
+}
+
+/**
+ * Main writes keep Off-Site rows the Main cache never saw (new OSC party /
+ * request / bill). Incoming still wins for the same id so lab handoff
+ * (markOscAssayReturned, sample/cornet apply) can update OSC jobs.
+ * Main-scoped rows are taken from incoming so Main deletes still work.
+ */
+export function mergeMainStoreWrite(existing: unknown, incoming: unknown): Record<string, unknown> {
+  const current = asObjectRecord(existing)
+  const next = asObjectRecord(incoming)
+  const merged: Record<string, unknown> = { ...current, ...next }
+
+  for (const key of CENTRE_SCOPED_STORE_KEYS) {
+    const existingArr = Array.isArray(current[key]) ? (current[key] as unknown[]) : []
+    const incomingArr = Array.isArray(next[key]) ? (next[key] as unknown[]) : []
+    const incomingIds = new Set(incomingArr.map(rowId).filter(Boolean))
+    const keptOsc = existingArr.filter((item) => {
+      if (!isOscStoreItem(item)) return false
+      const id = rowId(item)
+      if (id && incomingIds.has(id)) return false
+      return true
+    })
+    merged[key] = [...keptOsc, ...incomingArr]
+  }
+
+  return merged
+}
+
+export function mergeStoreWrite(
+  existing: unknown,
+  incoming: unknown,
+  opts: { centreId: string; centreKind: 'main' | 'osc' },
+): Record<string, unknown> {
+  if (opts.centreKind === 'osc') {
+    return mergeOscStoreWrite(existing, incoming, opts.centreId)
+  }
+  return mergeMainStoreWrite(existing, incoming)
 }
 
 export type FirmOutlet = {

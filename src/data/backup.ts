@@ -1,7 +1,6 @@
-import { getStoreCache, setStoreCache } from './tenantCache'
+import { flushStoreNow, getStoreCache, setStoreCache } from './tenantCache'
 import { getFirmProfile, saveFirmProfile } from './firmProfile'
 import { tenantGet, tenantSet } from './tenant'
-import { api } from '../api/client'
 
 export type BackupPayload = {
   version: number
@@ -50,7 +49,7 @@ export async function restoreBackupFile(file: File): Promise<{ ok: true } | { ok
     if (!parsed || typeof parsed !== 'object') throw new Error('Invalid backup')
     if (parsed.store && typeof parsed.store === 'object') {
       setStoreCache(parsed.store as never)
-      await api('/api/data/store', { method: 'PUT', json: { data: parsed.store } })
+      await flushStoreNow({ replaceAll: true })
     }
     if (parsed.firm && typeof parsed.firm === 'object') {
       saveFirmProfile(parsed.firm as never)

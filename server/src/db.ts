@@ -177,6 +177,10 @@ export async function initDb(retries = 8, delayMs = 2000) {
         )
       `)
       await p.query(`
+        ALTER TABLE store_docs
+          ADD COLUMN IF NOT EXISTS rev INTEGER NOT NULL DEFAULT 0
+      `)
+      await p.query(`
         CREATE TABLE IF NOT EXISTS kv_docs (
           tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           key TEXT NOT NULL,

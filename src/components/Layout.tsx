@@ -8,6 +8,7 @@ import { clearSession, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getActiveCentre, getFirmName } from '../data/firmProfile'
 import { roleLabel } from '../data/roles'
 import { getCachedLicense } from '../data/license'
+import { STORE_PERSIST_EVENT } from '../data/tenantCache'
 import { OperationalPeriodBadge } from './OperationalPeriodBadge'
 
 const MOBILE_MAX = 899
@@ -25,6 +26,7 @@ export function Layout() {
   const [mobileNav, setMobileNav] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [centreName, setCentreName] = useState(() => getActiveCentre().name || getFirmName())
+  const [persistError, setPersistError] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
@@ -69,6 +71,15 @@ export function Layout() {
       window.removeEventListener(FIRM_PROFILE_EVENT, syncName)
       window.removeEventListener('storage', syncName)
     }
+  }, [])
+
+  useEffect(() => {
+    const onPersist = (event: Event) => {
+      const detail = (event as CustomEvent<{ ok?: boolean; message?: string }>).detail
+      setPersistError(detail?.ok ? '' : detail?.message || 'Could not save data. Retrying.')
+    }
+    window.addEventListener(STORE_PERSIST_EVENT, onPersist)
+    return () => window.removeEventListener(STORE_PERSIST_EVENT, onPersist)
   }, [])
 
   useEffect(() => {
@@ -150,6 +161,15 @@ export function Layout() {
             </div>
           )}
           {session?.tenantId ? <OperationalPeriodBadge compact /> : null}
+          {persistError && (
+            <div
+              className="tenant-chip"
+              style={{ borderColor: '#b91c1c', color: '#991b1b', maxWidth: 280 }}
+              title={persistError}
+            >
+              Save failed — retrying
+            </div>
+          )}
           {licenseWarn && (
             <button
               type="button"

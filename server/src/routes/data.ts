@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { assertTenantId, emptyStorePayload, nowIso, pool } from '../db.js'
+import { assertTenantId, emptyStorePayload, nowIso, pool, withTransaction } from '../db.js'
 import {
   enforceTenantBody,
   requireAuth,
@@ -9,7 +9,7 @@ import {
   sessionCentre,
 } from '../middleware/auth.js'
 import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
-import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeOscStoreWrite } from '../tenantIsolation.js'
+import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeStoreWrite } from '../tenantIsolation.js'
 import { letterheadRouter } from './letterhead.js'
 
 export const dataRouter = Router()
@@ -33,27 +33,46 @@ function asJson(value: unknown): unknown {
   return value
 }
 
+function asRev(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0
+}
+
+function toIso(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString()
+  const s = String(value || '').trim()
+  return s || nowIso()
+}
+
+type StoreDocRow = { payload: unknown; rev: unknown; updated_at: unknown }
+
 dataRouter.get('/store', async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
   const centre = sessionCentre(req.user!)
 
-  const { rows } = await pool.query(`SELECT payload FROM store_docs WHERE tenant_id = $1`, [
-    tenantId,
-  ])
-  const row = rows[0] as { payload: unknown } | undefined
+  const { rows } = await pool.query(
+    `SELECT payload, rev, updated_at FROM store_docs WHERE tenant_id = $1`,
+    [tenantId],
+  )
+  const row = rows[0] as StoreDocRow | undefined
 
   if (!row) {
     const empty = emptyStorePayload()
+    const updatedAt = nowIso()
     await pool.query(
-      `INSERT INTO store_docs (tenant_id, payload, updated_at) VALUES ($1, $2::jsonb, $3)`,
-      [tenantId, JSON.stringify(empty), nowIso()],
+      `INSERT INTO store_docs (tenant_id, payload, updated_at, rev) VALUES ($1, $2::jsonb, $3, 0)`,
+      [tenantId, JSON.stringify(empty), updatedAt],
     )
-    res.json({ data: filterStoreForSession(empty, centre) })
+    res.json({ data: filterStoreForSession(empty, centre), rev: 0, updatedAt })
     return
   }
 
-  res.json({ data: filterStoreForSession(asJson(row.payload), centre) })
+  res.json({
+    data: filterStoreForSession(asJson(row.payload), centre),
+    rev: asRev(row.rev),
+    updatedAt: toIso(row.updated_at),
+  })
 })
 
 dataRouter.put('/store', async (req, res) => {
@@ -68,23 +87,57 @@ dataRouter.put('/store', async (req, res) => {
 
   const incoming = req.body.data as Record<string, unknown>
   sanitizeXrfStorePayload(incoming)
-
-  let payload = incoming
-  if (centre.centreKind === 'osc') {
-    const existing = await pool.query(`SELECT payload FROM store_docs WHERE tenant_id = $1`, [
-      tenantId,
-    ])
-    const current = asJson(existing.rows[0]?.payload) || emptyStorePayload()
-    payload = mergeOscStoreWrite(current, incoming, centre.centreId)
-    sanitizeXrfStorePayload(payload)
-  }
+  const baseRevRaw = req.body.baseRev
+  const hasBaseRev = baseRevRaw !== undefined && baseRevRaw !== null && baseRevRaw !== ''
+  const baseRev = hasBaseRev ? asRev(baseRevRaw) : null
+  const replaceAll = req.body.replaceAll === true && centre.centreKind === 'main'
 
   const updatedAt = nowIso()
-  await pool.query(
-    `INSERT INTO store_docs (tenant_id, payload, updated_at) VALUES ($1, $2::jsonb, $3)
-     ON CONFLICT (tenant_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
-    [tenantId, JSON.stringify(payload), updatedAt],
-  )
+  const written = await withTransaction(async (client) => {
+    const existing = await client.query(
+      `SELECT payload, rev, updated_at FROM store_docs WHERE tenant_id = $1 FOR UPDATE`,
+      [tenantId],
+    )
+    const row = existing.rows[0] as StoreDocRow | undefined
+    const currentRev = row ? asRev(row.rev) : 0
+    const currentPayload = row ? asJson(row.payload) || emptyStorePayload() : emptyStorePayload()
+
+    if (row && baseRev != null && baseRev !== currentRev) {
+      return {
+        stale: true as const,
+        rev: currentRev,
+        updatedAt: toIso(row.updated_at),
+        payload: currentPayload,
+      }
+    }
+
+    let payload: Record<string, unknown> = incoming
+    if (!replaceAll) {
+      payload = mergeStoreWrite(currentPayload, incoming, centre)
+      sanitizeXrfStorePayload(payload)
+    }
+
+    const nextRev = row ? currentRev + 1 : 1
+    await client.query(
+      `INSERT INTO store_docs (tenant_id, payload, updated_at, rev) VALUES ($1, $2::jsonb, $3, $4)
+       ON CONFLICT (tenant_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at, rev = EXCLUDED.rev`,
+      [tenantId, JSON.stringify(payload), updatedAt, nextRev],
+    )
+    return { stale: false as const, rev: nextRev, updatedAt, payload }
+  })
+
+  if (written.stale) {
+    res.status(409).json({
+      error: 'Store was updated elsewhere',
+      code: 'STALE_STORE',
+      rev: written.rev,
+      updatedAt: written.updatedAt,
+      data: filterStoreForSession(written.payload, centre),
+    })
+    return
+  }
+
+  const payload = written.payload
 
   // Normalize requests into job_docs for reporting / future queries
   const requests = Array.isArray((payload as { requests?: unknown }).requests)
@@ -107,12 +160,12 @@ dataRouter.put('/store', async (req, res) => {
         String(r.status || 'Pending'),
         String(r.partyName || ''),
         JSON.stringify(r),
-        updatedAt,
+        written.updatedAt,
       ],
     )
   }
 
-  res.json({ ok: true, updatedAt })
+  res.json({ ok: true, updatedAt: written.updatedAt, rev: written.rev })
 })
 
 dataRouter.get('/backup', async (req, res) => {

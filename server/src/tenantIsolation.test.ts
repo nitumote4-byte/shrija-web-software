@@ -16,6 +16,7 @@ import {
   isOscRestrictedKvKey,
   listFirmOutlets,
   mergeAssignedOscOutlets,
+  mergeMainStoreWrite,
   mergeOscStoreWrite,
   ownTenantPublicView,
   resolveCentreFromList,
@@ -150,6 +151,90 @@ describe('store isolation for OSC vs other centres', () => {
     assert.equal(parties.some((p) => p.id === 'p-a2' && p.centreKind === 'osc'), true)
     assert.equal(parties.some((p) => p.id === 'p-stolen'), false)
     assert.equal(parties.some((p) => p.id === 'p-a'), false)
+  })
+
+  it('lets a stale Main PUT keep a new OSC party it never loaded', () => {
+    const existing = {
+      parties: [
+        { id: 'p-main', name: 'Main Party', centreId: 'main' },
+        { id: 'p-old', name: 'Old OSC', centreId: 'osc-a', centreKind: 'osc' },
+        { id: 'p-new', name: 'New OSC', centreId: 'osc-a', centreKind: 'osc' },
+      ],
+      requests: [{ id: 'r-new', requestNo: 'HM-NEW', centreId: 'osc-a', centreKind: 'osc' }],
+      invoices: [{ id: 'i-new', requestNo: 'HM-NEW', centreId: 'osc-a', centreKind: 'osc' }],
+      categories: [{ id: 'c1', name: 'Gold' }],
+    }
+    const staleMain = {
+      parties: [
+        { id: 'p-main', name: 'Main Party', centreId: 'main' },
+        { id: 'p-old', name: 'Old OSC', centreId: 'osc-a', centreKind: 'osc' },
+      ],
+      requests: [],
+      invoices: [],
+      categories: [{ id: 'c1', name: 'Gold' }],
+    }
+    const merged = mergeMainStoreWrite(existing, staleMain)
+    const parties = merged.parties as { id: string }[]
+    const requests = merged.requests as { id: string }[]
+    const invoices = merged.invoices as { id: string }[]
+    assert.equal(parties.some((p) => p.id === 'p-new'), true)
+    assert.equal(parties.some((p) => p.id === 'p-old'), true)
+    assert.equal(parties.some((p) => p.id === 'p-main'), true)
+    assert.equal(requests.some((r) => r.id === 'r-new'), true)
+    assert.equal(invoices.some((i) => i.id === 'i-new'), true)
+  })
+
+  it('lets Main lab update an OSC request it already has, without dropping a newer OSC bill', () => {
+    const existing = {
+      requests: [
+        {
+          id: 'r-osc',
+          requestNo: 'HM-1',
+          status: 'Pending',
+          oscTransferStatus: 'sent_to_main',
+          centreId: 'osc-a',
+          centreKind: 'osc',
+        },
+      ],
+      invoices: [{ id: 'i-osc', requestNo: 'HM-1', centreId: 'osc-a', centreKind: 'osc' }],
+      parties: [{ id: 'p-osc', name: 'OSC Party', centreId: 'osc-a', centreKind: 'osc' }],
+    }
+    const incoming = {
+      requests: [
+        {
+          id: 'r-osc',
+          requestNo: 'HM-1',
+          status: 'Assayed',
+          oscTransferStatus: 'returned_to_osc',
+          centreId: 'osc-a',
+          centreKind: 'osc',
+        },
+      ],
+      invoices: [],
+      parties: [{ id: 'p-osc', name: 'OSC Party', centreId: 'osc-a', centreKind: 'osc' }],
+    }
+    const merged = mergeMainStoreWrite(existing, incoming)
+    const req = (merged.requests as { id: string; status: string; oscTransferStatus: string }[]).find(
+      (r) => r.id === 'r-osc',
+    )
+    const invoices = merged.invoices as { id: string }[]
+    assert.equal(req?.status, 'Assayed')
+    assert.equal(req?.oscTransferStatus, 'returned_to_osc')
+    assert.equal(invoices.some((i) => i.id === 'i-osc'), true)
+  })
+
+  it('lets Main delete its own party while keeping OSC parties', () => {
+    const existing = {
+      parties: [
+        { id: 'p-main', name: 'Main Party', centreId: 'main' },
+        { id: 'p-osc', name: 'OSC Party', centreId: 'osc-a', centreKind: 'osc' },
+      ],
+    }
+    const incoming = { parties: [] }
+    const merged = mergeMainStoreWrite(existing, incoming)
+    const parties = merged.parties as { id: string }[]
+    assert.equal(parties.some((p) => p.id === 'p-main'), false)
+    assert.equal(parties.some((p) => p.id === 'p-osc'), true)
   })
 })
 
