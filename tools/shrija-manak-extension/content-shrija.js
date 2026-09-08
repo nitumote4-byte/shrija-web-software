@@ -95,6 +95,10 @@ window.__shrijaSyncTimer = setInterval(syncFromPage, 1000)
 
 function showSyncedBadge() {
   if (!extAlive()) return
+  if (!/create-fire-assay|view-fire-assay/i.test(location.pathname || '')) {
+    document.getElementById('shrija-ext-synced-badge')?.remove()
+    return
+  }
   try {
     chrome.storage.local.get([KEY], (data) => {
       if (!extAlive() || chrome.runtime.lastError) return
@@ -117,7 +121,7 @@ function showSyncedBadge() {
         })
         document.documentElement.appendChild(b)
       }
-      b.textContent = `Extension OK · Sheet ${data[KEY].sheetNo || '?'} · Manak Phase 1 / Phase 2`
+      b.textContent = `Extension OK · Sheet ${data[KEY].sheetNo || '?'} · lot select = auto fill`
     })
   } catch {
     /* context invalidated */

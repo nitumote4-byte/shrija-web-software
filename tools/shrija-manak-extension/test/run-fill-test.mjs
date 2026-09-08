@@ -349,6 +349,44 @@ async function main() {
     'Sample SAVE ≠ Button SAVE',
   )
 
+  resetAssay(window.document)
+  assert(ManakFill.detectAssayFillStage(window.document) === 'phase1', 'empty assay form is Phase 1')
+  m1Inputs(window.document)[0].value = '166.655'
+  m1Inputs(window.document)[1].value = '166.415'
+  assert(ManakFill.detectAssayFillStage(window.document) === 'phase2', 'M1 filled M2 empty is Phase 2')
+  m2Inputs(window.document)[0].value = '152.686'
+  m2Inputs(window.document)[1].value = '152.416'
+  assert(ManakFill.detectAssayFillStage(window.document) === 'done', 'M2 filled is done')
+  window.document.getElementById('txtSampleDrawn').value = '333.07'
+  window.document.getElementById('txtButtonWeight').value = '333.07'
+  const serialClear = wirePortalSerialOnWeightClick(window.document)
+  const wiped = ManakFill.clearAssayFields(window.document)
+  assert(wiped.ok, 'clearAssayFields ok')
+  assert(Number(window.document.getElementById('txtSampleDrawn').value) === 0, 'delete empties Sample Drawn')
+  assert(Number(m1Inputs(window.document)[0].value) === 0, 'delete empties M1')
+  assert(Number(m2Inputs(window.document)[0].value) === 0, 'delete empties M2')
+  assert(window.document.getElementById('declaredPurity').value === '916', 'delete does not touch Declared Purity')
+  assert(serialClear.count === 0, 'delete does not click weight fields')
+  assert(
+    ManakFill.selectedMatchesJobLot({ lot: 2, jobCard: '104736831' }, '104736831', 2) === true,
+    'Job + Lot match is strict',
+  )
+  assert(
+    ManakFill.selectedMatchesJobLot({ lot: 1, jobCard: '104736831' }, '104736831', 2) === false,
+    'wrong lot does not match',
+  )
+  const lotOpt = ManakFill.findLotOption(window.document, '104736831', 1)
+  assert(lotOpt && /104736831/.test(lotOpt.text), 'finds Lot 1:104736831 option')
+  resetAssay(window.document)
+
+  const manakAutoSrc = readFileSync(join(__dirname, '../content-manak.js'), 'utf8')
+  const popupHtml = readFileSync(join(__dirname, '../popup.html'), 'utf8')
+  assert(/scheduleLotAutoFill/.test(manakAutoSrc), 'lot select schedules auto fill')
+  assert(/detectAssayFillStage/.test(manakAutoSrc), 'auto fill uses stage detect')
+  assert(/__shrijaDeleteFilledAssay/.test(manakAutoSrc), 'delete is exposed for extension popup')
+  assert(/id="del"/.test(popupHtml), 'delete button lives in extension popup')
+  assert(/clearAssayFields/.test(manakAutoSrc), 'delete uses clearAssayFields')
+
   window.document.getElementById('txtButtonWeight').value = '999'
   window.document.getElementById('txtSampleDrawn').value = '0'
   const samp2 = ManakFill.findSamplingInputs(window.document)
@@ -448,12 +486,11 @@ async function main() {
     assert(Number(el.value || 0) === 0, 'TEST 1 M2 left empty')
   }
 
-  // ========== TEST 2: Phase 1 does not click Save Initial Weight ==========
-  assert(p1.clickedSaveInitial === false, 'TEST 2 clickedSaveInitial false')
-  assert(clicks.initial === beforeInit, 'TEST 2 Save Initial Weight not clicked')
-  assert(clicks.cornet === beforeCornet, 'TEST 2 Save Cornet not clicked during Phase 1')
+  assert(p1.clickedSaveInitial === true, 'TEST 1 Phase 1 clicked Save Initial Weight with scale bypass')
+  assert(clicks.initial === beforeInit + 1, 'TEST 1 Save Initial Weight clicked')
+  assert(clicks.cornet === beforeCornet, 'TEST 1 Save Cornet not clicked during Phase 1')
 
-  // ========== TEST 3 + 4: Phase 2 fills only M2, no Save Cornet ==========
+  // ========== TEST 3 + 4: Phase 2 fills only M2, then Save Cornet with bypass ==========
   const m1Snapshot = m1Inputs(window.document).map((el) => el.value)
   const beforeCornet2 = clicks.cornet
   const p2 = await ManakFill.fillPhase2(SAMPLE_SHEET, 'Lot 1:104736831', {
@@ -461,6 +498,7 @@ async function main() {
     lot: 1,
     jobCard: '104736831',
     activationWaitMs: 0,
+    postbackWaitMs: 0,
   })
   assert(p2.ok, 'TEST 3 Phase 2 ok')
   assert(Number(p2.m2Values[0]) === 152.686, 'TEST 3 M2 Strip 1')
@@ -471,9 +509,9 @@ async function main() {
     m1Inputs(window.document).every((el, i) => el.value === m1Snapshot[i]),
     'TEST 3 Phase 2 did not change M1',
   )
-  assert(p2.clickedSaveCornet === false, 'TEST 4 clickedSaveCornet false')
-  assert(clicks.cornet === beforeCornet2, 'TEST 4 Save Cornet Weight not clicked')
-  assert(clicks.initial === beforeInit, 'TEST 4 Save Initial still not extra-clicked')
+  assert(p2.clickedSaveCornet === true, 'TEST 4 Phase 2 clicked Save Cornet Weight with scale bypass')
+  assert(clicks.cornet === beforeCornet2 + 1, 'TEST 4 Save Cornet Weight clicked')
+  assert(clicks.initial === beforeInit + 1, 'TEST 4 Save Initial still not extra-clicked by Phase 2')
 
   // ========== TEST 5–9: Job + Lot M2 mapping ==========
   const jobALot1 = ManakFill.resolveStripRowsByJobAndLot(SAMPLE_SHEET, '123456789', 1)
@@ -489,6 +527,8 @@ async function main() {
     document: window.document,
     lot: 1,
     jobCard: '123456789',
+    activationWaitMs: 0,
+    clickSaveCornet: false,
   })
   assert(a1.ok, 'TEST 5 fill ok')
   assert(Number(a1.m2Values[0]) === 111.111, 'TEST 5 filled Job A Lot 1 M2 strip 1')
@@ -503,6 +543,8 @@ async function main() {
     document: window.document,
     lot: 2,
     jobCard: '123456789',
+    activationWaitMs: 0,
+    clickSaveCornet: false,
   })
   assert(a2.ok, 'TEST 6 fill ok')
   assert(Number(a2.m2Values[0]) === 222.111, 'TEST 6 Job A Lot 2 M2 strip 1')
@@ -519,6 +561,8 @@ async function main() {
     document: window.document,
     lot: 1,
     jobCard: '127765197',
+    activationWaitMs: 0,
+    clickSaveCornet: false,
   })
   assert(b1.ok, 'TEST 7 fill ok')
   assert(Number(b1.m2Values[0]) === 202.001, 'TEST 7 Job B Lot 1 M2 strip 1')
@@ -537,10 +581,32 @@ async function main() {
   assert(noKeys.rows.length === 0, 'lot-only lookup rejected for Phase 2')
   assert(noKeys.error === 'job_and_lot_required', 'job and lot required')
 
-  // Same job, two lots: resolveStripRows (Phase 1) also prefers Job + Lot
-  const p1lot2 = ManakFill.resolveStripRows(SAMPLE_SHEET, 2, 'Lot 2:123456789')
+  // Same job, two lots: live Phase 1 is strict Job + Lot (same helper as Phase 2)
+  const p1lot2 = ManakFill.resolvePhaseStripRows(SAMPLE_SHEET, 'Lot 2:123456789', { lot: 2, jobCard: '123456789' })
   assert(Number(p1lot2.rows[0]?.wotgcaa) === 222.111, 'Phase 1 resolver Lot 2 of same job')
   assert(Number(p1lot2.rows[0]?.sampleWeight) === 165.5, 'Phase 1 resolver Lot 2 M1')
+
+  const p1MissingLot = await ManakFill.fillPhase1(SAMPLE_SHEET, 'Lot 2:104736831', {
+    document: window.document,
+    lot: 2,
+    jobCard: '104736831',
+    activationWaitMs: 0,
+    postbackWaitMs: 0,
+  })
+  assert(p1MissingLot.ok === false, 'Phase 1 does not fill Lot 1 data onto Lot 2')
+  assert(p1MissingLot.error === 'no_matching_job_lot', 'Phase 1 missing lot is no_matching_job_lot')
+
+  resetAssay(window.document)
+  const p1SameJobLot2 = await ManakFill.fillPhase1(SAMPLE_SHEET, 'Lot 2:123456789', {
+    document: window.document,
+    lot: 2,
+    jobCard: '123456789',
+    activationWaitMs: 0,
+    postbackWaitMs: 0,
+  })
+  assert(p1SameJobLot2.ok, 'Phase 1 same-job Lot 2 ok')
+  assert(Number(p1SameJobLot2.m1Values[0]) === 165.5, 'Phase 1 Lot 2 M1 is not Lot 1')
+  assert(Number(p1SameJobLot2.m1Values[0]) !== 165.1, 'Phase 1 Lot 2 M1 is not Job A Lot 1 strip')
 
   // ========== TEST 11: global M2 pending cannot auto-apply ==========
   const stalePending = { m2Values: [111.111, 111.222, 149.2, 148.8], lotKey: '1:123456789' }
@@ -564,6 +630,7 @@ async function main() {
   const postedP1 = await ManakFill.fillPhase1(SAMPLE_SHEET, 'Lot 1:104736831', {
     document: window.document,
     lot: 1,
+    clickSaveInitial: false,
     postbackWaitMs: 0,
     activationWaitMs: 0,
   })
@@ -573,6 +640,70 @@ async function main() {
   assert(serial2.count === 0, 'TEST 16 Phase 1 Save path did not click weight fields')
   assert(window.document.getElementById('txtSampleDrawn').dataset.shrijaWeight === 'posted', 'Sample Drawn posted')
   assert(postedP1.clickedSaveInitial === false, 'posted Phase 1 still does not click Save Initial')
+
+  resetAssay(window.document)
+  let leakedInitial = 0
+  const leakInit = () => {
+    leakedInitial += 1
+  }
+  window.document.addEventListener('shrija-trigger-bypass-save', leakInit)
+  window.document.getElementById('btnInit').addEventListener('click', leakInit)
+  const beforeSample = clicks.sampleSave
+  const beforeButton = clicks.buttonSave
+  const beforeInitial = clicks.initial
+  let preparedScale = 0
+  window.document.addEventListener('shrija-prepare-scale', () => {
+    preparedScale += 1
+  })
+  const samplingSaveP1 = await ManakFill.fillPhase1(SAMPLE_SHEET, 'Lot 1:104736831', {
+    document: window.document,
+    lot: 1,
+    clickSaveInitial: false,
+    postbackWaitMs: 0,
+    activationWaitMs: 0,
+  })
+  assert(samplingSaveP1.ok, 'sampling Save path ok')
+  assert(clicks.sampleSave === beforeSample + 1, 'Sample Drawn SAVE still clicked once')
+  assert(clicks.buttonSave === beforeButton + 1, 'Button Weight SAVE still clicked once')
+  assert(clicks.initial === beforeInitial, 'sampling Save did not click Save Initial')
+  assert(leakedInitial === 0, 'sampling Save does not dispatch Save Initial bypass')
+  assert(preparedScale > 0, 'scale prepare event fired before sampling Save')
+  window.document.getElementById('btnSaveDrawn').setAttribute(
+    'onclick',
+    "if(!isScaleCaptured){alert('unauthorized weighing scale');return false;} __doPostBack('ctl00$btnSaveDrawn','')",
+  )
+  ManakFill.stripInlineScaleCheck(window.document.getElementById('btnSaveDrawn'))
+  assert(
+    !/unauthorized|isScaleCaptured/.test(window.document.getElementById('btnSaveDrawn').getAttribute('onclick') || ''),
+    'inline scale check stripped from Sample Drawn SAVE',
+  )
+  assert(
+    /__doPostBack/.test(window.document.getElementById('btnSaveDrawn').getAttribute('onclick') || ''),
+    'Sample Drawn SAVE postback kept after strip',
+  )
+
+  const c1Row = window.document.querySelector('#assay tr:nth-child(4)')
+  const extraTd = window.document.createElement('td')
+  const extra = window.document.createElement('input')
+  extra.id = 'txtCertifiedCg'
+  extra.readOnly = true
+  extra.value = '0'
+  extraTd.appendChild(extra)
+  c1Row.insertBefore(extraTd, c1Row.children[1])
+  const colsCg = ManakFill.collectAssayInputs(window.document)
+  assert(colsCg.m1[2]?.className === 'm1', 'C1 extra certified input is not used as M1')
+  extraTd.remove()
+
+  const c1M1 = window.document.querySelector('#assay tr:nth-child(4) .m1')
+  const flag = window.document.createElement('input')
+  flag.type = 'hidden'
+  flag.id = 'hfScaleCapturedC1'
+  flag.value = 'False'
+  c1M1.parentElement.appendChild(flag)
+  ManakFill.setPostedWeight(c1M1, 150.2)
+  assert(flag.value === 'True' || flag.value === '1', 'C1 scale-captured hidden is True/1, not the weight')
+  assert(Number(c1M1.value) === 150.2, 'C1 M1 weight stays 150.2')
+  flag.remove()
 
   resetAssay(window.document)
   for (const el of m2Inputs(window.document)) {
@@ -586,17 +717,181 @@ async function main() {
     lot: 1,
     jobCard: '104736831',
     activationWaitMs: 0,
+    postbackWaitMs: 0,
   })
   assert(postedP2.ok, 'Phase 2 posted fill ok')
   assert(postedP2.usedScanForM2 === false, 'Phase 2 did not use scan gesture')
   assert(postedP2.usedPostedWeight === true, 'Phase 2 used posted-value path')
   assert(Number(postedP2.m2Values[0]) === 152.686, 'Phase 2 posted M2 strip 1')
   assert(serialM2.count === 0, 'TEST 16 Phase 2 did not click M2 inputs')
-  assert(postedP2.clickedSaveCornet === false, 'Phase 2 did not click Save Cornet')
+  assert(postedP2.clickedSaveCornet === true, 'Phase 2 clicked Save Cornet with scale bypass')
+
+  const altCornet = window.document.createElement('input')
+  altCornet.type = 'button'
+  altCornet.value = 'Save (Weight of cornet after assaying)'
+  window.document.body.appendChild(altCornet)
+  assert(ManakFill.isCornetSaveButton(altCornet) === true, 'matches Save (Weight of cornet after assaying)')
+  altCornet.remove()
+  const liveCornet = window.document.createElement('button')
+  liveCornet.type = 'button'
+  liveCornet.id = 'savecornetvalues'
+  liveCornet.className = 'btn btn-primary-new button1'
+  liveCornet.setAttribute('onclick', 'checkforremarks();')
+  liveCornet.textContent = 'Save (Cornet Weight)'
+  assert(ManakFill.isCornetSaveButton(liveCornet) === true, 'matches live savecornetvalues button')
+  window.document.body.appendChild(liveCornet)
+  assert(ManakFill.findSaveCornetButton(window.document)?.id === 'savecornetvalues', 'finds savecornetvalues by id')
+  liveCornet.remove()
+  assert(ManakFill.findSaveCornetButton(window.document)?.id === 'btnCornet', 'classic Cornet button still found')
+  const disabledCornet = window.document.getElementById('btnCornet')
+  disabledCornet.disabled = true
+  disabledCornet.className = 'aspNetDisabled'
+  const beforeDisabledClick = clicks.cornet
+  assert(await ManakFill.clickSaveCornetWeight(window.document) === true, 'disabled Cornet Save still clicked')
+  assert(clicks.cornet === beforeDisabledClick + 1, 'disabled Cornet Save click counted')
+  disabledCornet.disabled = false
+  disabledCornet.className = ''
+
+  disabledCornet.setAttribute(
+    'onclick',
+    "if(!IsCornetCaptured()){alert('unauthorized weighing scale');return false;} __doPostBack('ctl00$btnSaveCornet','')",
+  )
+  ManakFill.forceBarePostback(disabledCornet)
+  assert(
+    !/IsCornetCaptured|unauthorized/.test(disabledCornet.getAttribute('onclick') || ''),
+    'Cornet Save onclick validation stripped',
+  )
+  assert(/__doPostBack/.test(disabledCornet.getAttribute('onclick') || ''), 'Cornet Save postback kept')
+  disabledCornet.removeAttribute('onclick')
 
   const srcLib = libCode
   assert(!/\.requestPort\s*\(/.test(srcLib), 'TEST 15 lib has no requestPort() after fill helpers')
   assert(!/navigator\s*\.\s*serial/.test(srcLib), 'TEST 15 lib still has no navigator.serial')
+  assert(
+    /dispatchEvent\(new root\.Event\('shrija-save-cornet'/.test(srcLib),
+    'Phase 2 dispatches MAIN-world cornet save like Phase 1',
+  )
+
+  const bypassCode = readFileSync(join(__dirname, '../main-world-bypass.js'), 'utf8')
+  const bypassDom = new JSDOM(
+    `<!DOCTYPE html><html><body>
+      <form id="form1" method="post">
+        <input type="hidden" name="__VIEWSTATE" value="/wEP" />
+        <input type="hidden" id="__EVENTTARGET" name="__EVENTTARGET" value="" />
+        <input type="hidden" id="__EVENTARGUMENT" name="__EVENTARGUMENT" value="" />
+        <input type="button" id="btnCornet" name="ctl00$btnSaveCornet" value="Save (Cornet Weight)"
+          onclick="if(!isScaleCaptured){alert('scan weight');return false;} __doPostBack('ctl00$btnSaveCornet','')" />
+      </form>
+    </body></html>`,
+    { url: 'https://huid.manakonline.in/assay', runScripts: 'outside-only' },
+  )
+  const { window: bw } = bypassDom
+  let portalValidation = 0
+  let submitted = 0
+  bw.theForm = bw.document.getElementById('form1')
+  bw.isScaleCaptured = false
+  bw.document.getElementById('form1').onsubmit = function () {
+    return false
+  }
+  bw.__doPostBack = function (t) {
+    const form = bw.document.getElementById('form1')
+    if (form.onsubmit && form.onsubmit() === false) {
+      portalValidation += 1
+      return
+    }
+    bw.document.getElementById('__EVENTTARGET').value = t
+    form.submit()
+  }
+  bw.HTMLFormElement.prototype.submit = function () {
+    submitted += 1
+  }
+  bw.eval(bypassCode)
+  const cornetOk = bw.__shrijaBypassAndSubmitCornetWeight()
+  assert(cornetOk === true, 'MAIN cornet save returns true')
+  assert(submitted === 1, 'Cornet save uses portal __doPostBack then theForm.submit')
+  assert(portalValidation === 0, 'onsubmit validators were neutralized')
+  assert(bw.isScaleCaptured === true, 'scale flags stay locked true')
+  assert(
+    bw.document.getElementById('__EVENTTARGET').value === 'ctl00$btnSaveCornet',
+    'EVENTTARGET is Cornet UniqueID',
+  )
+  if (bw.__shrijaPrepareTimer) bw.clearInterval(bw.__shrijaPrepareTimer)
+  if (bw.__shrijaEndRequestTimer) bw.clearInterval(bw.__shrijaEndRequestTimer)
+  bypassDom.window.close()
+
+  const liveBypassDom = new JSDOM(
+    `<!DOCTYPE html><html><body>
+      <form id="form1" method="post">
+        <input type="hidden" name="__VIEWSTATE" value="/wEP" />
+        <input id="num_cornet_weightM11" name="num_cornet_weightM11" class="form-control weightCls scan-input" value="0" />
+        <input id="averagedelta1" name="num_cornet_weight_goldM11" class="form-control weightValidation" value="" />
+        <input id="num_cornet_weightM12" name="num_cornet_weightM12" class="form-control weightCls scan-input" value="0" />
+        <input id="num_cornet_weight_goldM11" name="num_cornet_weight_goldM11" class="form-control weightCls scan-input" value="0" />
+        <input id="delta11" name="num_cornet_weight_goldM11" class="form-control weightValidation" value="" />
+        <input id="num_cornet_weight_goldM12" name="num_cornet_weight_goldM12" class="form-control weightCls scan-input" value="0" />
+        <input id="delta22" name="num_cornet_weightM12" class="form-control weightValidation" value="" />
+        <input id="txtremarks" name="txtremarks" type="text" value="" />
+        <button type="button" id="savecornetvalues" class="btn btn-primary-new button1" onclick="checkforremarks();">Save (Cornet Weight)</button>
+      </form>
+    </body></html>`,
+    { url: 'https://huid.manakonline.in/assay', runScripts: 'outside-only' },
+  )
+  const { window: lw } = liveBypassDom
+  let remarksCalled = 0
+  let livePosted = 0
+  lw.checkforremarks = function () {
+    remarksCalled += 1
+  }
+  lw.__doPostBack = function () {
+    livePosted += 1
+  }
+  lw.eval(bypassCode)
+  assert(typeof lw.checkforremarks === 'function', 'live checkforremarks stays a function')
+  assert(lw.checkforremarks.__shrijaBypassed !== true, 'checkforremarks is not stubbed as a validator')
+  assert(lw.document.getElementById('savecornetvalues').getAttribute('onclick') === 'checkforremarks();', 'onclick stays checkforremarks')
+  const liveOk = lw.__shrijaBypassAndSubmitCornetWeight()
+  assert(liveOk === true, 'live Cornet save returns true')
+  assert(remarksCalled === 1, 'live Cornet save calls checkforremarks')
+  assert(livePosted === 0, 'live Cornet save does not invent __doPostBack')
+  assert(lw.document.getElementById('txtremarks').value === 'NA', 'empty remarks filled before save')
+  if (lw.__shrijaPrepareTimer) lw.clearInterval(lw.__shrijaPrepareTimer)
+  if (lw.__shrijaEndRequestTimer) lw.clearInterval(lw.__shrijaEndRequestTimer)
+  liveBypassDom.window.close()
+
+  const namedDom = new JSDOM(
+    `<!DOCTYPE html><html><body>
+      <select id="ddlLot"><option value="1">Lot 1:104736831</option></select>
+      <input id="num_cornet_weightM11" class="form-control weightCls scan-input" value="0" />
+      <input id="averagedelta1" name="num_cornet_weight_goldM11" value="" />
+      <input id="num_cornet_weightM12" class="form-control weightCls scan-input" value="0" />
+      <input id="num_cornet_weight_goldM11" class="form-control weightCls scan-input" value="0" />
+      <input id="delta11" value="" />
+      <input id="num_cornet_weight_goldM12" class="form-control weightCls scan-input" value="0" />
+      <button type="button" id="savecornetvalues" onclick="checkforremarks();">Save (Cornet Weight)</button>
+    </body></html>`,
+    { url: 'https://huid.manakonline.in/assay', runScripts: 'outside-only' },
+  )
+  namedDom.window.eval(libCode)
+  const NamedFill = namedDom.window.ManakFill
+  NamedFill.delay = () => Promise.resolve()
+  NamedFill.waitUntilSerialGestureExpired = async () => 'skipped'
+  const namedCols = NamedFill.collectAssayInputs(namedDom.window.document)
+  assert(namedCols.m2[0]?.id === 'num_cornet_weightM11', 'named M2 strip 1')
+  assert(namedCols.m2[1]?.id === 'num_cornet_weightM12', 'named M2 strip 2')
+  assert(namedCols.m2[2]?.id === 'num_cornet_weight_goldM11', 'named M2 C1 is goldM11 id not averagedelta')
+  assert(namedCols.m2[3]?.id === 'num_cornet_weight_goldM12', 'named M2 C2')
+  const namedP2 = await NamedFill.fillPhase2(SAMPLE_SHEET, 'Lot 1:104736831', {
+    document: namedDom.window.document,
+    lot: 1,
+    jobCard: '104736831',
+    activationWaitMs: 0,
+    postbackWaitMs: 0,
+  })
+  assert(namedP2.ok, 'named-id Phase 2 ok')
+  assert(Number(namedDom.window.document.getElementById('num_cornet_weightM11').value) === 152.686, 'fills M11 not delta')
+  assert(namedDom.window.document.getElementById('averagedelta1').value === '', 'does not fill averagedelta')
+  assert(namedDom.window.document.getElementById('delta11').value === '', 'does not fill delta11')
+  namedDom.window.close()
 
   console.log('\nALL TESTS PASSED')
 }

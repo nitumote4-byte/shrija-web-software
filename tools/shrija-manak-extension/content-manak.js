@@ -1,16 +1,16 @@
-﻿/**
- * Shrija → Manak AUTO fill — explicit Phase 1 / Phase 2.
- * Phase 1: post Sample Drawn + Save, post Button Weight + Save, then M1.
+/**
+ * Shrija → Manak AUTO fill — lot select runs Phase 1 or Phase 2 (no buttons).
+ * Phase 1: Sample Drawn + Button Weight + M1, then Save Initial. Strict Job Card + Lot.
+ * Phase 2: M2 only (same Job + Lot), then Save Cornet Weight — when M1 is already saved.
  * Does not click/focus weight fields (that opens BIS Web Serial).
- * User clicks Save Initial Weight.
- * Phase 2: M2 only (Job + Lot), same posted-value path. User clicks Save Cornet Weight.
- * No Save Initial / Save Cornet auto-click. No timing wait. No M2 continuation after Phase 1.
  */
 const KEY = 'shrija-manak-fire-assay-sheet'
 const M2_PENDING_KEY = 'shrija-manak-m2-pending'
 const FLOW_KEY = 'shrija-manak-fill-flow'
 const DONE_KEY = 'shrija-manak-fill-done'
 const P1_RESUME_KEY = 'shrija-manak-phase1-resume'
+const P1_COOLDOWN_KEY = 'shrija-manak-phase1-cooldown'
+const P1_COOLDOWN_MS = 180000
 
 const MF = globalThis.ManakFill
 if (!MF) console.error('[Shrija] manak-fill-lib.js missing — reload extension')
@@ -106,7 +106,6 @@ function stopTimers() {
 
 /** Discard leftover auto-M2 state from older extension builds. Never resume it. */
 async function disableLegacyAutoM2() {
-  stopTimers()
   await storageRemove([M2_PENDING_KEY, FLOW_KEY, DONE_KEY])
 }
 
@@ -135,19 +134,28 @@ function readSelectedLot() {
   return { text, ...parsed, sel }
 }
 
-function btnStyle(bg) {
-  return {
-    background: bg,
-    color: '#fff',
-    padding: '10px 14px',
-    borderRadius: '10px',
-    font: '700 12px/1.35 system-ui,sans-serif',
-    boxShadow: '0 8px 24px rgba(0,0,0,.28)',
-    border: 'none',
-    cursor: 'pointer',
-    textAlign: 'left',
-    width: '100%',
+function cooldownMap() {
+  try {
+    return JSON.parse(sessionStorage.getItem(P1_COOLDOWN_KEY) || '{}') || {}
+  } catch {
+    return {}
   }
+}
+
+function markPhase1Cooldown(jobCard, lot) {
+  if (!jobCard || lot == null) return
+  const map = cooldownMap()
+  map[`${jobCard}:${lot}`] = Date.now()
+  try {
+    sessionStorage.setItem(P1_COOLDOWN_KEY, JSON.stringify(map))
+  } catch {
+    /* ignore */
+  }
+}
+
+function inPhase1Cooldown(jobCard, lot) {
+  const at = Number(cooldownMap()[`${jobCard}:${lot}`] || 0)
+  return at > 0 && Date.now() - at < P1_COOLDOWN_MS
 }
 
 function ensureStatusBadge() {
@@ -155,6 +163,8 @@ function ensureStatusBadge() {
     stopTimers()
     return
   }
+  document.getElementById('shrija-manak-phase1')?.remove()
+  document.getElementById('shrija-manak-phase2')?.remove()
   let wrap = document.getElementById('shrija-manak-auto-status')
   if (!wrap) {
     wrap = document.createElement('div')
@@ -164,58 +174,39 @@ function ensureStatusBadge() {
       bottom: '20px',
       right: '20px',
       zIndex: 999999,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '8px',
-      maxWidth: '300px',
+      maxWidth: '280px',
     })
-
-    const p1 = document.createElement('button')
-    p1.id = 'shrija-manak-phase1'
-    p1.type = 'button'
-    Object.assign(p1.style, btnStyle('#15803d'))
-    p1.title = 'Fill Sample Drawn + Save, Button Weight + Save, then M1. Does not open serial port. Does not click Save Initial Weight. Does not fill M2.'
-    p1.addEventListener('click', () => runPhase1())
-
-    const p2 = document.createElement('button')
-    p2.id = 'shrija-manak-phase2'
-    p2.type = 'button'
-    Object.assign(p2.style, btnStyle('#1d4ed8'))
-    p2.title = 'Fill M2 / cornet after assaying for the selected Job + Lot. Does not open serial port. Does not click Save Cornet.'
-    p2.addEventListener('click', () => runPhase2())
-
-    wrap.appendChild(p1)
-    wrap.appendChild(p2)
+    const label = document.createElement('div')
+    label.id = 'shrija-manak-auto-label'
+    Object.assign(label.style, {
+      background: '#0f2744',
+      color: '#fff',
+      padding: '10px 14px',
+      borderRadius: '10px',
+      font: '700 12px/1.35 system-ui,sans-serif',
+    })
+    wrap.appendChild(label)
     document.body.appendChild(wrap)
   }
-
-  const p1 = document.getElementById('shrija-manak-phase1')
-  const p2 = document.getElementById('shrija-manak-phase2')
+  document.getElementById('shrija-manak-delete-panel')?.remove()
+  const label = document.getElementById('shrija-manak-auto-label')
+  if (!label) return
   try {
     chrome.storage.local.get([KEY], (data) => {
       if (!extAlive() || chrome.runtime.lastError) return
       const sheet = data[KEY]
       const fs = sheet?.sheetNo || '?'
       const lot = MF ? readSelectedLot() : { lot: null, jobCard: '' }
-      const lotBit = lot.lot != null ? ` · Lot ${lot.lot}` : ''
-      if (sheet) {
-        if (p1) {
-          p1.style.background = '#15803d'
-          p1.textContent = `Auto FS-${fs} — Phase 1${lotBit}`
-        }
-        if (p2) {
-          p2.style.background = '#1d4ed8'
-          p2.textContent = `Auto FS-${fs} — Phase 2${lotBit}`
-        }
+      const lotBit = lot.lot != null && lot.jobCard ? ` · Lot ${lot.lot}` : ' · lot select karo'
+      if (window.__shrijaFilling) {
+        label.style.background = '#1d4ed8'
+        label.textContent = `Shrija AUTO FS-${fs} · filling${lotBit}`
+      } else if (sheet) {
+        label.style.background = '#15803d'
+        label.textContent = `Shrija AUTO FS-${fs}${lotBit}`
       } else {
-        if (p1) {
-          p1.style.background = '#b45309'
-          p1.textContent = 'Auto FS — Phase 1 · No sheet'
-        }
-        if (p2) {
-          p2.style.background = '#b45309'
-          p2.textContent = 'Auto FS — Phase 2 · No sheet'
-        }
+        label.style.background = '#b45309'
+        label.textContent = 'Shrija AUTO · Create Sheet pehle'
       }
     })
   } catch {
@@ -223,13 +214,96 @@ function ensureStatusBadge() {
   }
 }
 
-function resolveFromSheet(sheet, selectText, lot) {
-  return MF.resolveStripRows(sheet, lot, selectText)
+function parseDeleteTarget(jobRaw, lotRaw) {
+  const jobText = String(jobRaw || '').trim()
+  const lotText = String(lotRaw || '').trim()
+  const parsed = MF.parseShrijaJob(jobText)
+  const jobCard = parsed.card || jobText.replace(/\D/g, '')
+  let lotNum = Number(lotText)
+  if (!Number.isFinite(lotNum) || lotNum <= 0) lotNum = Number(parsed.lot) || NaN
+  return { jobCard, lotNum }
+}
+
+async function selectPortalLot(jobCard, lotNum) {
+  const sel = MF.findLotSelect(document)
+  const opt = MF.findLotOption(document, jobCard, lotNum)
+  if (!sel || !opt) return false
+  window.__shrijaSuppressLotAuto = true
+  opt.selected = true
+  sel.value = opt.value
+  sel.dispatchEvent(new Event('change', { bubbles: true }))
+  try {
+    await MF.waitForWeightPostback({ document, postbackWaitMs: 600, postbackTimeoutMs: 10000 })
+  } catch {
+    /* ignore */
+  }
+  return MF.selectedMatchesJobLot(readSelectedLot(), jobCard, lotNum)
+}
+
+async function runDeleteFilledAssay(jobRaw, lotRaw) {
+  if (!extAlive() || !MF) {
+    return { ok: false, skip: true, message: 'Extension ready nahi.' }
+  }
+  if (!MF.findLotSelect(document) && !MF.collectAssayInputs(document).m1?.length) {
+    return { skip: true }
+  }
+  if (window.__shrijaFilling) {
+    const message = 'Shrija: pehle fill complete hone do'
+    showToast(message)
+    return { ok: false, message }
+  }
+  const { jobCard, lotNum } = parseDeleteTarget(jobRaw, lotRaw)
+  if (!jobCard || !Number.isFinite(lotNum) || lotNum <= 0) {
+    const message = 'Shrija Delete: Job card + Lot number dono chahiye'
+    showToast(message)
+    return { ok: false, message }
+  }
+  window.__shrijaFilling = true
+  window.__shrijaSuppressLotAuto = true
+  try {
+    let selected = readSelectedLot()
+    if (!MF.selectedMatchesJobLot(selected, jobCard, lotNum)) {
+      const ok = await selectPortalLot(jobCard, lotNum)
+      selected = readSelectedLot()
+      if (!ok && !MF.selectedMatchesJobLot(selected, jobCard, lotNum)) {
+        const message = `Shrija Delete: portal pe Lot ${lotNum} : ${jobCard} nahi mila`
+        showToast(message)
+        return { ok: false, message }
+      }
+    }
+    const result = MF.clearAssayFields(document)
+    if (!result.ok) {
+      const message = 'Shrija Delete: koi field empty nahi hui'
+      showToast(message)
+      return { ok: false, message }
+    }
+    const message = `Shrija Delete: Lot ${lotNum} / ${jobCard} — ${result.cleared} fields empty. Ab dubara bhar sakte ho.`
+    showToast(message, 9000)
+    ensureStatusBadge()
+    return { ok: true, cleared: result.cleared, message }
+  } finally {
+    window.__shrijaFilling = false
+    setTimeout(() => {
+      window.__shrijaSuppressLotAuto = false
+    }, 2500)
+  }
+}
+
+globalThis.__shrijaGetSelectedLot = function () {
+  if (!MF?.findLotSelect?.(document)) return { skip: true }
+  const lot = readSelectedLot()
+  return { skip: false, jobCard: lot.jobCard || '', lot: lot.lot, text: lot.text || '' }
+}
+
+globalThis.__shrijaDeleteFilledAssay = runDeleteFilledAssay
+
+function resolveFromSheet(sheet, selectText, lot, jobCard) {
+  return MF.resolvePhaseStripRows(sheet, selectText, { lot, jobCard })
 }
 
 /** Sample Drawn / Button must be ≥ 2× max strip M1 so Manak accepts strip weights (fineness stays correct). */
-function requiredDrawnForStrips(sheet, selectText, lot) {
-  const resolved = resolveFromSheet(sheet, selectText, lot)
+function requiredDrawnForStrips(sheet, selectText, lot, jobCard) {
+  const resolved = resolveFromSheet(sheet, selectText, lot, jobCard)
   const s1 = Number(resolved.rows[0]?.sampleWeight || 0)
   const s2 = Number(resolved.rows[1]?.sampleWeight || 0)
   const fromSheet = Number(resolved.rows[0]?.sampleDrawn || 0)
@@ -241,10 +315,30 @@ async function currentSheet() {
   return (await storageGet([KEY]))[KEY]
 }
 
-function requireSelectedLot() {
-  const lot = readSelectedLot()
+function requireSelectedLot(resumeOpts = {}) {
+  let lot = readSelectedLot()
+  if (lot.lot == null && !lot.jobCard && (resumeOpts.lot != null || resumeOpts.jobCard)) {
+    const sel = MF?.findLotSelect?.(document)
+    if (sel) {
+      const opt = Array.from(sel.options).find((o) => {
+        const t = String(o.text || o.value || '')
+        if (resumeOpts.jobCard && t.includes(String(resumeOpts.jobCard))) return true
+        if (resumeOpts.lot != null && new RegExp(`Lot\\s*${resumeOpts.lot}\\b`, 'i').test(t)) return true
+        return false
+      })
+      if (opt) {
+        sel.value = opt.value
+        opt.selected = true
+        sel.dispatchEvent(new Event('change', { bubbles: true }))
+        lot = readSelectedLot()
+      }
+    }
+    if (lot.lot == null && !lot.jobCard) {
+      lot = { lot: resumeOpts.lot, jobCard: resumeOpts.jobCard || '', text: resumeOpts.selectText || '' }
+    }
+  }
   if (lot.lot == null && !lot.jobCard) {
-    showToast('Shrija AUTO: pehle Lot No select karo')
+    if (!resumeOpts.quiet) showToast('Shrija AUTO: pehle Lot No select karo')
     return null
   }
   return lot
@@ -261,16 +355,23 @@ async function runPhase1(resumeOpts = {}) {
       showToast('Shrija AUTO: pehle Create Sheet')
       return
     }
-    const lot = requireSelectedLot()
+    const lot = requireSelectedLot(resumeOpts)
     if (!lot) return
-    const drawn = requiredDrawnForStrips(sheet, lot.text, lot.lot)
+    if (lot.lot == null || !lot.jobCard) {
+      showToast('Shrija Phase 1: Job Card + Lot dono chahiye')
+      return
+    }
+    const drawn = requiredDrawnForStrips(sheet, lot.text, lot.lot, lot.jobCard)
+    MF.prepareScaleBypass(document)
     const result = await MF.fillPhase1(sheet, lot.text, {
       document,
       lot: lot.lot,
       jobCard: lot.jobCard,
       drawn,
       activationWaitMs: 5500,
-      startAt: resumeOpts.startAt || 'sample',
+      fillAssay: true,
+      clickSaveInitial: true,
+      startAt: resumeOpts.stage || resumeOpts.startAt || 'sample',
       onBeforeSampleSaveClick: async () => {
         await storageSet({
           [P1_RESUME_KEY]: {
@@ -302,7 +403,8 @@ async function runPhase1(resumeOpts = {}) {
       return
     }
     await storageRemove([P1_RESUME_KEY])
-    showToast('Phase 1 complete — Save Initial Weight manually', 8000)
+    markPhase1Cooldown(lot.jobCard, lot.lot)
+    showToast('Phase 1 complete — Assay weights filled & Initial Weight saved automatically!', 9000)
     ensureStatusBadge()
   } finally {
     window.__shrijaFilling = false
@@ -314,21 +416,11 @@ async function tryResumePhase1() {
   const data = await storageGet([P1_RESUME_KEY])
   const resume = data[P1_RESUME_KEY]
   if (!resume?.stage || !resume.ts) return
-  if (Date.now() - Number(resume.ts) > 25000) {
+  if (Date.now() - Number(resume.ts) > 30000) {
     await storageRemove([P1_RESUME_KEY])
     return
   }
-  const lot = MF ? readSelectedLot() : { lot: null, jobCard: '' }
-  if (lot.lot == null && !lot.jobCard) return
-  if (resume.lot != null && lot.lot != null && Number(resume.lot) !== Number(lot.lot)) {
-    await storageRemove([P1_RESUME_KEY])
-    return
-  }
-  if (resume.jobCard && lot.jobCard && String(resume.jobCard) !== String(lot.jobCard)) {
-    await storageRemove([P1_RESUME_KEY])
-    return
-  }
-  await runPhase1({ startAt: resume.stage })
+  await runPhase1(resume)
 }
 
 async function runPhase2() {
@@ -357,16 +449,69 @@ async function runPhase2() {
       lot: lot.lot,
       jobCard: lot.jobCard,
       activationWaitMs: 5500,
+      clickSaveCornet: true,
     })
     if (!result?.ok) {
       showToast(`Shrija Phase 2: ${result?.message || result?.error || 'Job + Lot match nahi'}`)
       return
     }
-    showToast('Phase 2 complete — Save Cornet Weight manually', 8000)
+    if (result.clickedSaveCornet) {
+      showToast('Phase 2 complete — Cornet Weight saved automatically!', 9000)
+    } else {
+      showToast('Phase 2: M2 fill ho gaya. Save (Cornet Weight) ab manual click karein.', 9000)
+    }
     ensureStatusBadge()
   } finally {
     window.__shrijaFilling = false
   }
+}
+
+function scheduleLotAutoFill(reason) {
+  if (window.__shrijaLotAutoTimer) clearTimeout(window.__shrijaLotAutoTimer)
+  window.__shrijaLotAutoTimer = setTimeout(() => {
+    void runLotAutoFill(reason)
+  }, reason === 'load' ? 1400 : 700)
+}
+
+async function runLotAutoFill(reason) {
+  if (!extAlive() || !MF || window.__shrijaFilling) return
+  if (window.__shrijaSuppressLotAuto) return
+  const sheet = await currentSheet()
+  const lot = readSelectedLot()
+  if (lot.lot == null || !lot.jobCard) return
+  if (!sheet) {
+    if (reason === 'change') showToast('Shrija AUTO: pehle Create Sheet')
+    return
+  }
+  try {
+    await MF.waitUntilSerialGestureExpired({ document, activationWaitMs: 5500 })
+    await MF.waitForWeightPostback({ document, postbackWaitMs: 600, postbackTimeoutMs: 10000 })
+  } catch {
+    /* ignore */
+  }
+  if (window.__shrijaFilling) return
+  const lot2 = readSelectedLot()
+  if (lot2.lot == null || !lot2.jobCard) return
+  const stage = MF.detectAssayFillStage(document)
+  if (stage === 'done' || stage === 'unknown') return
+  if (stage === 'phase2' && inPhase1Cooldown(lot2.jobCard, lot2.lot)) return
+  ensureStatusBadge()
+  if (stage === 'phase1') {
+    showToast(`Shrija AUTO Phase 1 · Lot ${lot2.lot}`, 4000)
+    await runPhase1({ quiet: true })
+    return
+  }
+  if (stage === 'phase2') {
+    showToast(`Shrija AUTO Phase 2 · Lot ${lot2.lot}`, 4000)
+    await runPhase2()
+  }
+}
+
+function bindLotAutoFill() {
+  const sel = MF?.findLotSelect?.(document)
+  if (!sel || sel.getAttribute('data-shrija-lot-auto') === '1') return
+  sel.setAttribute('data-shrija-lot-auto', '1')
+  sel.addEventListener('change', () => scheduleLotAutoFill('change'))
 }
 
 try {
@@ -380,6 +525,15 @@ try {
   /* ignore */
 }
 
+function attachPortalBypassListeners() {
+  if (!MF) return
+  try {
+    MF.prepareScaleBypass(document)
+  } catch {
+    /* ignore */
+  }
+}
+
 const onAssayPage = /Samplingweighting|Fire Assaying|Sample Drawn|Assaying Sheet/i.test(
   `${location.href} ${document.body?.innerText || ''}`,
 )
@@ -387,12 +541,17 @@ const onAssayPage = /Samplingweighting|Fire Assaying|Sample Drawn|Assaying Sheet
 if (onAssayPage) {
   if (!MF) showToast('Shrija AUTO: manak-fill-lib load fail — Reload')
   void disableLegacyAutoM2()
+  attachPortalBypassListeners()
   setTimeout(ensureStatusBadge, 600)
   setTimeout(() => {
+    bindLotAutoFill()
     void tryResumePhase1()
+    scheduleLotAutoFill('load')
   }, 900)
   window.__shrijaBadgeTimer = setInterval(() => {
     if (!extAlive()) return stopTimers()
+    attachPortalBypassListeners()
+    bindLotAutoFill()
     ensureStatusBadge()
-  }, 4000)
+  }, 3000)
 }

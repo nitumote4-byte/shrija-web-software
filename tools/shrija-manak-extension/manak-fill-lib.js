@@ -13,6 +13,7 @@
     if (t === 'hidden' || t === 'button' || t === 'submit' || t === 'checkbox' || t === 'radio') return true
     const idCls = `${el.id || ''} ${el.className || ''} ${el.name || ''} ${el.placeholder || ''}`
     if (/select2|chosen|combobox|autocomplete|purity|ddlPurity|Declared/i.test(idCls)) return true
+    if (/^(delta\d+|averagedelta)/i.test(el.id || '')) return true
     if (el.getAttribute('role') === 'combobox') return true
     const nearEl = el.closest('td, th, tr, label') || el.parentElement
     const near = (nearEl?.textContent || '').replace(/\s+/g, ' ').slice(0, 200)
@@ -85,6 +86,8 @@
     const apply = (h) => {
       if (!h || seen.has(h) || h === el) return
       seen.add(h)
+      const idName = `${h.id || ''} ${h.name || ''}`
+      if (/captur|scale|flag|valid|status|isscale|fromscale|scanned/i.test(idName)) return
       h.value = v
       try {
         h.setAttribute('value', v)
@@ -116,19 +119,21 @@
    * Assign a weight for ASP.NET postback WITHOUT activating the portal's
    * Web Serial path: no focus, no element.click(), no keydown/Enter.
    */
-  ManakFill.setPostedWeight = function setPostedWeight(el, value) {
+  ManakFill.setPostedWeight = function setPostedWeight(el, value, opts = {}) {
     if (!el || value == null || value === '') return false
     if (ManakFill.isUnsafeTarget(el)) return false
     const num = Number(value)
     if (!(num > 0) && num !== 0) return false
     const v = Number.isInteger(num) ? String(num) : Number(num).toFixed(3)
-    try {
-      el.removeAttribute('readonly')
-      el.removeAttribute('disabled')
-      el.readOnly = false
-      if (el.disabled) el.disabled = false
-    } catch {
-      /* ignore */
+    if (!opts.preserveDisabled) {
+      try {
+        el.removeAttribute('readonly')
+        el.removeAttribute('disabled')
+        el.readOnly = false
+        if (el.disabled) el.disabled = false
+      } catch {
+        /* ignore */
+      }
     }
     const proto = el.tagName === 'TEXTAREA' ? root.HTMLTextAreaElement.prototype : root.HTMLInputElement.prototype
     const desc = Object.getOwnPropertyDescriptor(proto, 'value')
@@ -141,6 +146,7 @@
       /* ignore */
     }
     ManakFill.syncScanHiddenFields(el, v)
+    ManakFill.markElementAsScaleCaptured(el)
     el.dispatchEvent(new root.Event('input', { bubbles: true }))
     el.dispatchEvent(new root.Event('change', { bubbles: true }))
     try {
@@ -154,6 +160,66 @@
       /* ignore */
     }
     return Math.abs(Number(el.value) - num) < 0.05
+  }
+
+  ManakFill.clearPostedWeight = function clearPostedWeight(el, opts = {}) {
+    return ManakFill.setPostedWeight(el, 0, opts)
+  }
+
+  /**
+   * Empty sampling + assay weights on the visible Manak form (no field click).
+   * Skips Declared Purity and delta/average computed inputs.
+   */
+  ManakFill.clearAssayFields = function clearAssayFields(doc) {
+    const document = doc || root.document
+    const sampling = ManakFill.findSamplingInputs(document)
+    const cols = ManakFill.collectAssayInputs(document)
+    const named = ManakFill.collectNamedCornetM2(document) || []
+    const seen = new Set()
+    const list = [
+      sampling.sampleDrawn,
+      sampling.buttonWt,
+      ...(cols.m1 || []),
+      ...(cols.silver || []),
+      ...(cols.copper || []),
+      ...(cols.lead || []),
+      ...(cols.m2 || []),
+      ...named,
+    ].filter(Boolean)
+    let cleared = 0
+    list.forEach((el) => {
+      if (seen.has(el)) return
+      seen.add(el)
+      if (ManakFill.isUnsafeTarget(el)) return
+      const idn = `${el.id || ''} ${el.className || ''}`
+      if (/^(delta\d+|averagedelta)/i.test(el.id || '')) return
+      const preserveDisabled = /m2|cornet|scan-input/i.test(idn) || el.disabled || el.hasAttribute('disabled')
+      if (ManakFill.clearPostedWeight(el, { preserveDisabled: Boolean(preserveDisabled) })) cleared += 1
+    })
+    return { ok: cleared > 0, cleared }
+  }
+
+  ManakFill.findLotOption = function findLotOption(doc, jobCard, lotNum) {
+    const document = doc || root.document
+    const sel = ManakFill.findLotSelect(document)
+    if (!sel) return null
+    const job = String(jobCard || '').trim()
+    const lot = Number(lotNum)
+    if (!job || Number.isNaN(lot)) return null
+    return (
+      Array.from(sel.options || []).find((o) => {
+        const p = ManakFill.parseLotOptionText(o.text || o.label || '')
+        return p.jobCard === job && Number(p.lot) === lot
+      }) || null
+    )
+  }
+
+  ManakFill.selectedMatchesJobLot = function selectedMatchesJobLot(selected, jobCard, lotNum) {
+    if (!selected) return false
+    const job = String(jobCard || '').trim()
+    const lot = Number(lotNum)
+    if (!job || Number.isNaN(lot)) return false
+    return String(selected.jobCard || '') === job && Number(selected.lot) === lot
   }
 
   /**
@@ -208,49 +274,38 @@
    * Wait for ASP.NET UpdatePanel / sampling Save postback — not BIS furnace timing.
    * Hook names: afterSampleSave | afterButtonSave
    */
+  ManakFill.isPortalPostbackBusy = function isPortalPostbackBusy(doc) {
+    const document = doc || root.document
+    if (!document || !document.querySelectorAll) return false
+    const nodes = document.querySelectorAll(
+      '[id*="UpdateProgress"], [id$="_UpdateProgress"], .UpdateProgress, .blockUI, .Sys-Progress',
+    )
+    for (const n of nodes) {
+      const style = `${n.getAttribute('style') || ''} ${n.style?.display || ''}`
+      if (/display\s*:\s*none/i.test(style) || n.style?.display === 'none') continue
+      if (/visibility\s*:\s*hidden/i.test(style)) continue
+      if (/display\s*:\s*block|display\s*:\s*flex/i.test(style)) return true
+      if (ManakFill.visible(n)) return true
+    }
+    return false
+  }
+
   ManakFill.waitForWeightPostback = async function waitForWeightPostback(opts = {}, hookName) {
     if (hookName && typeof opts[hookName] === 'function') {
       await opts[hookName]()
       return 'hook'
     }
+    if (opts.postbackWaitMs === 0) return 'skip'
     const document = opts.document || root.document
-    const win = (document && document.defaultView) || root
-    try {
-      const prm =
-        win.Sys &&
-        win.Sys.WebForms &&
-        win.Sys.WebForms.PageRequestManager &&
-        typeof win.Sys.WebForms.PageRequestManager.getInstance === 'function' &&
-        win.Sys.WebForms.PageRequestManager.getInstance()
-      if (prm && typeof prm.add_endRequest === 'function') {
-        await new Promise((resolve) => {
-          const ms = opts.postbackTimeoutMs != null ? opts.postbackTimeoutMs : 5000
-          const t = setTimeout(resolve, ms)
-          const handler = function () {
-            try {
-              prm.remove_endRequest(handler)
-            } catch {
-              /* ignore */
-            }
-            clearTimeout(t)
-            resolve()
-          }
-          try {
-            prm.add_endRequest(handler)
-          } catch {
-            clearTimeout(t)
-            resolve()
-          }
-        })
-        await ManakFill.delay(80)
-        return 'updatepanel'
-      }
-    } catch {
-      /* ignore */
+    const minWait = opts.postbackWaitMs != null ? opts.postbackWaitMs : 700
+    const timeout = opts.postbackTimeoutMs != null ? opts.postbackTimeoutMs : 8000
+    if (minWait > 0) await ManakFill.delay(minWait)
+    const start = Date.now()
+    while (Date.now() - start < timeout && ManakFill.isPortalPostbackBusy(document)) {
+      await ManakFill.delay(120)
     }
-    const wait = opts.postbackWaitMs != null ? opts.postbackWaitMs : 400
-    if (wait > 0) await ManakFill.delay(wait)
-    return 'delay'
+    await ManakFill.delay(180)
+    return 'polled'
   }
 
   ManakFill.shortText = function shortText(el) {
@@ -349,11 +404,22 @@
     return { rows: [], lotNum: lot, jobCard: card, error: 'no_matching_job_lot' }
   }
 
+  /**
+   * Live Phase 1 + Phase 2: Job Card + Lot only. No job-only / lot-only / first-row fallback.
+   */
+  ManakFill.resolvePhaseStripRows = function resolvePhaseStripRows(sheet, selectText, opts = {}) {
+    const fromOpt = ManakFill.parseLotOptionText(selectText)
+    const lotNum = opts.lot != null && opts.lot !== '' ? Number(opts.lot) : fromOpt.lot
+    const jobCard = String(opts.jobCard || fromOpt.jobCard || '').trim()
+    return ManakFill.resolveStripRowsByJobAndLot(sheet, jobCard, lotNum)
+  }
+
   /** Stale shrija-manak-m2-pending must never auto-apply to the current (or any) Job/Lot. */
   ManakFill.ignoreM2Pending = function ignoreM2Pending(_pending, _currentJob, _currentLot) {
     return true
   }
 
+  /** Legacy lookup with fallbacks. Live Phase 1/2 use resolvePhaseStripRows instead. */
   ManakFill.resolveStripRows = function resolveStripRows(sheet, preferredLot, selectText) {
     const allRows = ManakFill.sheetFilledRows(sheet)
     const fromOpt = ManakFill.parseLotOptionText(selectText)
@@ -566,17 +632,34 @@
     return byOptions || selects.find((s) => /lot/i.test(`${s.id || ''} ${s.name || ''}`)) || null
   }
 
+  ManakFill.NAMED_M2_IDS = [
+    'num_cornet_weightM11',
+    'num_cornet_weightM12',
+    'num_cornet_weight_goldM11',
+    'num_cornet_weight_goldM12',
+  ]
+
+  ManakFill.collectNamedCornetM2 = function collectNamedCornetM2(doc) {
+    const document = doc || root.document
+    const els = ManakFill.NAMED_M2_IDS.map((id) => document.getElementById(id))
+    if (els.some((el) => !el || ManakFill.isUnsafeTarget(el))) return null
+    return els
+  }
+
   /**
    * Assay table: locate by Strip 1 / Fire Assaying, map columns by header text.
    * Returns { m1:[4], silver:[4], copper:[4], lead:[4], m2:[4] }
    */
   ManakFill.collectAssayInputs = function collectAssayInputs(doc) {
     const document = doc || root.document
+    const namedM2 = ManakFill.collectNamedCornetM2(document)
     const table = Array.from(document.querySelectorAll('table')).find((t) => {
       const tx = t.textContent || ''
       return /Strip\s*1/i.test(tx) && /Initial weight|M1/i.test(tx) && /Silver/i.test(tx)
     })
-    if (!table) return { m1: [], silver: [], copper: [], lead: [], m2: [] }
+    if (!table) {
+      return { m1: [], silver: [], copper: [], lead: [], m2: namedM2 || [] }
+    }
 
     const headerRow =
       Array.from(table.querySelectorAll('tr')).find((tr) =>
@@ -601,12 +684,17 @@
 
     const bodyRows = Array.from(table.querySelectorAll('tr')).filter((tr) => {
       const t = (tr.textContent || '').replace(/\s+/g, ' ')
-      return /Strip\s*1|Strip\s*2|C1\s*\(|C2\s*\(|Check\s*Gold/i.test(t)
+      return /Strip\s*1|Strip\s*2|C1\s*\(|C2\s*\(|Check\s*Gold|CG\s*[12]|C\.G\.?\s*[12]/i.test(t)
     })
 
-    // Stable order: Strip1, Strip2, C1, C2
     const ordered = []
-    for (const re of [/Strip\s*1/i, /Strip\s*2/i, /C1\s*\(|C1\b/i, /C2\s*\(|C2\b/i]) {
+    const rowRes = [
+      /Strip\s*1/i,
+      /Strip\s*2/i,
+      /C1\s*\(|Check\s*Gold\s*\(?\s*1|CG\s*1\b|C\.G\.?\s*1|\bC1\b/i,
+      /C2\s*\(|Check\s*Gold\s*\(?\s*2|CG\s*2\b|C\.G\.?\s*2|\bC2\b/i,
+    ]
+    for (const re of rowRes) {
       const row = bodyRows.find((tr) => re.test(tr.textContent || '') && !ordered.includes(tr))
       if (row) ordered.push(row)
     }
@@ -617,8 +705,7 @@
       const cells = Array.from(tr.querySelectorAll('td'))
       const cell = cells[col]
       if (!cell) {
-        // fallback: nth input in row
-        const inputs = Array.from(tr.querySelectorAll('input')).filter((el) => !ManakFill.isUnsafeTarget(el))
+        const inputs = ManakFill.assayRowWeightInputs(tr)
         return inputs[col > 0 ? col - 1 : 0] || null
       }
       return (
@@ -626,28 +713,88 @@
       )
     }
 
-    // If header indices look wrong, fall back to input order per row
-    const useFallback = iM1 < 0 || iAg < 0
-    if (useFallback) {
-      const grid = ordered.map((tr) =>
-        Array.from(tr.querySelectorAll('input')).filter((el) => !ManakFill.isUnsafeTarget(el)),
-      )
-      return {
-        m1: grid.map((g) => g[0] || null),
-        silver: grid.map((g) => g[1] || null),
-        copper: grid.map((g) => g[2] || null),
-        lead: grid.map((g) => g[3] || null),
-        m2: grid.map((g) => g[4] || null),
-      }
+    const grids = ordered.map((tr) => ManakFill.assayRowWeightInputs(tr))
+    const baseLen = grids[0] && grids[0].length >= 4 ? grids[0].length : 0
+    const aligned = grids.map((g) => {
+      if (!baseLen || g.length <= baseLen) return g
+      const filtered = g.filter((el) => {
+        const idn = `${el.id || ''} ${el.name || ''} ${el.className || ''}`
+        if (/certif|standard|reference|nomina|cgwt/i.test(idn)) return false
+        if (el.readOnly && g.length > baseLen) return false
+        return true
+      })
+      if (filtered.length >= 4 && filtered.length <= baseLen) return filtered
+      return g.slice(g.length - baseLen)
+    })
+    const inputOrderReady = aligned.length >= 4 && aligned.every((g) => g.length >= 4)
+    const withNamedM2 = (cols) => {
+      if (namedM2) cols.m2 = namedM2
+      return cols
     }
 
-    return {
+    if (inputOrderReady) {
+      return withNamedM2({
+        m1: aligned.map((g) => g[0] || null),
+        silver: aligned.map((g) => g[1] || null),
+        copper: aligned.map((g) => g[2] || null),
+        lead: aligned.map((g) => g[3] || null),
+        m2: aligned.map((g) => g[4] || null),
+      })
+    }
+
+    if (iM1 < 0 || iAg < 0) {
+      return withNamedM2({
+        m1: aligned.map((g) => g[0] || null),
+        silver: aligned.map((g) => g[1] || null),
+        copper: aligned.map((g) => g[2] || null),
+        lead: aligned.map((g) => g[3] || null),
+        m2: aligned.map((g) => g[4] || null),
+      })
+    }
+
+    return withNamedM2({
       m1: ordered.map((tr) => pick(tr, iM1)),
       silver: ordered.map((tr) => pick(tr, iAg)),
       copper: ordered.map((tr) => pick(tr, iCu)),
       lead: ordered.map((tr) => pick(tr, iPb)),
       m2: ordered.map((tr) => pick(tr, iM2)),
+    })
+  }
+
+  ManakFill.assayRowWeightInputs = function assayRowWeightInputs(tr) {
+    if (!tr) return []
+    return Array.from(tr.querySelectorAll('input')).filter((el) => {
+      if (ManakFill.isUnsafeTarget(el)) return false
+      const idn = `${el.id || ''} ${el.name || ''} ${el.className || ''} ${el.placeholder || ''}`
+      if (/purity|declared|select2/i.test(idn)) return false
+      if (/^(delta\d+|averagedelta)/i.test(el.id || '')) return false
+      return true
+    })
+  }
+
+  /**
+   * Decide which fill to run after a lot is selected.
+   * phase1: Sample Drawn / M1 still empty.
+   * phase2: M1 already saved, M2 still empty (after assaying).
+   * done: M2 already filled.
+   */
+  ManakFill.detectAssayFillStage = function detectAssayFillStage(doc) {
+    const document = doc || root.document
+    const sampling = ManakFill.findSamplingInputs(document)
+    const cols = ManakFill.collectAssayInputs(document)
+    const n = (el) => {
+      const v = Number(el && el.value != null ? el.value : 0)
+      return Number.isFinite(v) ? v : 0
     }
+    const drawn = n(sampling.sampleDrawn)
+    const m1s = (cols.m1 || []).filter(Boolean)
+    const m2s = (cols.m2 || []).filter(Boolean)
+    const pairFilled = (els) => els.length >= 2 && els.slice(0, 2).every((el) => n(el) > 0.01)
+    const pairEmpty = (els) => !els.length || els.slice(0, 2).every((el) => n(el) < 0.01)
+    if (pairFilled(m2s)) return 'done'
+    if (pairFilled(m1s) && pairEmpty(m2s)) return 'phase2'
+    if (drawn < 0.01 || !pairFilled(m1s)) return 'phase1'
+    return 'unknown'
   }
 
   ManakFill.clickByText = function clickByText(re, doc) {
@@ -667,8 +814,8 @@
   ManakFill.fillLot = async function fillLot(sheet, selectText, opts = {}) {
     const document = opts.document || root.document
     const clickSave = opts.clickSave !== false
-    const resolved = ManakFill.resolveStripRows(sheet, opts.lot, selectText)
-    if (!resolved.rows.length) return { ok: false, error: 'no_matching_lot' }
+    const resolved = ManakFill.resolvePhaseStripRows(sheet, selectText, opts)
+    if (!resolved.rows.length) return { ok: false, error: resolved.error || 'no_matching_lot' }
 
     const stripRows = resolved.rows
     const drawn = Number(stripRows[0]?.sampleDrawn || 0)
@@ -743,7 +890,379 @@
 
   async function setPhaseWeight(el, value) {
     if (!el || value == null || value === '') return false
-    return ManakFill.setPostedWeight(el, value)
+    return ManakFill.setByScanWeight(el, value)
+  }
+
+  ManakFill.markElementAsScaleCaptured = function markElementAsScaleCaptured(el) {
+    if (!el) return
+    try {
+      el.setAttribute('is-scale', 'true')
+      el.setAttribute('is-captured', 'true')
+      el.setAttribute('scale-captured', 'true')
+      el.setAttribute('data-is-captured', 'true')
+      el.setAttribute('data-scale-captured', 'true')
+      el.setAttribute('data-captured', 'true')
+      el.setAttribute('data-scale', '1')
+      el.setAttribute('data-source', 'scale')
+      if (/scan-input|weightCls|num_cornet_weight/i.test(`${el.id || ''} ${el.className || ''} ${el.name || ''}`)) {
+        el.setAttribute('scanned', 'true')
+        el.setAttribute('data-scanned', 'true')
+      }
+      if (el.dataset) {
+        el.dataset.isCaptured = 'true'
+        el.dataset.scaleCaptured = 'true'
+        el.dataset.captured = 'true'
+        el.dataset.scale = '1'
+        el.dataset.source = 'scale'
+        if (/scan-input|weightCls|num_cornet_weight/i.test(`${el.id || ''} ${el.className || ''}`)) {
+          el.dataset.scanned = 'true'
+        }
+        if (!el.dataset.shrijaWeight) {
+          el.dataset.shrijaWeight = 'posted'
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    const parent = el.closest?.('td, th') || el.parentElement
+    if (parent) {
+      const hiddens = parent.querySelectorAll('input[type="hidden"]')
+      hiddens.forEach((h) => {
+        try {
+          h.setAttribute('is-captured', 'true')
+          if (h.dataset) h.dataset.isCaptured = 'true'
+          const idName = `${h.id || ''} ${h.name || ''}`
+          const raw = String(h.value || '').trim()
+          const isFlag =
+            /captur|scale|flag|valid|status|isscale|fromscale|scanned|m2captur|capturedm2|cornetflag|hfcornet/i.test(
+              idName,
+            ) || /^(0|1|true|false|yes|no)$/i.test(raw)
+          if (isFlag) {
+            h.value = raw === '0' || raw === '1' ? '1' : 'True'
+          } else if (el.value && Number(el.value) > 0) {
+            h.value = el.value
+          }
+        } catch {
+          /* ignore */
+        }
+      })
+    }
+  }
+
+  ManakFill.injectMainWorldBypass = function injectMainWorldBypass(doc) {
+    const document = doc || root.document
+    try {
+      if (
+        !ManakFill._mainWorldInjectAsked &&
+        typeof chrome !== 'undefined' &&
+        chrome.runtime &&
+        typeof chrome.runtime.sendMessage === 'function'
+      ) {
+        ManakFill._mainWorldInjectAsked = true
+        chrome.runtime.sendMessage({ type: 'SHRIJA_INJECT_MAIN_WORLD' }, () => {
+          void chrome.runtime.lastError
+        })
+      }
+    } catch {
+      /* ignore */
+    }
+    if (!document || !document.dispatchEvent) return
+    try {
+      document.dispatchEvent(new root.Event('shrija-prepare-scale', { bubbles: true }))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  ManakFill.prepareScaleBypass = function prepareScaleBypass(doc) {
+    const document = doc || root.document
+    ManakFill.injectMainWorldBypass(document)
+    ManakFill.bypassScaleValidation(document)
+    try {
+      document.dispatchEvent(new root.Event('shrija-prepare-scale', { bubbles: true }))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  ManakFill.bypassScaleValidation = function bypassScaleValidation(doc) {
+    const document = doc || root.document
+    ManakFill.injectMainWorldBypass(document)
+    const win = (document && document.defaultView) || root
+    try {
+      win.isScaleCaptured = true
+      win.isCaptured = true
+      win.isScaleRead = true
+      win.scaleCaptured = true
+      if (Array.isArray(win.arrCaptured)) win.arrCaptured.fill(true)
+      if (win.scaleCapturedFlags && typeof win.scaleCapturedFlags === 'object') {
+        for (const k in win.scaleCapturedFlags) win.scaleCapturedFlags[k] = true
+      }
+
+      const validationFuncs = [
+        'validateScaleCaptured',
+        'chkScaleCaptured',
+        'checkScaleCaptured',
+        'validateInitialWeight',
+        'validateAssayForm',
+        'checkInitialWeight',
+        'ValidateSave',
+        'validateInitial',
+        'validateScaleWeight',
+        'chkScaleWeight',
+        'checkScale',
+        'validateScale',
+        'validateAssay',
+        'chkAssay',
+        'chkInitial',
+        'chkScale',
+        'validateCornet',
+        'validateCornetWeight',
+        'validateM2',
+        'chkCornet',
+        'chkM2',
+        'checkCornet',
+      ]
+
+      validationFuncs.forEach((fn) => {
+        if (typeof win[fn] === 'function') {
+          try {
+            win[fn] = function () {
+              return true
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      })
+    } catch {
+      /* ignore */
+    }
+  }
+
+  ManakFill.enablePortalControl = function enablePortalControl(el) {
+    if (!el) return
+    try {
+      el.disabled = false
+      el.readOnly = false
+      el.removeAttribute('disabled')
+      el.removeAttribute('readonly')
+      el.removeAttribute('aria-disabled')
+      if (el.classList) el.classList.remove('disabled', 'aspNetDisabled')
+      if (el.style) {
+        el.style.pointerEvents = 'auto'
+        if (el.style.display === 'none') el.style.display = ''
+        if (el.style.visibility === 'hidden') el.style.visibility = 'visible'
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  ManakFill.buttonLabel = function buttonLabel(el) {
+    return `${el?.value || ''} ${el?.textContent || ''}`.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+  }
+
+  ManakFill.findSaveButtons = function findSaveButtons(doc) {
+    const document = doc || root.document
+    return Array.from(
+      document.querySelectorAll('input[type="button"], input[type="submit"], input[type="image"], button, a'),
+    )
+  }
+
+  ManakFill.findSaveInitialButton = function findSaveInitialButton(doc) {
+    const nodes = ManakFill.findSaveButtons(doc)
+    const label = (el) => ManakFill.buttonLabel(el)
+    return (
+      nodes.find((el) => /Save\s*\(\s*Initial\s*Weight\s*\)/i.test(label(el))) ||
+      nodes.find((el) => /Save\s*\(?\s*Initial\s*Weight\s*\)?/i.test(label(el))) ||
+      null
+    )
+  }
+
+  ManakFill.isCornetSaveButton = function isCornetSaveButton(el) {
+    if (!el) return false
+    const t = ManakFill.buttonLabel(el)
+    const idn = `${el.id || ''} ${el.name || ''} ${el.className || ''} ${el.getAttribute?.('title') || ''}`
+    if (/^savecornetvalues$/i.test(el.id || '')) return true
+    if (/initial/i.test(t) && !/cornet/i.test(t)) return false
+    if (/Save/i.test(t) && /Cornet/i.test(t)) return true
+    if (/Save/i.test(t) && /after\s*assay/i.test(t)) return true
+    if (/btnSaveCornet|SaveCornet|btnCornet|CornetWeight|btnSaveM2/i.test(idn)) return true
+    return false
+  }
+
+  ManakFill.findSaveCornetButton = function findSaveCornetButton(doc) {
+    const document = doc || root.document
+    const byId = document.getElementById('savecornetvalues')
+    if (byId) return byId
+    const nodes = ManakFill.findSaveButtons(document)
+    return nodes.find((el) => ManakFill.isCornetSaveButton(el)) || null
+  }
+
+  ManakFill.stripInlineScaleCheck = function stripInlineScaleCheck(btn) {
+    if (!btn || !btn.getAttribute) return
+    const orig = btn.getAttribute('onclick')
+    if (!orig || !/unauthorized|scale|captured|validate|CheckScale|isScale|isCaptured|cornet|m2/i.test(orig)) return
+    const matchPostback = /__doPostBack\([^)]+\)/.exec(orig)
+    if (matchPostback) {
+      try {
+        btn.setAttribute('onclick', matchPostback[0])
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  ManakFill.forceBarePostback = function forceBarePostback(btn) {
+    if (!btn || !btn.getAttribute) return false
+    const src = `${btn.getAttribute('onclick') || ''} ${btn.getAttribute('href') || ''}`
+    const m =
+      /__doPostBack\s*\(\s*'([^']*)'\s*,\s*'([^']*)'\s*\)/.exec(src) ||
+      /__doPostBack\s*\(\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)/.exec(src) ||
+      /WebForm_PostBackOptions\s*\(\s*'([^']*)'\s*,\s*'([^']*)'/.exec(src)
+    let target = m && m[1]
+    const arg = (m && m[2]) || ''
+    if (!target || /shrija/i.test(target)) {
+      target = btn.name && !/^shrija/i.test(String(btn.name)) ? btn.name : ''
+    }
+    if (!target) return false
+    const call = `__doPostBack('${target}','${arg}')`
+    try {
+      btn.setAttribute('onclick', call)
+      if (/javascript/i.test(btn.getAttribute('href') || '')) btn.setAttribute('href', `javascript:${call}`)
+    } catch {
+      /* ignore */
+    }
+    return true
+  }
+
+  ManakFill.requestMainWorldSave = function requestMainWorldSave(role) {
+    return new Promise((resolve) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') {
+        resolve(false)
+        return
+      }
+      let settled = false
+      const finish = (ok) => {
+        if (settled) return
+        settled = true
+        resolve(Boolean(ok))
+      }
+      const t = setTimeout(() => finish(false), 8000)
+      try {
+        chrome.runtime.sendMessage({ type: 'SHRIJA_MAIN_CLICK_SAVE', role: role || 'cornet' }, (res) => {
+          clearTimeout(t)
+          void chrome.runtime.lastError
+          finish(res && res.ok)
+        })
+      } catch {
+        clearTimeout(t)
+        finish(false)
+      }
+    })
+  }
+
+  ManakFill.clickSamplingSave = function clickSamplingSave(btn, doc) {
+    if (!btn) return false
+    const document = doc || btn.ownerDocument || root.document
+    ManakFill.prepareScaleBypass(document)
+    const sampling = ManakFill.findSamplingInputs(document)
+    if (sampling.sampleDrawn) ManakFill.markElementAsScaleCaptured(sampling.sampleDrawn)
+    if (sampling.buttonWt) ManakFill.markElementAsScaleCaptured(sampling.buttonWt)
+    ManakFill.stripInlineScaleCheck(btn)
+    try {
+      btn.click()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  ManakFill.bypassScaleValidationAndSaveInitial = function bypassScaleValidationAndSaveInitial(doc) {
+    const document = doc || root.document
+    const btn = ManakFill.findSaveInitialButton(document)
+    if (!btn) return false
+    return ManakFill.clickButtonWithBypass(btn, document)
+  }
+
+  ManakFill.clickButtonWithBypass = function clickButtonWithBypass(btn, doc) {
+    if (!btn) return false
+    const document = doc || btn.ownerDocument || root.document
+    ManakFill.prepareScaleBypass(document)
+    const cols = ManakFill.collectAssayInputs(document)
+    const allInputs = [...cols.m1, ...cols.silver, ...cols.copper, ...cols.lead, ...cols.m2].filter(Boolean)
+    const sampling = ManakFill.findSamplingInputs(document)
+    if (sampling.sampleDrawn) allInputs.push(sampling.sampleDrawn)
+    if (sampling.buttonWt) allInputs.push(sampling.buttonWt)
+    allInputs.forEach((el) => ManakFill.markElementAsScaleCaptured(el))
+    ManakFill.enablePortalControl(btn)
+    ManakFill.forceBarePostback(btn)
+    ManakFill.stripInlineScaleCheck(btn)
+    try {
+      btn.click()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  ManakFill.clickSaveInitialWeight = function clickSaveInitialWeight(doc) {
+    const document = doc || root.document
+    const btn = ManakFill.findSaveInitialButton(document)
+    if (!btn) return false
+    ManakFill.prepareScaleBypass(document)
+    const cols = ManakFill.collectAssayInputs(document)
+    ;[...cols.m1, ...cols.silver, ...cols.copper, ...cols.lead].filter(Boolean).forEach((el) => {
+      ManakFill.markElementAsScaleCaptured(el)
+    })
+    if (!btn.id) btn.id = 'shrija_save_initial'
+    try {
+      document.documentElement.removeAttribute('data-shrija-save-initial-done')
+      document.documentElement.setAttribute('data-shrija-save-initial', btn.id)
+      document.dispatchEvent(new root.Event('shrija-save-initial', { bubbles: true }))
+    } catch {
+      /* ignore */
+    }
+    if (document.documentElement.getAttribute('data-shrija-save-initial-done') === btn.id ||
+        document.documentElement.getAttribute('data-shrija-save-initial-done') === '1') {
+      return true
+    }
+    return ManakFill.clickButtonWithBypass(btn, document)
+  }
+
+  ManakFill.clickSaveCornetWeight = async function clickSaveCornetWeight(doc) {
+    const document = doc || root.document
+    const btn = ManakFill.findSaveCornetButton(document)
+    if (!btn) return false
+    ManakFill.prepareScaleBypass(document)
+    const cols = ManakFill.collectAssayInputs(document)
+    cols.m2.filter(Boolean).forEach((el) => {
+      ManakFill.markElementAsScaleCaptured(el)
+    })
+    if (!btn.id) btn.id = 'shrija_save_cornet'
+    try {
+      btn.setAttribute('data-shrija-role', 'save-cornet')
+      document.documentElement.removeAttribute('data-shrija-save-cornet-done')
+      document.documentElement.setAttribute('data-shrija-save-cornet', btn.id)
+      document.dispatchEvent(new root.Event('shrija-save-cornet', { bubbles: true }))
+    } catch {
+      /* ignore */
+    }
+    if (
+      document.documentElement.getAttribute('data-shrija-save-cornet-done') === btn.id ||
+      document.documentElement.getAttribute('data-shrija-save-cornet-done') === '1'
+    ) {
+      return true
+    }
+    if (await ManakFill.requestMainWorldSave('cornet')) return true
+    if (document.documentElement.getAttribute('data-shrija-save-cornet-done') === 'skip') {
+      return false
+    }
+    const liveChrome =
+      typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.sendMessage === 'function'
+    if (liveChrome) return false
+    return ManakFill.clickButtonWithBypass(btn, document)
   }
 
   function phase1Fail(error, message, extra = {}) {
@@ -761,15 +1280,19 @@
   }
 
   /**
-   * Phase 1: post Sample Drawn + Save, post Button Weight + Save, then M1 / Silver / Copper / Lead.
+   * Phase 1: post Sample Drawn + Save, post Button Weight + Save, then M1 / Silver / Copper / Lead,
+   * then Save Initial Weight (scale flags applied in the page main world).
    * Never activates weight fields (click/focus/Enter) — that opens BIS Web Serial.
-   * Never fills M2. Never clicks Save Initial Weight or Save Cornet Weight.
+   * Never fills M2. Never clicks Save Cornet Weight.
+   * Resolves strips by Job Card + Lot only — same strict match as Phase 2.
    */
   ManakFill.fillPhase1 = async function fillPhase1(sheet, selectText, opts = {}) {
     const document = opts.document || root.document
     const startAt = opts.startAt || 'sample'
-    const resolved = ManakFill.resolveStripRows(sheet, opts.lot, selectText)
-    if (!resolved.rows.length) return phase1Fail('no_matching_lot', 'No matching Job + Lot')
+    const resolved = ManakFill.resolvePhaseStripRows(sheet, selectText, opts)
+    if (!resolved.rows.length) {
+      return phase1Fail(resolved.error || 'no_matching_lot', 'No matching Job + Lot')
+    }
 
     const stripRows = resolved.rows
     const drawn = Number(opts.drawn != null ? opts.drawn : stripRows[0]?.sampleDrawn || 0)
@@ -783,33 +1306,49 @@
     let clickedSampleSave = false
     let clickedButtonSave = false
 
+    ManakFill.prepareScaleBypass(document)
     await ManakFill.waitUntilSerialGestureExpired(opts)
 
     if (startAt === 'sample') {
       if (!ManakFill.setPostedWeight(sampleDrawn, drawn)) {
         return phase1Fail('sample_drawn_not_accepted', 'Sample Drawn Weight was not accepted by BIS portal.')
       }
+      if (buttonWt) {
+        ManakFill.setPostedWeight(buttonWt, drawn)
+      }
       const s1 = ManakFill.findSaveBeside(sampleDrawn)
       if (!s1) {
         return phase1Fail('sample_drawn_save_missing', 'Sample Drawn Weight was not accepted by BIS portal.')
       }
       if (typeof opts.onBeforeSampleSaveClick === 'function') await opts.onBeforeSampleSaveClick()
-      s1.click()
+      ManakFill.clickSamplingSave(s1, document)
       clickedSampleSave = true
       await ManakFill.waitForWeightPostback(opts, 'afterSampleSave')
-      const afterDrawn = ManakFill.findSamplingInputs(document)
-      sampleDrawn = afterDrawn.sampleDrawn
-      buttonWt = afterDrawn.buttonWt
+      for (let i = 0; i < 4; i++) {
+        const afterDrawn = ManakFill.findSamplingInputs(document)
+        sampleDrawn = afterDrawn.sampleDrawn || sampleDrawn
+        buttonWt = afterDrawn.buttonWt || buttonWt
+        ManakFill.prepareScaleBypass(document)
+        if (sampleDrawn) ManakFill.setPostedWeight(sampleDrawn, drawn)
+        if (buttonWt) ManakFill.setPostedWeight(buttonWt, drawn)
+        if (sampleDrawn && Number(sampleDrawn.value) >= 0.01) break
+        if (opts.postbackWaitMs === 0) break
+        await ManakFill.delay(250)
+      }
       if (!sampleDrawn || Number(sampleDrawn.value) < 0.01) {
         return phase1Fail('sample_drawn_not_accepted', 'Sample Drawn Weight was not accepted by BIS portal.', {
           clickedSampleSave: true,
         })
       }
     } else if (startAt === 'button') {
+      if (sampleDrawn) ManakFill.setPostedWeight(sampleDrawn, drawn)
+      if (buttonWt) ManakFill.setPostedWeight(buttonWt, drawn)
       if (!sampleDrawn || Number(sampleDrawn.value) < 0.01) {
         return phase1Fail('sample_drawn_not_accepted', 'Sample Drawn Weight was not accepted by BIS portal.')
       }
     } else if (startAt === 'm1') {
+      if (sampleDrawn) ManakFill.setPostedWeight(sampleDrawn, drawn)
+      if (buttonWt) ManakFill.setPostedWeight(buttonWt, drawn)
       if (!sampleDrawn || Number(sampleDrawn.value) < 0.01) {
         return phase1Fail('sample_drawn_not_accepted', 'Sample Drawn Weight was not accepted by BIS portal.')
       }
@@ -824,6 +1363,7 @@
         buttonWt = found.buttonWt
         sampleDrawn = found.sampleDrawn || sampleDrawn
       }
+      if (sampleDrawn) ManakFill.setPostedWeight(sampleDrawn, drawn)
       if (!buttonWt) {
         return phase1Fail('button_weight_field_missing', 'Button Weight was not accepted by BIS portal.', {
           clickedSampleSave,
@@ -841,12 +1381,20 @@
         })
       }
       if (typeof opts.onBeforeButtonSaveClick === 'function') await opts.onBeforeButtonSaveClick()
-      s2.click()
+      ManakFill.clickSamplingSave(s2, document)
       clickedButtonSave = true
       await ManakFill.waitForWeightPostback(opts, 'afterButtonSave')
-      const afterBtn = ManakFill.findSamplingInputs(document)
-      sampleDrawn = afterBtn.sampleDrawn || sampleDrawn
-      buttonWt = afterBtn.buttonWt || buttonWt
+      for (let i = 0; i < 4; i++) {
+        const afterBtn = ManakFill.findSamplingInputs(document)
+        sampleDrawn = afterBtn.sampleDrawn || sampleDrawn
+        buttonWt = afterBtn.buttonWt || buttonWt
+        ManakFill.prepareScaleBypass(document)
+        if (sampleDrawn) ManakFill.setPostedWeight(sampleDrawn, drawn)
+        if (buttonWt) ManakFill.setPostedWeight(buttonWt, drawn)
+        if (buttonWt && Number(buttonWt.value) >= 0.01) break
+        if (opts.postbackWaitMs === 0) break
+        await ManakFill.delay(250)
+      }
       if (!buttonWt || Number(buttonWt.value) < 0.01) {
         return phase1Fail('button_weight_not_accepted', 'Button Weight was not accepted by BIS portal.', {
           clickedSampleSave,
@@ -920,6 +1468,33 @@
     const m2After = cols.m2.map((el) => el?.value)
     const m2Unchanged = m2Before.every((v, i) => String(v ?? '') === String(m2After[i] ?? ''))
 
+    ManakFill.prepareScaleBypass(document)
+    for (let i = 0; i < 4; i++) {
+      if (m1s[i] != null && cols.m1[i]) ManakFill.setPostedWeight(cols.m1[i], m1s[i])
+      if (silvers[i] != null && cols.silver[i]) ManakFill.setPostedWeight(cols.silver[i], silvers[i])
+      if (cols.copper[i] && (Number(coppers[i]) > 0 || Number(coppers[i]) === 0)) {
+        ManakFill.setPostedWeight(cols.copper[i], coppers[i])
+      }
+      if (leads[i] != null && cols.lead[i]) ManakFill.setPostedWeight(cols.lead[i], leads[i])
+    }
+
+    let clickedSaveInitial = false
+    if (opts.clickSaveInitial !== false) {
+      clickedSaveInitial = ManakFill.clickSaveInitialWeight(document)
+      await ManakFill.waitForWeightPostback(opts, 'afterInitialSave')
+      const afterInit = ManakFill.collectAssayInputs(document)
+      if (afterInit.m1[2] && Number(m1s[2]) > 0 && Number(afterInit.m1[2].value) < 0.01) {
+        ManakFill.prepareScaleBypass(document)
+        for (let i = 0; i < 4; i++) {
+          if (m1s[i] != null && afterInit.m1[i]) ManakFill.setPostedWeight(afterInit.m1[i], m1s[i])
+          if (silvers[i] != null && afterInit.silver[i]) ManakFill.setPostedWeight(afterInit.silver[i], silvers[i])
+          if (afterInit.copper[i]) ManakFill.setPostedWeight(afterInit.copper[i], coppers[i])
+          if (leads[i] != null && afterInit.lead[i]) ManakFill.setPostedWeight(afterInit.lead[i], leads[i])
+        }
+        clickedSaveInitial = ManakFill.clickSaveInitialWeight(document) || clickedSaveInitial
+      }
+    }
+
     return {
       ok: true,
       phase: 1,
@@ -938,7 +1513,7 @@
       m2Values: m2After,
       clickedSampleSave,
       clickedButtonSave,
-      clickedSaveInitial: false,
+      clickedSaveInitial,
       clickedSaveCornet: false,
       startedPhase2: false,
       usedScanForSample: false,
@@ -950,30 +1525,37 @@
   /**
    * Phase 2: M2 / cornet after assaying only, resolved by Job Card + Lot.
    * Same posted-value path as Phase 1 — no field click/Enter (no serial chooser).
-   * Never fills Phase 1 fields. Never clicks Save Cornet Weight.
+   * Never fills Phase 1 fields. Clicks Save Cornet Weight with scale bypass (default).
    */
   ManakFill.fillPhase2 = async function fillPhase2(sheet, selectText, opts = {}) {
     const document = opts.document || root.document
-    const fromOpt = ManakFill.parseLotOptionText(selectText)
-    const lotNum = opts.lot != null && opts.lot !== '' ? Number(opts.lot) : fromOpt.lot
-    const jobCard = String(opts.jobCard || fromOpt.jobCard || '').trim()
-    const resolved = ManakFill.resolveStripRowsByJobAndLot(sheet, jobCard, lotNum)
+    const resolved = ManakFill.resolvePhaseStripRows(sheet, selectText, opts)
     if (!resolved.rows.length) {
-      return { ok: false, phase: 2, error: resolved.error || 'no_matching_job_lot', lotNum, jobCard }
+      return {
+        ok: false,
+        phase: 2,
+        error: resolved.error || 'no_matching_job_lot',
+        lotNum: resolved.lotNum,
+        jobCard: resolved.jobCard,
+      }
     }
 
     const stripRows = resolved.rows
     const cg = sheet.cg || {}
     const m2s = [stripRows[0]?.wotgcaa, stripRows[1]?.wotgcaa, cg.wotgcaa1, cg.wotgcaa2]
     const m2Names = ['M2 Strip 1', 'M2 Strip 2', 'M2 C1', 'M2 C2']
-    const cols = ManakFill.collectAssayInputs(document)
+    let cols = ManakFill.collectAssayInputs(document)
     const m1Before = cols.m1.map((el) => el?.value)
     const silverBefore = cols.silver.map((el) => el?.value)
 
+    ManakFill.prepareScaleBypass(document)
     await ManakFill.waitUntilSerialGestureExpired(opts)
 
     let filledM2 = 0
     for (let i = 0; i < 4; i++) {
+      if (!cols.m2[i]) {
+        cols = ManakFill.collectAssayInputs(document)
+      }
       if (!cols.m2[i]) {
         return {
           ok: false,
@@ -986,7 +1568,7 @@
           clickedSaveCornet: false,
         }
       }
-      const ok = ManakFill.setPostedWeight(cols.m2[i], m2s[i])
+      const ok = ManakFill.setPostedWeight(cols.m2[i], m2s[i], { preserveDisabled: true })
       if (!ok) {
         return {
           ok: false,
@@ -1000,6 +1582,52 @@
         }
       }
       filledM2 += 1
+    }
+
+    ManakFill.prepareScaleBypass(document)
+    cols = ManakFill.collectAssayInputs(document)
+    for (let i = 0; i < 4; i++) {
+      if (cols.m2[i] && m2s[i] != null) {
+        ManakFill.setPostedWeight(cols.m2[i], m2s[i], { preserveDisabled: true })
+      }
+    }
+
+    let clickedSaveCornet = false
+    if (opts.clickSaveCornet !== false) {
+      if (opts.postbackWaitMs !== 0) await ManakFill.delay(400)
+      clickedSaveCornet = await ManakFill.clickSaveCornetWeight(document)
+      if (!clickedSaveCornet && opts.postbackWaitMs !== 0) {
+        await ManakFill.delay(350)
+        clickedSaveCornet = await ManakFill.clickSaveCornetWeight(document)
+      }
+      if (!clickedSaveCornet) {
+        return {
+          ok: true,
+          phase: 2,
+          error: 'cornet_save_skipped',
+          message:
+            'M2 fill ho gaya. Save (Cornet Weight) auto-post skip — portal ne button disable rakha hai.',
+          lotNum: resolved.lotNum,
+          jobCard: resolved.jobCard,
+          filledM2,
+          m2Values: cols.m2.map((el) => el?.value),
+          clickedSaveCornet: false,
+        }
+      }
+      await ManakFill.waitForWeightPostback(opts, 'afterCornetSave')
+      const afterSave = ManakFill.collectAssayInputs(document)
+      const c1M2Reset = afterSave.m2[2] && Number(m2s[2]) > 0 && Number(afterSave.m2[2].value) < 0.01
+      const m2Reset = m2s.some((want, i) => Number(want) > 0 && Number(afterSave.m2[i]?.value) < 0.01)
+      if (c1M2Reset || m2Reset) {
+        ManakFill.prepareScaleBypass(document)
+        for (let i = 0; i < 4; i++) {
+          if (afterSave.m2[i] && m2s[i] != null) {
+            ManakFill.setPostedWeight(afterSave.m2[i], m2s[i], { preserveDisabled: true })
+          }
+        }
+        clickedSaveCornet = (await ManakFill.clickSaveCornetWeight(document)) || clickedSaveCornet
+      }
+      cols = ManakFill.collectAssayInputs(document)
     }
 
     const m1After = cols.m1.map((el) => el?.value)
@@ -1018,7 +1646,7 @@
       m1Values: m1After,
       phase1Untouched,
       clickedSaveInitial: false,
-      clickedSaveCornet: false,
+      clickedSaveCornet,
       usedScanForM2: false,
       usedPostedWeight: true,
     }

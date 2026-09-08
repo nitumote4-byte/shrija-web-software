@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Shrija CG &amp; Cornet</title>
+    <style>
+      body {
+        margin: 0;
+        width: 280px;
+        font: 600 13px/1.4 system-ui, sans-serif;
+        color: #0f172a;
+        background: #fff;
+      }
+      .head {
+        padding: 12px 14px 8px;
+        background: #0f2744;
+        color: #fff;
+      }
+      .head strong {
+        display: block;
+        font-size: 13px;
+      }
+      .head span {
+        display: block;
+        margin-top: 2px;
+        font-size: 11px;
+        font-weight: 500;
+        opacity: 0.85;
+      }
+      form {
+        padding: 12px 14px 14px;
+      }
+      label {
+        display: block;
+        margin: 0 0 4px;
+        font-size: 11px;
+        color: #475569;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        margin-bottom: 10px;
+        padding: 8px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        font: 600 13px/1.3 system-ui, sans-serif;
+      }
+      button {
+        width: 100%;
+        padding: 9px 10px;
+        border: 0;
+        border-radius: 8px;
+        background: #b91c1c;
+        color: #fff;
+        font: 700 13px/1.2 system-ui, sans-serif;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      #status {
+        min-height: 18px;
+        margin: 8px 0 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: #334155;
+      }
+      #status.err {
+        color: #b91c1c;
+      }
+      #status.ok {
+        color: #15803d;
+      }
+      #help {
+        display: none;
+        padding: 12px 14px 14px;
+        font-size: 12px;
+        font-weight: 500;
+        color: #334155;
+      }
+      #help ol {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+      #help li {
+        margin: 0 0 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="head">
+      <strong>Shrija CG &amp; Cornet</strong>
+      <span>Job + Lot se portal fill delete</span>
+    </div>
+    <form id="form">
+      <label for="job">Job card number</label>
+      <input id="job" type="text" autocomplete="off" placeholder="104736831" />
+      <label for="lot">Lot number</label>
+      <input id="lot" type="text" autocomplete="off" placeholder="1" />
+      <button id="del" type="submit">Delete</button>
+      <div id="status"></div>
+    </form>
+    <div id="help">
+      Toggle stuck ho to Reload mat dabaao. Extension hata ke dubara load karo.
+      <ol>
+        <li>Upar right <strong>Developer mode</strong> ON karo.</li>
+        <li>Card par <strong>Remove</strong> dabao.</li>
+        <li><strong>Load unpacked</strong> → folder <code>tools/shrija-manak-extension</code> select karo.</li>
+      </ol>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

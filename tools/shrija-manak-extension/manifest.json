@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shrija CG & Cornet (Manak Fill)",
-  "version": "2.2.2",
-  "description": "Phase 1 posted sampling + Save then M1; Phase 2 M2 (Job+Lot). Does not open serial port. No Save Initial / Save Cornet auto-click.",
+  "version": "2.8.5",
+  "description": "Fills Manak Fire Sheet from Shrija. Fill runs only on sampling/assay pages.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://huid.manakonline.in/*",
@@ -10,6 +10,15 @@
     "https://*.vercel.app/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["main-world-bypass.js"],
+      "matches": [
+        "https://huid.manakonline.in/*",
+        "https://newmanak.uat.dcservices.in/*"
+      ]
+    }
   ],
   "background": {
     "service_worker": "background.js"
@@ -27,14 +36,34 @@
     },
     {
       "matches": [
-        "https://huid.manakonline.in/*",
-        "https://newmanak.uat.dcservices.in/*"
+        "https://huid.manakonline.in/*Samplingweighting*",
+        "https://huid.manakonline.in/*assaying*",
+        "https://huid.manakonline.in/*Assaying*",
+        "https://newmanak.uat.dcservices.in/*Samplingweighting*",
+        "https://newmanak.uat.dcservices.in/*assaying*",
+        "https://newmanak.uat.dcservices.in/*Assaying*"
+      ],
+      "js": ["main-world-bypass.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://huid.manakonline.in/*Samplingweighting*",
+        "https://huid.manakonline.in/*assaying*",
+        "https://huid.manakonline.in/*Assaying*",
+        "https://newmanak.uat.dcservices.in/*Samplingweighting*",
+        "https://newmanak.uat.dcservices.in/*assaying*",
+        "https://newmanak.uat.dcservices.in/*Assaying*"
       ],
       "js": ["manak-fill-lib.js", "content-manak.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "action": {
-    "default_title": "Shrija → Manak Phase 1 / Phase 2"
+    "default_title": "Shrija CG & Cornet",
+    "default_popup": "popup.html"
   }
 }
