@@ -172,7 +172,7 @@ export function resolveImportedState(
   if (byName && byCode && byName.code !== byCode.code) return byName
   if (byName) return { name: byName.name, code: byName.code }
   if (byCode) return { name: byCode.name, code: byCode.code }
-  return { name: rawName, code: rawCode || byName?.code || '' }
+  return { name: rawName, code: rawCode }
 }
 
 function stripTags(html: string): string {
