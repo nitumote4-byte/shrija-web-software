@@ -157,7 +157,6 @@ export function saveChain(kind: StockKind, book: ChainBook, rows: ChainQtyEntry[
   if (!spec) return
   const receipt = book === 'receipt' ? rows : loadChain(kind, 'receipt')
   const issue = book === 'issue' ? rows : loadChain(kind, 'issue')
-  const usage = book === 'usage' ? rows : loadChain(kind, 'usage')
   const available = sumWeights(receipt) - sumWeights(issue)
   store.upsertStockByName(
     `QM ${kind.replace(/-/g, ' ')}`,
