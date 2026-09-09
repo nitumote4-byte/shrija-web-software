@@ -16,6 +16,7 @@ import {
 import { tenantGet } from '../data/tenant'
 import {
   applyInvoicePaperForPrint,
+  clearInvoicePaperForPrint,
   loadInvoicePaperSize,
   printInvoiceSheet,
   saveInvoicePaperSize,
@@ -85,8 +86,15 @@ export function ViewGeneratedBills() {
   const setPaper = (size: InvoicePaperSize) => {
     setPaperSize(size)
     saveInvoicePaperSize(size)
-    applyInvoicePaperForPrint(size)
+    applyInvoicePaperForPrint(size, 'fill')
   }
+
+  useEffect(() => {
+    applyInvoicePaperForPrint(paperSize, 'fill')
+    return () => {
+      clearInvoicePaperForPrint()
+    }
+  }, [paperSize])
 
   const invoices = data.invoices
 
@@ -260,7 +268,7 @@ export function ViewGeneratedBills() {
       toast('Get a bill first')
       return
     }
-    printInvoiceSheet(paperSize)
+    printInvoiceSheet(paperSize, 'fill')
   }
 
   const downloadPdf = () => {
@@ -269,7 +277,7 @@ export function ViewGeneratedBills() {
       return
     }
     toast(`Print → Save as PDF (${paperSize})`)
-    setTimeout(() => printInvoiceSheet(paperSize), 200)
+    setTimeout(() => printInvoiceSheet(paperSize, 'fill'), 200)
   }
 
   const resetBillDelete = () => {

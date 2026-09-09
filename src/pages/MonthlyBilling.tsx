@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, FileText, Home, Printer, Search } from 'lucide-react'
 import {
@@ -12,6 +12,7 @@ import { nextMonthlyInvoiceNo } from '../utils/documentNumbers'
 import { getWorkingPeriodName } from '../data/operationalPeriod'
 import {
   applyInvoicePaperForPrint,
+  clearInvoicePaperForPrint,
   loadInvoicePaperSize,
   printInvoiceSheet,
   saveInvoicePaperSize,
@@ -52,8 +53,15 @@ export function MonthlyBilling() {
   const setPaper = (size: InvoicePaperSize) => {
     setPaperSize(size)
     saveInvoicePaperSize(size)
-    applyInvoicePaperForPrint(size)
+    applyInvoicePaperForPrint(size, 'flow')
   }
+
+  useEffect(() => {
+    applyInvoicePaperForPrint(paperSize, 'flow')
+    return () => {
+      clearInvoicePaperForPrint()
+    }
+  }, [paperSize])
 
   const partyRequests = useMemo(() => {
     if (!partyId) return []
@@ -271,7 +279,7 @@ export function MonthlyBilling() {
               className="gb-btn gb-btn-print"
               onClick={() => {
                 if (!preview) return toast('Get or Generate first')
-                printInvoiceSheet(paperSize)
+                printInvoiceSheet(paperSize, 'flow')
               }}
             >
               <Printer size={14} /> Print

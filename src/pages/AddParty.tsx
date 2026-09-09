@@ -19,6 +19,11 @@ import {
 import { useToast } from '../components/ui'
 import { store, type Party } from '../data/store'
 import { displayPartyGstin, normalizePartyGstin, validatePartyGstin } from '../utils/partyGstin'
+import {
+  PARTY_IMPORT_TEMPLATE_HEADER,
+  PARTY_IMPORT_TEMPLATE_SAMPLE,
+  parsePartyImportBytes,
+} from '../utils/partyImport'
 
 const INDIAN_STATES: { name: string; code: string }[] = [
   { name: 'Andhra Pradesh', code: '37' },
@@ -168,58 +173,39 @@ export function AddParty() {
 
     const reader = new FileReader()
     reader.onload = () => {
-      const text = String(reader.result ?? '')
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean)
-      if (lines.length < 2) {
-        toast('File has no data rows')
+      const buffer = reader.result
+      if (!(buffer instanceof ArrayBuffer)) {
+        toast('Could not read file')
+        return
+      }
+
+      const parsed = parsePartyImportBytes(new Uint8Array(buffer), INDIAN_STATES)
+      if (parsed.error) {
+        toast(parsed.error)
         return
       }
 
       let imported = 0
-      for (const line of lines.slice(1)) {
-        const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
-        const [name, address, phone, gstin, licenseNo, stateName, txn] = cols
-        if (!name || !address) continue
-        const state = INDIAN_STATES.find(
-          (s) => s.name.toLowerCase() === (stateName ?? '').toLowerCase(),
-        )
-        store.addParty({
-          name,
-          address,
-          phone: phone ?? '',
-          gstin: (gstin ?? '').toUpperCase(),
-          licenseNo: licenseNo ?? '',
-          state: state?.name ?? stateName ?? '',
-          stateCode: state?.code ?? '',
-          transactionType:
-            txn === 'Credit' || txn === 'Bank' ? txn : 'Cash',
-          groupName: '',
-          skipMinBill: false,
-          skipRejectedPics: true,
-          skipCutting: true,
-          igstApplicable: false,
-          discount: 0,
-          minBillCalc: false,
-        })
+      for (const row of parsed.rows) {
+        store.addParty({ ...row })
         imported += 1
       }
 
       setTick((t) => t + 1)
       setImportFile('')
       if (fileRef.current) fileRef.current.value = ''
-      toast(imported ? `${imported} part(ies) imported` : 'No valid rows found')
+      if (!imported) {
+        toast('No valid rows found')
+        return
+      }
+      const skipped = parsed.skipped ? `, ${parsed.skipped} skipped` : ''
+      toast(`${imported} part(ies) imported${skipped}`)
     }
-    reader.readAsText(file)
+    reader.readAsArrayBuffer(file)
   }
 
   const downloadTemplate = () => {
-    const csv = [
-      'Party Name,Address,Contact No,GST Number,License Number,State,Transaction Type',
-      'Demo Jewellers,MG Road Pune,9876543210,27AAAAA0000A1Z5,LIC-2001,Maharashtra,Cash',
-    ].join('\n')
+    const csv = [PARTY_IMPORT_TEMPLATE_HEADER, PARTY_IMPORT_TEMPLATE_SAMPLE].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -511,7 +497,8 @@ export function AddParty() {
             <input type="text" readOnly className="ahc-filename" value={importFile} />
           </div>
           <small className="field-hint">
-            Supported formats: CSV, TSV, XLS (Text-based).{' '}
+            CSV / TSV / Excel HTML. Columns match by header name (Party Name, GSTNO, CMI
+            NO…). Save .xlsx as CSV UTF-8 from Excel before importing.{' '}
             <button type="button" className="link-btn" onClick={downloadTemplate}>
               Download Excel Template (with example)
             </button>

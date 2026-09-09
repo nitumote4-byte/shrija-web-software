@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Home, Search } from 'lucide-react'
 import {
@@ -10,6 +10,7 @@ import { useToast } from '../components/ui'
 import { store } from '../data/store'
 import {
   applyInvoicePaperForPrint,
+  clearInvoicePaperForPrint,
   loadInvoicePaperSize,
   printInvoiceSheet,
   saveInvoicePaperSize,
@@ -29,8 +30,15 @@ export function ViewMonthlyBills() {
   const setPaper = (size: InvoicePaperSize) => {
     setPaperSize(size)
     saveInvoicePaperSize(size)
-    applyInvoicePaperForPrint(size)
+    applyInvoicePaperForPrint(size, 'flow')
   }
+
+  useEffect(() => {
+    applyInvoicePaperForPrint(paperSize, 'flow')
+    return () => {
+      clearInvoicePaperForPrint()
+    }
+  }, [paperSize])
 
   const options = useMemo(
     () =>
@@ -112,7 +120,7 @@ export function ViewMonthlyBills() {
               className="gb-btn gb-btn-print"
               onClick={() => {
                 if (!preview) return toast('Get first')
-                printInvoiceSheet(paperSize)
+                printInvoiceSheet(paperSize, 'flow')
               }}
             >
               Print
@@ -123,7 +131,7 @@ export function ViewMonthlyBills() {
               onClick={() => {
                 if (!preview) return toast('Get first')
                 toast(`Print → Save as PDF (${paperSize})`)
-                setTimeout(() => printInvoiceSheet(paperSize), 200)
+                setTimeout(() => printInvoiceSheet(paperSize, 'flow'), 200)
               }}
             >
               Download PDF

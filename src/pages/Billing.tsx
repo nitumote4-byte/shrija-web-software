@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, Home, Printer, Search } from 'lucide-react'
 import { type ChallanView } from '../components/InvoiceChallan'
@@ -15,6 +15,7 @@ import { getSession } from '../data/auth'
 import { tenantGet } from '../data/tenant'
 import {
   applyInvoicePaperForPrint,
+  clearInvoicePaperForPrint,
   loadInvoicePaperSize,
   printInvoiceSheet,
   saveInvoicePaperSize,
@@ -196,8 +197,15 @@ export function Billing() {
   const setPaper = (size: InvoicePaperSize) => {
     setPaperSize(size)
     saveInvoicePaperSize(size)
-    applyInvoicePaperForPrint(size)
+    applyInvoicePaperForPrint(size, 'fill')
   }
+
+  useEffect(() => {
+    applyInvoicePaperForPrint(paperSize, 'fill')
+    return () => {
+      clearInvoicePaperForPrint()
+    }
+  }, [paperSize])
 
   const filteredOptions = useMemo(() => {
     const q = requestQuery.trim().toLowerCase()
@@ -376,7 +384,7 @@ export function Billing() {
       toast('Get or Generate a bill first')
       return
     }
-    printInvoiceSheet(paperSize)
+    printInvoiceSheet(paperSize, 'fill')
   }
 
   return (
