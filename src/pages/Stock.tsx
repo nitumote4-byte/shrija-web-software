@@ -10,24 +10,27 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useToast } from '../components/ui'
-import { tenantGet, tenantSet } from '../data/tenant'
-import { store } from '../data/store'
+import { tenantGet } from '../data/tenant'
 import { QMCGWeightPage } from './CGWeight'
-
-type StockKind =
-  | 'gold'
-  | 'silver'
-  | 'copper'
-  | 'lead'
-  | 'acid'
-  | 'cuppels'
-  | 'cg-weight'
-  | 'bis-gold'
-  | 'bis-silver'
-  | 'bis-copper'
-  | 'bis-lead'
-  | 'bis-acid'
-  | 'bis-cupels'
+import { QmStockChainPage } from './QmStockChain'
+import { LabStockChainPage } from './LabStockChain'
+import { getLabSpec } from '../data/labStockChain'
+import {
+  GOLD_ISSUE_KEY,
+  GOLD_LAB_KEY,
+  GOLD_STOCK_KEY,
+  LAB_GOLD_CG_KEY,
+  LAB_BIS_GOLD_CG_KEY,
+  BIS_GOLD_ISSUE_KEY,
+  loadGoldList,
+  loadLedger,
+  saveGoldList,
+  saveLedger,
+  type GoldLabEntry,
+  type GoldWeightEntry,
+  type LedgerEntry,
+  type StockKind,
+} from '../data/stockLedger'
 
 type HubCard = {
   kind: StockKind
@@ -37,14 +40,6 @@ type HubCard = {
   color: string
   symbol?: string
   icon?: 'flask' | 'cupel' | 'scale'
-}
-
-type LedgerEntry = {
-  id: string
-  date: string
-  type: 'In' | 'Out'
-  quantity: number
-  remarks: string
 }
 
 const QM_CARDS: HubCard[] = [
@@ -220,7 +215,7 @@ const LAB_BIS_CARDS: HubCard[] = [
   {
     kind: 'bis-gold',
     title: 'GOLD',
-    description: 'Gold stock as per BIS',
+    description: 'IS 1418 proof gold / CG',
     path: '/lab-stock/bis/gold',
     color: '#D4AF37',
     symbol: 'Au',
@@ -228,7 +223,7 @@ const LAB_BIS_CARDS: HubCard[] = [
   {
     kind: 'bis-silver',
     title: 'SILVER',
-    description: 'Silver stock as per BIS',
+    description: 'IS 1418 inquartation silver',
     path: '/lab-stock/bis/silver',
     color: '#94a3b8',
     symbol: 'Ag',
@@ -236,7 +231,7 @@ const LAB_BIS_CARDS: HubCard[] = [
   {
     kind: 'bis-copper',
     title: 'COPPER',
-    description: 'Copper stock as per BIS',
+    description: 'IS 1418 copper foil',
     path: '/lab-stock/bis/copper',
     color: '#B87333',
     symbol: 'Cu',
@@ -244,7 +239,7 @@ const LAB_BIS_CARDS: HubCard[] = [
   {
     kind: 'bis-lead',
     title: 'LEAD',
-    description: 'Lead stock as per BIS',
+    description: 'IS 1418 assay-grade lead foil',
     path: '/lab-stock/bis/lead',
     color: '#4B5563',
     symbol: 'Pb',
@@ -252,7 +247,7 @@ const LAB_BIS_CARDS: HubCard[] = [
   {
     kind: 'bis-acid',
     title: 'ACID',
-    description: 'Acid stock as per BIS',
+    description: 'IS 1418 parting acid No. 1 & 2',
     path: '/lab-stock/bis/acid',
     color: '#10B981',
     icon: 'flask',
@@ -260,7 +255,7 @@ const LAB_BIS_CARDS: HubCard[] = [
   {
     kind: 'bis-cupels',
     title: 'CUPPELS',
-    description: 'Cuppels stock as per BIS',
+    description: 'IS 1418 · 16 / 22 / 26 mm cupels',
     path: '/lab-stock/bis/cupels',
     color: '#6D28D9',
     icon: 'cupel',
@@ -284,27 +279,27 @@ const META: Record<
     color: '#2563eb',
     symbol: 'Au',
   },
-  'bis-gold': { title: 'Gold (BIS)', unit: 'g', subtitle: 'Gold stock as per BIS', color: '#D4AF37', symbol: 'Au' },
+  'bis-gold': { title: 'Gold (BIS)', unit: 'g', subtitle: 'IS 1418 proof gold / CG', color: '#D4AF37', symbol: 'Au' },
   'bis-silver': {
     title: 'Silver (BIS)',
     unit: 'g',
-    subtitle: 'Silver stock as per BIS',
+    subtitle: 'IS 1418 inquartation silver',
     color: '#94a3b8',
     symbol: 'Ag',
   },
   'bis-copper': {
     title: 'Copper (BIS)',
     unit: 'g',
-    subtitle: 'Copper stock as per BIS',
+    subtitle: 'IS 1418 copper foil',
     color: '#B87333',
     symbol: 'Cu',
   },
-  'bis-lead': { title: 'Lead (BIS)', unit: 'kg', subtitle: 'Lead stock as per BIS', color: '#4B5563', symbol: 'Pb' },
-  'bis-acid': { title: 'Acid (BIS)', unit: 'ltr', subtitle: 'Acid stock as per BIS', color: '#10B981', icon: 'flask' },
+  'bis-lead': { title: 'Lead (BIS)', unit: 'kg', subtitle: 'IS 1418 assay-grade lead foil', color: '#4B5563', symbol: 'Pb' },
+  'bis-acid': { title: 'Acid (BIS)', unit: 'ltr', subtitle: 'IS 1418 parting acid No. 1 & 2', color: '#10B981', icon: 'flask' },
   'bis-cupels': {
     title: 'Cupels (BIS)',
     unit: 'pcs',
-    subtitle: 'Cupels stock as per BIS',
+    subtitle: 'IS 1418 · 16 / 22 / 26 mm cupels',
     color: '#6D28D9',
     icon: 'cupel',
   },
@@ -353,71 +348,6 @@ function StockCard({ card }: { card: HubCard }) {
       <ArrowRight size={18} className="others-link-arrow" />
     </Link>
   )
-}
-
-function loadLedger(kind: StockKind, scope: 'qm' | 'lab' = 'qm'): LedgerEntry[] {
-  try {
-    const raw = tenantGet(`shrija-${scope}-stock-${kind}`)
-    if (!raw) return []
-    return JSON.parse(raw) as LedgerEntry[]
-  } catch {
-    return []
-  }
-}
-
-function saveLedger(kind: StockKind, entries: LedgerEntry[], scope: 'qm' | 'lab' = 'qm') {
-  tenantSet(`shrija-${scope}-stock-${kind}`, JSON.stringify(entries))
-  const balance = entries.reduce((s, e) => s + (e.type === 'In' ? e.quantity : -e.quantity), 0)
-  const unit = kind === 'cuppels' || kind === 'bis-cupels' ? 'pcs' : 'g'
-  store.upsertStockByName(
-    `${scope.toUpperCase()} ${kind.replace(/-/g, ' ')}`,
-    scope === 'lab' ? 'Lab' : 'QM',
-    Number(balance.toFixed(3)),
-    unit,
-  )
-}
-
-/* ——— QM Gold (qmgold.php style) ——— */
-
-type GoldWeightEntry = {
-  id: string
-  date: string
-  time: string
-  weight: number
-}
-
-type GoldLabEntry = {
-  id: string
-  date: string
-  weight: number
-  cornetWeight: number
-}
-
-const GOLD_STOCK_KEY = 'shrija-qm-gold-stock'
-const GOLD_ISSUE_KEY = 'shrija-qm-gold-issues'
-const GOLD_LAB_KEY = 'shrija-qm-gold-lab'
-const LAB_GOLD_CG_KEY = 'shrija-lab-gold-cg'
-
-function loadGoldList<T>(key: string): T[] {
-  try {
-    const raw = tenantGet(key)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as T[]
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function saveGoldList<T>(key: string, rows: T[]) {
-  tenantSet(key, JSON.stringify(rows))
-  // Mirror gold weight lists into centre stock for reports
-  if (key.includes('gold-stock') || key.includes('gold-lab') || key.includes('bis-gold-stock')) {
-    const total = (rows as { weight?: number }[]).reduce((s, r) => s + (Number(r.weight) || 0), 0)
-    const location = key.includes('lab') ? 'Lab' : 'QM'
-    const label = key.includes('bis') ? 'BIS gold stock' : key.includes('lab') ? 'Lab gold' : 'QM gold stock'
-    store.upsertStockByName(label, location, Number(total.toFixed(3)), 'g')
-  }
 }
 
 function nowTime() {
@@ -557,7 +487,7 @@ export function QMGoldStock() {
     ])
     setIssueWeight('')
     refresh()
-    toast('Issued to Assay Master')
+    toast('Issued to lab')
   }
 
   const addLab = (e: React.FormEvent) => {
@@ -569,7 +499,7 @@ export function QMGoldStock() {
       return
     }
     if (c > assayMasterStock + 0.000001) {
-      toast('Cornet return exceeds Assay Master stock')
+      toast('Cornet return exceeds lab holding')
       return
     }
     saveGoldList(GOLD_LAB_KEY, [
@@ -636,12 +566,12 @@ export function QMGoldStock() {
 
       <header className="qmgold-title">
         <h1>Report</h1>
-        <p>QM Gold stock · Add, issue to Assay Master, and track lab returns</p>
+        <p>Store receipts, lab issue, and lab returns</p>
       </header>
 
-      {/* Add New Stock */}
+      {/* Stock receipt */}
       <section className="qmgold-card">
-        <h2>Add New Stock</h2>
+        <h2>Stock receipt</h2>
         <form className="qmgold-form-row" onSubmit={addStock}>
           <input type="date" value={addDate} onChange={(e) => setAddDate(e.target.value)} required />
           <input
@@ -727,11 +657,11 @@ export function QMGoldStock() {
         </div>
       </section>
 
-      <p className="qmgold-balance">Remaining: {gm(remaining, 3)}</p>
+      <p className="qmgold-balance">Available: {gm(remaining, 3)}</p>
 
-      {/* Issue to Assay Master */}
+      {/* Issue to lab */}
       <section className="qmgold-card">
-        <h2>Issue to Assay Master</h2>
+        <h2>Issue to lab</h2>
         <form className="qmgold-form-row" onSubmit={issueStock}>
           <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} required />
           <input
@@ -817,11 +747,11 @@ export function QMGoldStock() {
         </div>
       </section>
 
-      <p className="qmgold-balance">Assay Master Stock: {gm(assayMasterStock)}</p>
+      <p className="qmgold-balance">Lab holding: {gm(assayMasterStock)}</p>
 
-      {/* Gold After Assaying */}
+      {/* CG cornet return */}
       <section className="qmgold-card">
-        <h2>Gold After Assaying (CG Cornet)</h2>
+        <h2>CG cornet return</h2>
         <div className="qmgold-filters">
           <input type="date" value={assayStart} onChange={(e) => setAssayStart(e.target.value)} title="Start Date" />
           <input type="date" value={assayEnd} onChange={(e) => setAssayEnd(e.target.value)} title="End Date" />
@@ -843,7 +773,7 @@ export function QMGoldStock() {
             </thead>
             <tbody>
               <tr>
-                <td colSpan={2}>Gold return From Assay Master (Total Cornet Weight)</td>
+                <td colSpan={2}>Return from lab (total cornet)</td>
                 <td>{gm(assayCornetSum)}</td>
                 <td>{gm(0)}</td>
               </tr>
@@ -852,9 +782,9 @@ export function QMGoldStock() {
         </div>
       </section>
 
-      {/* Gold Received From Lab */}
+      {/* Lab return */}
       <section className="qmgold-card">
-        <h2>Gold Received From Lab</h2>
+        <h2>Lab return</h2>
         <form className="qmgold-form-row" onSubmit={addLab}>
           <input type="date" value={labDate} onChange={(e) => setLabDate(e.target.value)} required />
           <input
@@ -895,7 +825,7 @@ export function QMGoldStock() {
             <tbody>
               {labFiltered.length === 0 ? (
                 <tr>
-                  <td colSpan={2}>Gold return From Assay Master (Total Cornet Weight)</td>
+                  <td colSpan={2}>Return from lab (total cornet)</td>
                   <td>{gm(0)}</td>
                   <td>{gm(0)}</td>
                   <td />
@@ -946,7 +876,6 @@ type BisCornetEntry = {
 }
 
 const BIS_GOLD_STOCK_KEY = 'shrija-qm-bis-gold-stock'
-const BIS_GOLD_ISSUE_KEY = 'shrija-qm-bis-gold-issues'
 const BIS_GOLD_CORNET_KEY = 'shrija-qm-bis-gold-cornet'
 
 function seedBisCornet(): BisCornetEntry[] {
@@ -1078,7 +1007,7 @@ export function QMBISGoldStock() {
     ])
     setIssueWeight('')
     refresh()
-    toast('Issued to Assay Master')
+    toast('Issued to lab')
   }
 
   const addCornet = (e: React.FormEvent) => {
@@ -1163,7 +1092,7 @@ export function QMBISGoldStock() {
 
       <header className="qmgold-title">
         <h1>Report</h1>
-        <p>QM Stock As Per BIS · Gold</p>
+        <p>BIS gold register · receipts, lab issue, and FS cornet return</p>
       </header>
 
       <div className="qmbis-summary">
@@ -1171,12 +1100,12 @@ export function QMBISGoldStock() {
           Total: <strong>{stockTotal.toFixed(6)}</strong>
         </span>
         <span>
-          Remaining: <strong>{remaining.toFixed(6)}</strong>
+          Available: <strong>{remaining.toFixed(6)}</strong>
         </span>
       </div>
 
       <section className="qmgold-card">
-        <h2>Add New Stock</h2>
+        <h2>Stock receipt</h2>
         <form className="qmgold-form-row" onSubmit={addStock}>
           <input type="date" value={addDate} onChange={(e) => setAddDate(e.target.value)} required />
           <input
@@ -1262,10 +1191,10 @@ export function QMBISGoldStock() {
         </div>
       </section>
 
-      <p className="qmgold-balance">Remaining: {remaining.toFixed(6)}</p>
+      <p className="qmgold-balance">Available: {remaining.toFixed(6)}</p>
 
       <section className="qmgold-card">
-        <h2>Issue to Assay Master</h2>
+        <h2>Issue to lab</h2>
         <form className="qmgold-form-row" onSubmit={issueStock}>
           <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} required />
           <input
@@ -1351,10 +1280,10 @@ export function QMBISGoldStock() {
         </div>
       </section>
 
-      <p className="qmgold-balance">Assay Master Stock: {assayMasterStock.toFixed(6)}</p>
+      <p className="qmgold-balance">Lab holding: {assayMasterStock.toFixed(6)}</p>
 
       <section className="qmgold-card">
-        <h2>Gold After Assaying (CG Cornet)</h2>
+        <h2>FS cornet return</h2>
         <form className="qmgold-form-row" onSubmit={addCornet}>
           <input type="date" value={cornetDate} onChange={(e) => setCornetDate(e.target.value)} required />
           <input
@@ -1442,7 +1371,7 @@ export function QMBISGoldStock() {
                 ))
               )}
               <tr className="qmgold-total-row">
-                <td colSpan={2}>Gold return From Assay Master (Total Cornet Weight)</td>
+                <td colSpan={2}>Return from lab (total cornet)</td>
                 <td>{filteredReturn1.toFixed(6)}</td>
                 <td colSpan={2}>{filteredReturn2.toFixed(6)}</td>
               </tr>
@@ -1471,7 +1400,7 @@ export function QMStock() {
           </div>
           <div>
             <h1>QM Stock</h1>
-            <p>Manage and view all quality manager stock items</p>
+            <p>Store receipts, lab issues, and assay usage</p>
           </div>
         </div>
         <div className="others-card-grid">
@@ -1489,8 +1418,8 @@ export function QMStock() {
             <BadgeCheck size={22} />
           </div>
           <div>
-            <h1>QM Stock As Per BIS</h1>
-            <p>Stock records according to BIS standards</p>
+            <h1>QM Stock as per BIS</h1>
+            <p>BIS register of the same store → lab → assay chain</p>
           </div>
         </div>
         <div className="others-card-grid">
@@ -1509,12 +1438,15 @@ export function QMStock() {
   )
 }
 
-export function LabGoldStock() {
+export function LabGoldStock({ bis = false }: { bis?: boolean } = {}) {
   const { toast, Toast } = useToast()
   const [tick, setTick] = useState(0)
 
-  const givenByQm = useMemo(() => loadGoldList<GoldWeightEntry>(GOLD_ISSUE_KEY), [tick])
-  const cgUsed = useMemo(() => loadGoldList<GoldLabEntry>(LAB_GOLD_CG_KEY), [tick])
+  const issueKey = bis ? BIS_GOLD_ISSUE_KEY : GOLD_ISSUE_KEY
+  const usedKey = bis ? LAB_BIS_GOLD_CG_KEY : LAB_GOLD_CG_KEY
+
+  const givenByQm = useMemo(() => loadGoldList<GoldWeightEntry>(issueKey), [tick, issueKey])
+  const cgUsed = useMemo(() => loadGoldList<GoldLabEntry>(usedKey), [tick, usedKey])
 
   const [qmStart, setQmStart] = useState('')
   const [qmEnd, setQmEnd] = useState('')
@@ -1574,15 +1506,16 @@ export function LabGoldStock() {
       toast('CG weight exceeds assay stock')
       return
     }
-    saveGoldList(LAB_GOLD_CG_KEY, [
+    saveGoldList(usedKey, [
       { id: `lcg-${Date.now()}`, date: useDate, weight: w, cornetWeight: c },
       ...cgUsed,
     ])
-    // Keep QM gold page in sync for returned cornet total
-    saveGoldList(GOLD_LAB_KEY, [
-      { id: `gl-${Date.now()}`, date: useDate, weight: w, cornetWeight: w || c },
-      ...loadGoldList<GoldLabEntry>(GOLD_LAB_KEY),
-    ])
+    if (!bis) {
+      saveGoldList(GOLD_LAB_KEY, [
+        { id: `gl-${Date.now()}`, date: useDate, weight: w, cornetWeight: w || c },
+        ...loadGoldList<GoldLabEntry>(GOLD_LAB_KEY),
+      ])
+    }
     setUseWeight('')
     setUseCornet('')
     refresh()
@@ -1592,7 +1525,7 @@ export function LabGoldStock() {
   const deleteCg = (id: string) => {
     if (!window.confirm('Delete this CG usage entry?')) return
     saveGoldList(
-      LAB_GOLD_CG_KEY,
+      usedKey,
       cgUsed.filter((r) => r.id !== id),
     )
     refresh()
@@ -1604,7 +1537,7 @@ export function LabGoldStock() {
       toast('No assay stock to send')
       return
     }
-    const amount = window.prompt('Weight to send to QM (gm)', assayStock.toFixed(6))
+    const amount = window.prompt('Weight to return to store (gm)', assayStock.toFixed(6))
     if (amount === null) return
     const w = Number(amount)
     if (!w || w <= 0) {
@@ -1616,21 +1549,23 @@ export function LabGoldStock() {
       return
     }
     const today = new Date().toISOString().slice(0, 10)
-    saveGoldList(GOLD_LAB_KEY, [
-      {
-        id: `gl-send-${Date.now()}`,
-        date: today,
-        weight: w,
-        cornetWeight: w,
-      },
-      ...loadGoldList<GoldLabEntry>(GOLD_LAB_KEY),
-    ])
-    saveGoldList(LAB_GOLD_CG_KEY, [
+    if (!bis) {
+      saveGoldList(GOLD_LAB_KEY, [
+        {
+          id: `gl-send-${Date.now()}`,
+          date: today,
+          weight: w,
+          cornetWeight: w,
+        },
+        ...loadGoldList<GoldLabEntry>(GOLD_LAB_KEY),
+      ])
+    }
+    saveGoldList(usedKey, [
       { id: `lcg-send-${Date.now()}`, date: today, weight: w, cornetWeight: 0 },
       ...cgUsed,
     ])
     refresh()
-    toast(`Sent ${w.toFixed(6)} gm to QM`)
+    toast(`Returned ${w.toFixed(6)} gm to store`)
   }
 
   return (
@@ -1641,16 +1576,16 @@ export function LabGoldStock() {
 
       <header className="qmgold-title">
         <h1>Report</h1>
-        <p>Lab Stock · Gold</p>
+        <p>{bis ? 'BIS lab gold · store transfer and check-gold usage' : 'Lab gold · store transfer and check-gold usage'}</p>
       </header>
 
       <div className="labgold-stats">
         <div className="labgold-stat assay">
-          <span>ASSAY STOCK</span>
+          <span>ON HAND</span>
           <strong>{assayStock.toFixed(6)}</strong>
         </div>
         <div className="labgold-stat ball">
-          <span>CG BALL</span>
+          <span>{bis ? 'CG BAL' : 'CG BALL'}</span>
           <strong>{cgBall.toFixed(6)}</strong>
         </div>
         <div className="labgold-stat used">
@@ -1658,13 +1593,13 @@ export function LabGoldStock() {
           <strong>{totalCg.toFixed(6)}</strong>
         </div>
         <div className="labgold-stat cornet">
-          <span>CG CORNET</span>
+          <span>{bis ? 'CG REJECT' : 'CG CORNET'}</span>
           <strong>{totalCornet.toFixed(6)}</strong>
         </div>
       </div>
 
       <section className="qmgold-card">
-        <h2>Gold Given By QM</h2>
+        <h2>Received from store</h2>
         <div className="qmgold-filters">
           <input type="date" value={qmStart} onChange={(e) => setQmStart(e.target.value)} title="Start Date" />
           <input type="date" value={qmEnd} onChange={(e) => setQmEnd(e.target.value)} title="End Date" />
@@ -1688,7 +1623,7 @@ export function LabGoldStock() {
               {qmFiltered.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="empty-state">
-                    No gold received from QM yet (issue from QM Stock → Gold)
+                    No gold received from store yet (issue it from QM Stock → Gold)
                   </td>
                 </tr>
               ) : (
@@ -1712,11 +1647,11 @@ export function LabGoldStock() {
             </tbody>
           </table>
         </div>
-        <p className="labgold-assay-line">Assay Master Stock: {gm(assayStock)}</p>
+        <p className="labgold-assay-line">Lab holding: {gm(assayStock)}</p>
       </section>
 
       <section className="qmgold-card">
-        <h2>Gold Used For Assaying (CG Weight)</h2>
+        <h2>{bis ? 'Check-gold used in assay' : 'Check-gold used in assay'}</h2>
         <form className="qmgold-form-row" onSubmit={addCgUse}>
           <input type="date" value={useDate} onChange={(e) => setUseDate(e.target.value)} required />
           <input
@@ -1731,7 +1666,7 @@ export function LabGoldStock() {
             type="number"
             min="0"
             step="0.000001"
-            placeholder="Cornet weight"
+            placeholder={bis ? 'Cancel weight' : 'Cornet weight'}
             value={useCornet}
             onChange={(e) => setUseCornet(e.target.value)}
           />
@@ -1755,7 +1690,7 @@ export function LabGoldStock() {
                 <th>Sr</th>
                 <th>Date</th>
                 <th>Weight</th>
-                <th>Cornet weight</th>
+                <th>{bis ? 'Cancel weight' : 'Cornet weight'}</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -1787,7 +1722,7 @@ export function LabGoldStock() {
               </tr>
               <tr className="qmgold-total-row">
                 <td colSpan={2}>
-                  <strong>Cornet weight</strong>
+                  <strong>{bis ? 'Cancel weight' : 'Cornet weight'}</strong>
                 </td>
                 <td colSpan={3}>
                   <strong>{gm(filteredCornetTotal)}</strong>
@@ -1801,7 +1736,7 @@ export function LabGoldStock() {
 
       <div className="labgold-actions">
         <button type="button" className="btn btn-navy" onClick={sendToQm}>
-          Send To Qm
+          Return to store
         </button>
         <Link to="/lab-stock" className="btn btn-secondary">
           Back
@@ -1836,6 +1771,18 @@ function StockItemPage({
   // Gold Shark cg_weight.php — dedicated Unused / Used CG weight flow
   if (kind === 'cg-weight') {
     return <QMCGWeightPage hubPath={hubPath} />
+  }
+
+  if (scope === 'qm' && kind) {
+    return <QmStockChainPage kind={kind} hubPath={hubPath} hubLabel={hubLabel} />
+  }
+
+  if (scope === 'lab' && kind === 'bis-gold') {
+    return <LabGoldStock bis />
+  }
+
+  if (scope === 'lab' && kind && getLabSpec(kind)) {
+    return <LabStockChainPage kind={kind} hubPath={hubPath} hubLabel={hubLabel} />
   }
 
   return (
@@ -2036,7 +1983,7 @@ export function LabStock() {
           </div>
           <div>
             <h1>Lab Stock</h1>
-            <p>Manage and view all laboratory stock items</p>
+            <p>Received from store, prepared lots, and assay usage</p>
           </div>
         </div>
         <div className="others-card-grid">
@@ -2054,8 +2001,8 @@ export function LabStock() {
             <BadgeCheck size={22} />
           </div>
           <div>
-            <h1>Lab Stock As Per BIS</h1>
-            <p>Stock records according to BIS standards</p>
+            <h1>Lab Stock as per BIS</h1>
+            <p>IS 1418 : 2009 cupellation register — store transfer to assay</p>
           </div>
         </div>
         <div className="others-card-grid">

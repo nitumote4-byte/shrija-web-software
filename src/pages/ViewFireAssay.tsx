@@ -27,6 +27,7 @@ import {
   pairMeanFineness,
 } from '../data/fireAssayViewLayout'
 import { applyFireAssayPaperForPrint, printFireAssaySheet } from '../utils/fireAssayPaper'
+import { applyFireAssayStockConsumption } from '../data/fireAssayConsumption'
 
 type ViewRow = {
   key: string
@@ -393,6 +394,7 @@ export function ViewFireAssay() {
       rows: viewRows.filter((r) => r.jobCardNo.trim()),
     }
     publishManakFireAssaySheet(next)
+    applyFireAssayStockConsumption(next)
     // Assay finished here → carry each job card's cornet (WOTGCAA, mg) onto its
     // day-sheet row, so QM Request List and Billing read it without re-entry
     store.applyFireAssayCornet(

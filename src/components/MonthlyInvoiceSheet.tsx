@@ -10,6 +10,10 @@ function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Existing monthly-invoice notes copy (reference / prior GoldShark wording). */
+const MONTHLY_INVOICE_NOTES =
+  'Consolidated Monthly Invoice for above mentioned requests.'
+
 export type MonthlyPreview = {
   invoiceNo: string
   invoiceDateTime: string
@@ -63,12 +67,12 @@ export function MonthlyInvoiceSheet({
 }: SheetProps) {
   const header = getInvoiceHeader()
   const centreName = header.centreName
-  const minRows = paperSize === 'A5' ? 8 : 12
-  const filler = Math.max(0, minRows - Math.max(view?.lines.length || 0, 0))
+  const totHm = view?.lines.reduce((s, l) => s + l.articlesHm, 0) ?? 0
+  const totAmount = view?.lines.reduce((s, l) => s + l.amount, 0) ?? 0
 
   return (
     <div
-      className={`invoice-sheet paper-${paperSize.toLowerCase()} invoice-fill-page`}
+      className={`invoice-sheet monthly-invoice-sheet paper-${paperSize.toLowerCase()}`}
       id={printId}
       data-paper={paperSize}
     >
@@ -113,11 +117,19 @@ export function MonthlyInvoiceSheet({
         </div>
       </div>
 
-      <div className="invoice-table-grow">
+      <div className="monthly-invoice-table-wrap">
         <table className="invoice-items">
+          <colgroup>
+            <col className="mi-col-sno" />
+            <col className="mi-col-req" />
+            <col className="mi-col-party" />
+            <col className="mi-col-date" />
+            <col className="mi-col-hm" />
+            <col className="mi-col-amt" />
+          </colgroup>
           <thead>
             <tr>
-              <th>S No.</th>
+              <th>S. No.</th>
               <th>Request No</th>
               <th>Party Name</th>
               <th>Date</th>
@@ -127,43 +139,44 @@ export function MonthlyInvoiceSheet({
           </thead>
           <tbody>
             {!view || view.lines.length === 0 ? (
-              <tr>
+              <tr className="invoice-data-row">
                 <td colSpan={6} className="invoice-empty">
                   &nbsp;
                 </td>
               </tr>
             ) : (
               view.lines.map((line, i) => (
-                <tr key={`${line.requestNo}-${i}`}>
-                  <td>{i + 1}</td>
-                  <td>{line.requestNo}</td>
-                  <td>{line.partyName}</td>
-                  <td>{line.date}</td>
-                  <td>{line.articlesHm}</td>
-                  <td>{money(line.amount)}</td>
+                <tr key={`${line.requestNo}-${i}`} className="invoice-data-row">
+                  <td className="mi-td-sno">{i + 1}</td>
+                  <td className="mi-td-req">{line.requestNo}</td>
+                  <td className="mi-td-party">{line.partyName}</td>
+                  <td className="mi-td-date">{line.date}</td>
+                  <td className="mi-td-hm">{line.articlesHm}</td>
+                  <td className="mi-td-amt">{money(line.amount)}</td>
                 </tr>
               ))
             )}
-            <tr className="invoice-spacer-row" aria-hidden="true">
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
-              <td>&nbsp;</td>
+            <tr className="invoice-total-row">
+              <td colSpan={4} className="mi-td-total-label">
+                <strong>Total</strong>
+              </td>
+              <td className="mi-td-hm">
+                <strong>{view ? totHm : ''}</strong>
+              </td>
+              <td className="mi-td-amt">
+                <strong>{view ? money(totAmount) : ''}</strong>
+              </td>
             </tr>
-            {Array.from({ length: filler }).map((_, i) => (
-              <tr key={`mf-${i}`} className="invoice-filler-row">
-                <td colSpan={6}>&nbsp;</td>
-              </tr>
-            ))}
           </tbody>
         </table>
       </div>
 
       <div className="invoice-sheet-foot">
         <div className="invoice-bottom-grid">
-          <div />
+          <div className="invoice-notes">
+            <div className="invoice-notes-label">Notes:</div>
+            <div className="invoice-notes-body">{MONTHLY_INVOICE_NOTES}</div>
+          </div>
           <div className="invoice-tax">
             <div>
               <span>Total Taxable</span>

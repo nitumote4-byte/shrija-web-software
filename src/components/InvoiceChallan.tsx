@@ -1,8 +1,9 @@
 import { InvoiceLetterhead } from './InvoiceLetterhead'
-import { getFirmProfile, getInvoiceHeader } from '../data/firmProfile'
+import { getActiveCentre, getFirmProfile, getInvoiceHeader } from '../data/firmProfile'
 import type { Invoice, InvoiceLine } from '../data/store'
 import { tenantGet } from '../data/tenant'
 import { unusedSampleFromRoughRows } from '../data/fireAssaySampleWeight'
+import { amountInIndianWords, jurisdictionFooter } from '../utils/amountInWords'
 
 export type ChallanView = {
   invoiceNo: string
@@ -73,6 +74,9 @@ function loadInvoiceSettings(): InvoiceSettings {
 function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+
+const CUSTOMER_NOTE =
+  'Note: Customers are requested to kindly verify the weight of their jewellery along with all remnants before signing this invoice. No claim shall be entertained after the invoice is signed.'
 
 /** Display like GoldShark: 23-07-2026 16:27 */
 export function formatInvoiceDateTime(raw?: string) {
@@ -279,6 +283,8 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
   const cols = settings.columns
   const centreName = header.centreName
   const dateShown = formatInvoiceDateTime(view?.invoiceDateTime || view?.date)
+  const companyCity = (getActiveCentre().city || firm.city || '').trim()
+  const grandTotalWords = view ? amountInIndianWords(view.grandTotal) : ''
 
   const totPcs = view?.lines.reduce((s, l) => s + l.pcsRec, 0) ?? 0
   const totHm = view?.lines.reduce((s, l) => s + l.hm, 0) ?? 0
@@ -485,35 +491,37 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
             </div>
             <div className="invoice-grand">
               <span>Grand Total</span>
-              <strong>{view ? money(view.grandTotal) : ''}</strong>
+              <strong>{view ? `₹${money(view.grandTotal)}` : ''}</strong>
             </div>
           </div>
+          <div className="invoice-grand-words">
+            <span>Amount in Words:</span>
+            <p>{grandTotalWords}</p>
+          </div>
         </div>
-
-        <p className="invoice-received-note">
-          Received the precious Metal / Jewellery in satisfactory condition
-        </p>
 
         <div className="invoice-sign-grid">
-          <div>
-            <div className="invoice-sign-label">CUSTOMER&apos;S SIGNATURE</div>
-            <label className="invoice-check">
-              <input type="checkbox" /> By Courier
-            </label>
-            <label className="invoice-check">
-              <input type="checkbox" /> By Hand
-            </label>
-          </div>
-          <div className="invoice-auth">
-            <div>FOR, {centreName}</div>
+          <div className="invoice-sign-head" />
+          <div className="invoice-sign-head invoice-auth">FOR, {centreName}</div>
+          <div className="invoice-sign-pad" aria-hidden="true" />
+          <div className="invoice-sign-pad invoice-auth">
             {settings.sealDataUrl ? (
               <img src={settings.sealDataUrl} alt="Seal" className="invoice-seal" />
-            ) : (
-              <div className="invoice-sign-space" />
-            )}
-            <div className="invoice-sign-label">Authorized Signatory</div>
+            ) : null}
           </div>
+          <div className="invoice-sign-label">Customer Signature</div>
+          <div className="invoice-sign-label invoice-auth">Authorised Signatory</div>
         </div>
+        <div className="invoice-sign-delivery">
+          <label className="invoice-check">
+            <input type="checkbox" /> By Courier
+          </label>
+          <label className="invoice-check">
+            <input type="checkbox" /> By Hand
+          </label>
+        </div>
+
+        <p className="invoice-customer-note">{CUSTOMER_NOTE}</p>
 
         <div className="invoice-bank">
           {firm.bankName || 'ICICI BANK'}
@@ -525,6 +533,7 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
             <img src={settings.qrDataUrl} alt="Payment QR" />
           </div>
         )}
+        <div className="invoice-jurisdiction">{jurisdictionFooter(companyCity)}</div>
       </div>
     </div>
   )

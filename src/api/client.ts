@@ -59,7 +59,8 @@ export class ApiRequestError extends Error {
 
 /** Prefer same-origin /api (Vercel rewrite → Railway). Set VITE_API_URL only for direct API calls. */
 function apiUrl(path: string) {
-  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || ''
+  const env = (import.meta as ImportMeta & { env?: { VITE_API_URL?: string } }).env
+  const base = env?.VITE_API_URL?.replace(/\/$/, '') || ''
   const p = path.startsWith('/api') ? path : `/api${path}`
   // Empty base = browser calls /api on current host (works with Vercel proxy + local Vite proxy)
   return `${base}${p}`

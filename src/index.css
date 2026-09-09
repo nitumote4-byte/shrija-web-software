@@ -3394,6 +3394,44 @@ button {
   height: 36px;
 }
 
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-sign-grid {
+  grid-template-rows: auto minmax(36px, auto) auto;
+  margin: 0.22rem 0 0.08rem;
+}
+
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-sign-pad {
+  min-height: 36px;
+  height: 36px;
+}
+
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-seal {
+  height: 34px;
+}
+
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-customer-note,
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-grand-words {
+  font-size: 0.58rem;
+}
+
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-customer-note {
+  margin: 0.08rem 0 0.28rem;
+}
+
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-jurisdiction {
+  font-size: 0.62rem;
+  margin-top: 0.18rem;
+  padding-top: 0.12rem;
+}
+
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-sign-label,
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-sign-head {
+  font-size: 0.66rem;
+}
+
+.invoice-sheet.paper-a5.invoice-fill-page .invoice-bottom-grid {
+  margin-bottom: 0.35rem;
+}
+
 .gb-search-row {
   display: flex;
   flex-wrap: wrap;
@@ -4040,6 +4078,28 @@ button {
   margin-top: 0.2rem;
 }
 
+.invoice-fill-page .invoice-grand-words {
+  grid-column: 1 / -1;
+  display: block;
+  border-top: 1px solid #0f172a;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.invoice-fill-page .invoice-grand-words span {
+  font-weight: 700;
+}
+
+.invoice-fill-page .invoice-grand-words p {
+  margin: 0.12rem 0 0;
+  font-weight: 600;
+}
+
 .gb-preview-toolbar {
   position: sticky;
   top: 0;
@@ -4056,12 +4116,67 @@ button {
   font-style: italic;
 }
 
+.invoice-fill-page .invoice-customer-note {
+  margin: 0.15rem 0 0.5rem;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  font-style: italic;
+  color: #1e293b;
+}
+
 .invoice-sign-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
   margin-bottom: 0.85rem;
   min-height: 110px;
+}
+
+.invoice-fill-page .invoice-sign-grid {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto minmax(56px, auto) auto;
+  column-gap: 1.25rem;
+  row-gap: 0.2rem;
+  align-items: end;
+  min-height: 0;
+  margin: 0.5rem 0 0.2rem;
+  gap: unset;
+}
+
+.invoice-fill-page .invoice-sign-head {
+  font-size: 0.78rem;
+  font-weight: 700;
+  min-height: 1.15em;
+}
+
+.invoice-fill-page .invoice-sign-pad {
+  min-height: 56px;
+  height: 56px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.invoice-fill-page .invoice-sign-pad.invoice-auth {
+  justify-content: flex-end;
+}
+
+.invoice-fill-page .invoice-sign-label {
+  margin: 0;
+  padding-top: 0.1rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.invoice-fill-page .invoice-sign-delivery {
+  margin: 0.15rem 0 0.4rem;
+}
+
+.invoice-fill-page .invoice-jurisdiction {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-top: 0.4rem;
+  padding-top: 0.3rem;
 }
 
 .invoice-sign-label {
@@ -4089,6 +4204,11 @@ button {
   height: 54px;
   object-fit: contain;
   margin: 0.35rem 0;
+}
+
+.invoice-fill-page .invoice-seal {
+  height: 52px;
+  margin: 0;
 }
 
 .invoice-bank {
@@ -4122,6 +4242,14 @@ button {
   .invoice-format,
   .invoice-auth {
     text-align: left;
+  }
+
+  .invoice-fill-page .invoice-sign-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .invoice-fill-page .invoice-auth {
+    text-align: right;
   }
 }
 
@@ -4216,6 +4344,21 @@ button {
 
   .invoice-table-grow .invoice-items {
     height: 100% !important;
+  }
+
+  .invoice-fill-page .invoice-sign-grid {
+    grid-template-columns: 1fr 1fr !important;
+    page-break-inside: avoid;
+  }
+
+  .invoice-fill-page .invoice-auth {
+    text-align: right !important;
+  }
+
+  .invoice-fill-page .invoice-jurisdiction,
+  .invoice-fill-page .invoice-customer-note,
+  .invoice-fill-page .invoice-grand-words {
+    page-break-inside: avoid;
   }
 }
 
@@ -6940,13 +7083,12 @@ table.data-table tr:hover td {
   margin-bottom: 0.85rem;
 }
 
-.qmgold-form-row input {
+.qmgold-form-row select {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.55rem 0.7rem;
   font: inherit;
-  min-width: 140px;
-  flex: 1;
+  min-width: 120px;
 }
 
 .qmgold-filters {

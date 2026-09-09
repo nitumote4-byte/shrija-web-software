@@ -1,6 +1,6 @@
 /**
- * BIS / Gold Shark fire-assay defaults keyed by declared purity.
- * Values mirror Manak Fire Assaying Sheet + Gold Shark cornet sheet behaviour.
+ * Lab fire-assay defaults aligned with IS 1418 : 2009 (cupellation).
+ * Sheet autofill still uses the working purity table for silver inquartation.
  */
 
 export type BisPurityDefaults = {
@@ -74,10 +74,34 @@ export function getBisDefaults(purity: string): BisPurityDefaults {
   }
 }
 
-/** Copper for check gold ≈ CG × (1000 − purity) / 1000 × 1.143 (Gold Shark 916 fit). */
+/**
+ * Lead foil (g) for one assay piece from sample mass (mg).
+ * Jewellery / artefacts: 4 g up to 200 mg, 6 g for 201–300 mg.
+ * Bullion-scale ~500 mg pieces take 8 g.
+ */
+export function leadGramsForSample(sampleWeightMg: number): number {
+  const m = Number(sampleWeightMg) || 0
+  if (m <= 0) return 4
+  if (m <= 200) return 4
+  if (m <= 300) return 6
+  return 8
+}
+
+/** Cupel diameter (mm) that absorbs the given lead charge (IS 1418 cl. 7.4). */
+export function cupelDiameterMmForLeadG(leadG: number): '16' | '22' | '26' {
+  const g = Number(leadG) || 0
+  if (g > 6) return '26'
+  if (g > 4) return '22'
+  return '16'
+}
+
+/** Copper for check gold ≈ CG × (1000 − purity) / 1000 × 1.143.
+ *  Alloys ≥ 990‰ take ~20 mg copper (IS 1418 high-purity cupellation).
+ */
 export function copperForCg(cgWeight: number, purity: string): number {
   const p = Number(purity) || 916
   if (!cgWeight) return 0
+  if (p >= 990) return 20
   return Number((((cgWeight * (1000 - p)) / 1000) * 1.143).toFixed(3))
 }
 

@@ -37,8 +37,8 @@ function formatMoney(n: number) {
 }
 
 function PerformanceChart({ values }: { values: number[] }) {
-  const w = 560
-  const h = 220
+  const w = 960
+  const h = 340
   const pad = { t: 16, r: 12, b: 28, l: 36 }
   const max = Math.max(1, ...values)
   const innerW = w - pad.l - pad.r
@@ -268,7 +268,7 @@ export function AnalyticsDashboard() {
             <div className="dash-card-head">
               <div className="dash-card-title">
                 <span className="dash-card-icon purple">
-                  <TrendingUp size={18} />
+                  <TrendingUp size={20} />
                 </span>
                 <h2>Monthly Performance</h2>
               </div>

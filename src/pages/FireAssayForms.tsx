@@ -10,6 +10,7 @@ import {
   copperForCg,
   deltaMg,
   getBisDefaults,
+  leadGramsForSample,
   JOB_PAIR_WOTGCAA_JITTER,
   sampleDrawnMgFromRequest,
   seedStripPairAssay,
@@ -34,6 +35,7 @@ import {
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
 import { hasAvailableCgWeightForSheet } from '../data/cgWeightAvailability'
+import { applyFireAssayStockConsumption } from '../data/fireAssayConsumption'
 import { loadCgWeights, markCgWeightsUsed, type CgWeightRow } from './CGWeight'
 
 type SheetRow = {
@@ -345,6 +347,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         baseJobCardNumber: baseJob,
       },
     )
+    const foil = (sw: number) => leadGramsForSample(sw > 0 ? sw : lead).toFixed(1)
     const mean = pairMeanFineness(seeded.fineness1.toFixed(3), seeded.fineness2.toFixed(3))
     const base = {
       partyName: req?.partyName || '',
@@ -352,7 +355,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       lotNo,
       jobCardNo: '',
       silver: silverStrip.toFixed(1),
-      lead: lead.toFixed(1),
+      lead: foil(sw1),
     }
     return [
       {
@@ -372,11 +375,12 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         fineness: seeded.fineness2.toFixed(3),
         meanFineness: mean.second,
         ...base,
+        lead: foil(sw2),
       },
     ]
   }
 
-  /** Gold Shark: purity select → BIS requirements auto-fill. */
+  /** Purity select → silver / lead / copper working defaults (IS 1418 lead & high-purity Cu). */
   const applyPurityDefaults = (
     nextPurity: string,
     opts?: { quiet?: boolean; freshSheet?: boolean; sheetNoOverride?: string; dateOverride?: string },
@@ -422,6 +426,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     if (pick1) {
       setCg1Id(String(pick1.id))
       setCopperCg1(String(copperForCg(pick1.weight, nextPurity)))
+      setLeadCg1(leadGramsForSample(pick1.weight).toFixed(1))
       setWotgcaa1((pick1.weight - 0.05).toFixed(3))
     } else {
       setCg1Id('')
@@ -431,6 +436,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     if (pick2) {
       setCg2Id(String(pick2.id))
       setCopperCg2(String(copperForCg(pick2.weight, nextPurity)))
+      setLeadCg2(leadGramsForSample(pick2.weight).toFixed(1))
       setWotgcaa2((pick2.weight - 0.03).toFixed(3))
     } else {
       setCg2Id('')
@@ -560,9 +566,11 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     const cu = String(copperForCg(row.weight, purity))
     if (which === 1) {
       setCopperCg1(cu)
+      setLeadCg1(leadGramsForSample(row.weight).toFixed(1))
       if (!wotgcaa1) setWotgcaa1((row.weight - 0.05).toFixed(3))
     } else {
       setCopperCg2(cu)
+      setLeadCg2(leadGramsForSample(row.weight).toFixed(1))
       if (!wotgcaa2) setWotgcaa2((row.weight - 0.03).toFixed(3))
     }
   }
@@ -608,6 +616,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       sheetNumber,
       baseJobCardNumber: baseJobCardNumberFromRaw(jobCardNo),
     })
+    const foil = (sw: number) => leadGramsForSample(sw > 0 ? sw : lead).toFixed(1)
     const mean = pairMeanFineness(seeded.fineness1.toFixed(3), seeded.fineness2.toFixed(3))
     const stamp = Date.now()
     const base = {
@@ -616,7 +625,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       lotNo,
       jobCardNo: '',
       silver: silverStrip.toFixed(1),
-      lead: lead.toFixed(1),
+      lead: foil(sw1),
       sampleDrawn: drawn.toFixed(3),
     }
     return [
@@ -635,6 +644,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         fineness: seeded.fineness2.toFixed(3),
         meanFineness: mean.second,
         ...base,
+        lead: foil(sw2),
       },
     ]
   }
@@ -924,6 +934,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     )
 
     publishManakFireAssaySheet(sheet)
+    applyFireAssayStockConsumption(sheet)
     try {
       void navigator.clipboard.writeText(JSON.stringify(sheet))
     } catch {

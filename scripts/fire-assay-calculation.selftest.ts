@@ -8,12 +8,14 @@ import {
   blankLotSplitSeed,
   blankLotWotgcaaJitter,
   copperForCg,
+  cupelDiameterMmForLeadG,
   expectedWotgcaa,
   finenessPpt,
   getBisDefaults,
   handlingResidualMg,
   hash01,
   JOB_PAIR_WOTGCAA_JITTER,
+  leadGramsForSample,
   sampleDrawnMgFromRequest,
   seedStripPairAssay,
   simulatedPairAssayFineness,
@@ -112,6 +114,13 @@ for (const c of PURITY_CASES) {
   const wotgcaa = 149.052
   const copper = copperForCg(cgWeight, '750')
   assertEq(copper, 42.606, 'copperForCg(149.102, 750) is the 42.606 figure')
+  assertEq(copperForCg(150, '999'), 20, '≥990‰ check gold takes 20 mg copper')
+  assertEq(leadGramsForSample(165), 4, '≤200 mg sample uses 4 g lead')
+  assertEq(leadGramsForSample(250), 6, '201–300 mg sample uses 6 g lead')
+  assertEq(leadGramsForSample(500), 8, '~500 mg bullion uses 8 g lead')
+  assertEq(cupelDiameterMmForLeadG(4), '16', '4 g Pb → 16 mm cupel')
+  assertEq(cupelDiameterMmForLeadG(6), '22', '6 g Pb → 22 mm cupel')
+  assertEq(cupelDiameterMmForLeadG(8), '26', '8 g Pb → 26 mm cupel')
   const cg: ManakFireAssaySheet['cg'] = {
     cg1: cgWeight,
     cg2: 149.082,
