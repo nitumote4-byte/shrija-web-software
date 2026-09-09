@@ -512,14 +512,6 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
           <div className="invoice-sign-label">Customer Signature</div>
           <div className="invoice-sign-label invoice-auth">Authorised Signatory</div>
         </div>
-        <div className="invoice-sign-delivery">
-          <label className="invoice-check">
-            <input type="checkbox" /> By Courier
-          </label>
-          <label className="invoice-check">
-            <input type="checkbox" /> By Hand
-          </label>
-        </div>
 
         <p className="invoice-customer-note">{CUSTOMER_NOTE}</p>
 

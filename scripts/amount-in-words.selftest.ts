@@ -95,6 +95,8 @@ assertEq(jurisdictionFooter(undefined), 'Subject to Jurisdiction', 'missing city
   assert(challan.includes('jurisdictionFooter'), 'challan uses dynamic jurisdiction')
   assert(challan.includes('Customer Signature'), 'left signature label')
   assert(challan.includes('Authorised Signatory'), 'right signature label')
+  assert(!challan.includes('By Courier'), 'courier checkbox removed')
+  assert(!challan.includes('By Hand'), 'hand checkbox removed')
   assert(
     challan.includes(
       'Customers are requested to kindly verify the weight of their jewellery along with all remnants before signing this invoice',

@@ -30,7 +30,7 @@ export function applyInvoicePaperForPrint(size: InvoicePaperSize) {
     el.id = STYLE_ID
     document.head.appendChild(el)
   }
-  const margin = size === 'A5' ? '5mm' : '8mm'
+  const margin = size === 'A5' ? '6mm' : '8mm'
   el.textContent = `@page { size: ${size} portrait; margin: ${margin}; }`
 }
 

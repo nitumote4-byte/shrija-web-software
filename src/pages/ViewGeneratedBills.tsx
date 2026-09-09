@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, FileText, Home, Search } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Home, Search } from 'lucide-react'
 import { invoiceToChallan, type ChallanView } from '../components/InvoiceChallan'
 import { InvoicePreviewPanel } from '../components/InvoicePreviewPanel'
 import { useToast } from '../components/ui'
@@ -79,6 +79,7 @@ export function ViewGeneratedBills() {
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [slideDir, setSlideDir] = useState<'next' | 'prev'>('next')
   void tick
 
   const setPaper = (size: InvoicePaperSize) => {
@@ -103,6 +104,17 @@ export function ViewGeneratedBills() {
       label: `${inv.requestNo} / Inv ${inv.invoiceNo} — ${inv.partyName}`,
     }))
   }, [invoices])
+
+  const currentIndex = useMemo(() => {
+    const id = activeId || selectedKey
+    if (!id) return -1
+    return options.findIndex((o) => o.key === id)
+  }, [options, activeId, selectedKey])
+
+  const atFirst = currentIndex === 0
+  const atLast = currentIndex >= 0 && currentIndex === options.length - 1
+  const prevDisabled = options.length === 0 || atFirst
+  const nextDisabled = options.length === 0 || atLast
 
   const livePreview: ChallanView | null = (() => {
     if (!preview) return null
@@ -177,9 +189,71 @@ export function ViewGeneratedBills() {
       toast('Select Request Number Or Invoice No')
       return
     }
+    setSlideDir('next')
     const inv = loadInvoice(selectedKey)
     if (inv) toast(`Loaded invoice ${inv.invoiceNo}`)
   }
+
+  const showInvoiceAt = useCallback(
+    (index: number, dir: 'next' | 'prev') => {
+      const opt = options[index]
+      if (!opt) return
+      setSlideDir(dir)
+      setSelectedKey(opt.key)
+      loadInvoice(opt.key)
+    },
+    [options],
+  )
+
+  const goRelative = useCallback(
+    (delta: number) => {
+      if (deletePhase !== 'idle') return
+      if (editing) {
+        toast('Save or Cancel update first')
+        return
+      }
+      if (!options.length) {
+        toast('No invoices')
+        return
+      }
+      let idx = currentIndex
+      if (idx < 0) {
+        idx = delta > 0 ? 0 : options.length - 1
+      } else {
+        idx += delta
+        if (idx < 0) {
+          toast('First invoice')
+          return
+        }
+        if (idx >= options.length) {
+          toast('Last invoice')
+          return
+        }
+      }
+      showInvoiceAt(idx, delta > 0 ? 'next' : 'prev')
+    },
+    [currentIndex, deletePhase, editing, options.length, showInvoiceAt, toast],
+  )
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return
+      const t = e.target as HTMLElement | null
+      const tag = t?.tagName || ''
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || t?.isContentEditable) return
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault()
+        goRelative(-1)
+        return
+      }
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+        e.preventDefault()
+        goRelative(1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [goRelative])
 
   const printBill = () => {
     if (!preview) {
@@ -356,21 +430,41 @@ export function ViewGeneratedBills() {
           <h2>Search Invoice</h2>
         </header>
         <div className="gb-search-row">
-          <label className="gb-select-wrap">
-            <span>Select Request Number Or Invoice No.</span>
-            <select
-              value={selectedKey}
-              onChange={(e) => setSelectedKey(e.target.value)}
-              aria-label="Select Request Number Or Invoice No"
+          <div className="gb-select-nav">
+            <button
+              type="button"
+              className="gb-btn gb-btn-nav"
+              onClick={() => goRelative(-1)}
+              disabled={prevDisabled}
+              title="Previous invoice (← or PageUp)"
             >
-              <option value="">Select Request Number Or Invoice No</option>
-              {options.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <ChevronLeft size={18} /> Previous
+            </button>
+            <label className="gb-select-wrap">
+              <span>Select Request Number Or Invoice No.</span>
+              <select
+                value={selectedKey}
+                onChange={(e) => setSelectedKey(e.target.value)}
+                aria-label="Select Request Number Or Invoice No"
+              >
+                <option value="">Select Request Number Or Invoice No</option>
+                {options.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="gb-btn gb-btn-nav"
+              onClick={() => goRelative(1)}
+              disabled={nextDisabled}
+              title="Next invoice (→ or PageDown)"
+            >
+              Next <ChevronRight size={18} />
+            </button>
+          </div>
           <div className="gb-actions">
             <button type="button" className="gb-btn gb-btn-get" onClick={getBill}>
               Get
@@ -395,6 +489,13 @@ export function ViewGeneratedBills() {
             )}
           </div>
         </div>
+        {options.length > 0 ? (
+          <p className="gb-browse-hint">
+            {currentIndex >= 0 ? `${currentIndex + 1} / ${options.length}` : `0 / ${options.length}`}
+            {' · '}
+            Previous / Next, or keyboard ← → (PageUp / PageDown)
+          </p>
+        ) : null}
       </section>
 
       {editing && preview && (
@@ -495,12 +596,39 @@ export function ViewGeneratedBills() {
         </section>
       )}
 
-      <InvoicePreviewPanel
-        view={livePreview}
-        paperSize={paperSize}
-        onPaperChange={setPaper}
-        hint="Get invoice → choose A4/A5 → Print / PDF · Update to edit lines & weights"
-      />
+      <div className="gb-preview-browse">
+        <button
+          type="button"
+          className="gb-preview-arrow gb-preview-arrow-prev no-print"
+          onClick={() => goRelative(-1)}
+          disabled={prevDisabled}
+          aria-label="Previous invoice"
+          title="Previous invoice (←)"
+        >
+          <ChevronLeft size={28} />
+        </button>
+        <div
+          key={activeId || 'empty'}
+          className={`gb-preview-slide gb-preview-slide-${slideDir}`}
+        >
+          <InvoicePreviewPanel
+            view={livePreview}
+            paperSize={paperSize}
+            onPaperChange={setPaper}
+            hint="Get invoice → choose A4/A5 → Print / PDF · ← → to browse · Update to edit lines & weights"
+          />
+        </div>
+        <button
+          type="button"
+          className="gb-preview-arrow gb-preview-arrow-next no-print"
+          onClick={() => goRelative(1)}
+          disabled={nextDisabled}
+          aria-label="Next invoice"
+          title="Next invoice (→)"
+        >
+          <ChevronRight size={28} />
+        </button>
+      </div>
 
       <div className="gb-back-wrap no-print">
         <Link to="/" className="gb-btn gb-btn-back">

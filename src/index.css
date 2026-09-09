@@ -3276,9 +3276,91 @@ button {
   color: #fff;
 }
 
+.gb-preview-browse .gb-preview-card {
+  margin-bottom: 0;
+}
+
+.gb-preview-browse {
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.gb-preview-arrow {
+  position: absolute;
+  top: 46%;
+  z-index: 4;
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(30, 58, 95, 0.94);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+  transform: translateY(-50%);
+}
+
+.gb-preview-arrow-prev {
+  left: 10px;
+}
+
+.gb-preview-arrow-next {
+  right: 10px;
+}
+
+.gb-preview-arrow:hover:not(:disabled) {
+  background: #152a45;
+}
+
+.gb-preview-arrow:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.gb-preview-slide-next {
+  animation: gb-invoice-next 0.34s ease;
+}
+
+.gb-preview-slide-prev {
+  animation: gb-invoice-prev 0.34s ease;
+}
+
+@keyframes gb-invoice-next {
+  from {
+    opacity: 0;
+    transform: translateX(52px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes gb-invoice-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-52px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gb-preview-slide-next,
+  .gb-preview-slide-prev {
+    animation: none;
+  }
+}
+
 .invoice-preview-stage {
   display: flex;
   justify-content: center;
+  align-items: flex-start;
   overflow: auto;
   background: #e8eef5;
   border-radius: 8px;
@@ -3288,26 +3370,30 @@ button {
 .invoice-preview-stage.paper-a4 .invoice-sheet,
 .invoice-sheet.paper-a4 {
   width: 210mm;
-  max-width: 100%;
-  height: 297mm;
+  min-width: 210mm;
+  max-width: 210mm;
   min-height: 297mm;
+  height: auto;
   box-sizing: border-box;
+  padding: 8mm;
 }
 
 .invoice-preview-stage.paper-a5 .invoice-sheet,
 .invoice-sheet.paper-a5 {
   width: 148mm;
-  max-width: 100%;
-  height: 210mm;
+  min-width: 148mm;
+  max-width: 148mm;
   min-height: 210mm;
+  height: auto;
   box-sizing: border-box;
   font-size: 0.68rem;
-  padding: 0.55rem 0.65rem;
+  padding: 6mm;
 }
 
 .invoice-sheet.invoice-fill-page {
   display: flex;
   flex-direction: column;
+  overflow: visible;
 }
 
 .invoice-sheet-topblock {
@@ -3318,7 +3404,8 @@ button {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: auto;
+  overflow: visible;
 }
 
 .invoice-table-grow .invoice-items {
@@ -3327,6 +3414,7 @@ button {
   height: 100%;
   margin-bottom: 0;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .invoice-table-grow .invoice-items tbody {
@@ -3358,6 +3446,7 @@ button {
   flex: 0 0 auto;
   margin-top: 0;
   padding-top: 0.35rem;
+  overflow: visible;
 }
 
 .invoice-sheet.paper-a5 .invoice-centre-head strong {
@@ -3437,6 +3526,57 @@ button {
   flex-wrap: wrap;
   gap: 0.65rem;
   align-items: flex-end;
+}
+
+.gb-select-nav {
+  display: flex;
+  flex: 1 1 420px;
+  gap: 0.45rem;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.gb-select-nav .gb-select-wrap {
+  flex: 1 1 auto;
+  min-width: 160px;
+}
+
+.gb-btn-nav {
+  background: #1e3a5f;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.gb-btn-nav:hover:not(:disabled) {
+  background: #152a45;
+}
+
+.gb-btn-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.gb-browse-hint {
+  margin: 0.55rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+@media (max-width: 720px) {
+  .gb-select-nav {
+    flex-wrap: wrap;
+  }
+
+  .gb-select-nav .gb-btn-nav {
+    flex: 1 1 calc(50% - 0.45rem);
+    justify-content: center;
+  }
+
+  .gb-preview-arrow {
+    width: 38px;
+    height: 38px;
+  }
 }
 
 .gb-select-wrap {
@@ -3673,10 +3813,17 @@ button {
   .gb-page-title,
   .gb-card-head,
   .gb-search-row,
+  .gb-browse-hint,
+  .gb-preview-arrow,
   .gb-back-wrap,
   .generated-edit-panel,
   .invoice-hint {
     display: none !important;
+  }
+
+  .gb-preview-slide {
+    animation: none !important;
+    transform: none !important;
   }
 
   .gb-preview-card,
@@ -3786,6 +3933,8 @@ button {
   padding: 0.32rem 0.35rem;
   text-align: center;
   font-size: 0.72rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .invoice-items th {
@@ -4042,15 +4191,19 @@ button {
 
 .invoice-bottom-grid {
   display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   gap: 0;
   margin-bottom: 0.65rem;
   border: 1px solid #0f172a;
+  align-items: start;
+  overflow: visible;
 }
 
 .invoice-weights {
   padding: 0.45rem 0.55rem;
   border-right: 1px solid #0f172a;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .invoice-weights div {
@@ -4060,6 +4213,8 @@ button {
 
 .invoice-tax {
   padding: 0.35rem 0.55rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .invoice-tax > div {
@@ -4164,11 +4319,7 @@ button {
   margin: 0;
   padding-top: 0.1rem;
   font-size: 0.78rem;
-  white-space: nowrap;
-}
-
-.invoice-fill-page .invoice-sign-delivery {
-  margin: 0.15rem 0 0.4rem;
+  white-space: normal;
 }
 
 .invoice-fill-page .invoice-jurisdiction {
@@ -4279,18 +4430,26 @@ button {
     box-shadow: none !important;
     border-radius: 0 !important;
     width: 100% !important;
+    min-width: 0 !important;
     max-width: none !important;
     margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .invoice-sheet.invoice-fill-page {
+    display: block !important;
+    height: auto !important;
   }
 
   .invoice-sheet.paper-a4 {
-    height: 281mm !important;
-    min-height: 281mm !important;
+    height: auto !important;
+    min-height: calc(297mm - 16mm) !important;
+    padding: 0 !important;
   }
 
   .invoice-sheet.paper-a5 {
-    height: 200mm !important;
-    min-height: 200mm !important;
+    height: auto !important;
+    min-height: calc(210mm - 12mm) !important;
     font-size: 0.68rem !important;
     padding: 0 !important;
   }
@@ -4331,7 +4490,7 @@ button {
   }
 
   .invoice-spacer-row {
-    height: 100% !important;
+    height: auto !important;
   }
 
   .monthly-invoice-sheet .monthly-invoice-table-wrap .invoice-items {
@@ -4339,11 +4498,26 @@ button {
   }
 
   .invoice-table-grow {
-    flex: 1 1 auto !important;
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
   }
 
   .invoice-table-grow .invoice-items {
-    height: 100% !important;
+    height: auto !important;
+  }
+
+  .invoice-table-grow .invoice-items tbody {
+    height: auto !important;
+  }
+
+  .invoice-data-row,
+  .invoice-total-row,
+  .invoice-sheet-foot,
+  .invoice-bottom-grid {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .invoice-fill-page .invoice-sign-grid {
