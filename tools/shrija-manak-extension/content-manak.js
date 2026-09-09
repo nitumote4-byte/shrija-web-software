@@ -112,26 +112,7 @@ async function disableLegacyAutoM2() {
 function readSelectedLot() {
   const sel = MF?.findLotSelect?.(document)
   if (!sel) return { text: '', lot: null, jobCard: '' }
-  let opt = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null
-  let text = (opt?.text || opt?.label || '').trim()
-  let parsed = MF.parseLotOptionText(text)
-  if (parsed.lot == null && !parsed.jobCard) {
-    const byVal = Array.from(sel.options).find((o) => o.selected) || null
-    text = (byVal?.text || sel.value || '').trim()
-    parsed = MF.parseLotOptionText(text)
-  }
-  if (parsed.lot == null && !parsed.jobCard) {
-    const body = (document.body?.innerText || '').replace(/\s+/g, ' ')
-    const m = /Job\s*Card\s*(?:Number|No\.?)\s*[:：]?\s*(\d{6,})/i.exec(body)
-    if (m) {
-      const hit = Array.from(sel.options).find((o) => String(o.text || '').includes(m[1]))
-      if (hit) {
-        text = (hit.text || '').trim()
-        parsed = MF.parseLotOptionText(text)
-      }
-    }
-  }
-  return { text, ...parsed, sel }
+  return { ...MF.readSelectedLotFromSelect(sel, document), sel }
 }
 
 function cooldownMap() {
@@ -197,7 +178,8 @@ function ensureStatusBadge() {
       const sheet = data[KEY]
       const fs = sheet?.sheetNo || '?'
       const lot = MF ? readSelectedLot() : { lot: null, jobCard: '' }
-      const lotBit = lot.lot != null && lot.jobCard ? ` · Lot ${lot.lot}` : ' · lot select karo'
+      const lotBit =
+        lot.lot != null && lot.jobCard ? ` · Lot ${lot.lot} · ${lot.jobCard}` : ' · lot select karo'
       if (window.__shrijaFilling) {
         label.style.background = '#1d4ed8'
         label.textContent = `Shrija AUTO FS-${fs} · filling${lotBit}`
@@ -323,12 +305,11 @@ function requireSelectedLot(resumeOpts = {}) {
       const opt = Array.from(sel.options).find((o) => {
         const t = String(o.text || o.value || '')
         if (resumeOpts.jobCard && t.includes(String(resumeOpts.jobCard))) return true
-        if (resumeOpts.lot != null && new RegExp(`Lot\\s*${resumeOpts.lot}\\b`, 'i').test(t)) return true
         return false
       })
       if (opt) {
-        sel.value = opt.value
         opt.selected = true
+        sel.value = opt.value
         sel.dispatchEvent(new Event('change', { bubbles: true }))
         lot = readSelectedLot()
       }
@@ -342,6 +323,20 @@ function requireSelectedLot(resumeOpts = {}) {
     return null
   }
   return lot
+}
+
+async function waitForLotForm(lot, tries = 10) {
+  const want = String(lot?.jobCard || '')
+  for (let i = 0; i < tries; i++) {
+    const current = readSelectedLot()
+    if (want && String(current.jobCard || '') === want && MF.lotContextMatches(current, document)) {
+      return current
+    }
+    if (typeof MF.delay === 'function') await MF.delay(400)
+  }
+  const last = readSelectedLot()
+  if (want && String(last.jobCard || '') === want && MF.lotContextMatches(last, document)) return last
+  return null
 }
 
 async function runPhase1(resumeOpts = {}) {
@@ -361,12 +356,19 @@ async function runPhase1(resumeOpts = {}) {
       showToast('Shrija Phase 1: Job Card + Lot dono chahiye')
       return
     }
-    const drawn = requiredDrawnForStrips(sheet, lot.text, lot.lot, lot.jobCard)
+    const ready = await waitForLotForm(lot)
+    if (!ready) {
+      showToast(
+        `Shrija Phase 1: form pe dusra job hai, Lot ${lot.lot}:${lot.jobCard} nahi. Clubbed lot load hone do.`,
+      )
+      return
+    }
+    const drawn = requiredDrawnForStrips(sheet, ready.text, ready.lot, ready.jobCard)
     MF.prepareScaleBypass(document)
-    const result = await MF.fillPhase1(sheet, lot.text, {
+    const result = await MF.fillPhase1(sheet, ready.text, {
       document,
-      lot: lot.lot,
-      jobCard: lot.jobCard,
+      lot: ready.lot,
+      jobCard: ready.jobCard,
       drawn,
       activationWaitMs: 5500,
       fillAssay: true,
@@ -376,10 +378,10 @@ async function runPhase1(resumeOpts = {}) {
         await storageSet({
           [P1_RESUME_KEY]: {
             stage: 'button',
-            lot: lot.lot,
-            jobCard: lot.jobCard,
+            lot: ready.lot,
+            jobCard: ready.jobCard,
             drawn,
-            selectText: lot.text,
+            selectText: ready.text,
             ts: Date.now(),
           },
         })
@@ -388,10 +390,10 @@ async function runPhase1(resumeOpts = {}) {
         await storageSet({
           [P1_RESUME_KEY]: {
             stage: 'm1',
-            lot: lot.lot,
-            jobCard: lot.jobCard,
+            lot: ready.lot,
+            jobCard: ready.jobCard,
             drawn,
-            selectText: lot.text,
+            selectText: ready.text,
             ts: Date.now(),
           },
         })
@@ -403,7 +405,7 @@ async function runPhase1(resumeOpts = {}) {
       return
     }
     await storageRemove([P1_RESUME_KEY])
-    markPhase1Cooldown(lot.jobCard, lot.lot)
+    markPhase1Cooldown(ready.jobCard, ready.lot)
     showToast('Phase 1 complete — Assay weights filled & Initial Weight saved automatically!', 9000)
     ensureStatusBadge()
   } finally {
@@ -417,6 +419,11 @@ async function tryResumePhase1() {
   const resume = data[P1_RESUME_KEY]
   if (!resume?.stage || !resume.ts) return
   if (Date.now() - Number(resume.ts) > 30000) {
+    await storageRemove([P1_RESUME_KEY])
+    return
+  }
+  const current = readSelectedLot()
+  if (current.jobCard && resume.jobCard && String(current.jobCard) !== String(resume.jobCard)) {
     await storageRemove([P1_RESUME_KEY])
     return
   }
@@ -440,14 +447,21 @@ async function runPhase2() {
       showToast('Shrija Phase 2: Job Card + Lot dono chahiye')
       return
     }
+    const ready = await waitForLotForm(lot)
+    if (!ready) {
+      showToast(
+        `Shrija Phase 2: form pe dusra job hai, Lot ${lot.lot}:${lot.jobCard} nahi. Clubbed lot load hone do.`,
+      )
+      return
+    }
     const pending = (await storageGet([M2_PENDING_KEY]))[M2_PENDING_KEY]
-    if (MF.ignoreM2Pending(pending, lot.jobCard, lot.lot) && pending?.m2Values) {
+    if (MF.ignoreM2Pending(pending, ready.jobCard, ready.lot) && pending?.m2Values) {
       await storageRemove([M2_PENDING_KEY])
     }
-    const result = await MF.fillPhase2(sheet, lot.text, {
+    const result = await MF.fillPhase2(sheet, ready.text, {
       document,
-      lot: lot.lot,
-      jobCard: lot.jobCard,
+      lot: ready.lot,
+      jobCard: ready.jobCard,
       activationWaitMs: 5500,
       clickSaveCornet: true,
     })
@@ -492,17 +506,21 @@ async function runLotAutoFill(reason) {
   if (window.__shrijaFilling) return
   const lot2 = readSelectedLot()
   if (lot2.lot == null || !lot2.jobCard) return
+  if (!MF.lotContextMatches(lot2, document)) {
+    showToast(`Shrija AUTO: Lot ${lot2.lot}:${lot2.jobCard} form load nahi hua — fill skip`, 5000)
+    return
+  }
   const stage = MF.detectAssayFillStage(document)
   if (stage === 'done' || stage === 'unknown') return
   if (stage === 'phase2' && inPhase1Cooldown(lot2.jobCard, lot2.lot)) return
   ensureStatusBadge()
   if (stage === 'phase1') {
-    showToast(`Shrija AUTO Phase 1 · Lot ${lot2.lot}`, 4000)
+    showToast(`Shrija AUTO Phase 1 · Lot ${lot2.lot} · ${lot2.jobCard}`, 4000)
     await runPhase1({ quiet: true })
     return
   }
   if (stage === 'phase2') {
-    showToast(`Shrija AUTO Phase 2 · Lot ${lot2.lot}`, 4000)
+    showToast(`Shrija AUTO Phase 2 · Lot ${lot2.lot} · ${lot2.jobCard}`, 4000)
     await runPhase2()
   }
 }

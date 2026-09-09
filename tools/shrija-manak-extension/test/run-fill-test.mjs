@@ -14,9 +14,10 @@ const requireRoot = createRequire(join(root, 'package.json'))
 const MOCK_HTML = `
 <!DOCTYPE html>
 <html><body>
+  <div id="pageHeader">Job Card Number: 127935258 Clubbed with: 127935264, 127935269</div>
   <h3>Job Card Details</h3>
   <table id="jobCard">
-    <tr><td>Job Card Number</td><td>104736831</td></tr>
+    <tr><td>Job Card Number</td><td id="sectionJob">104736831</td></tr>
     <tr><td>Material Category</td><td>Gold</td></tr>
     <tr>
       <td>Declared Purity</td>
@@ -892,6 +893,129 @@ async function main() {
   assert(namedDom.window.document.getElementById('averagedelta1').value === '', 'does not fill averagedelta')
   assert(namedDom.window.document.getElementById('delta11').value === '', 'does not fill delta11')
   namedDom.window.close()
+
+  // Clubbed jobs: header parent must not steal Lot 1 of another job
+  const clubbedHtml = `
+    <div>Job Card Number: 127935258 Clubbed with: 127935264, 127935269</div>
+    <table id="jobCard">
+      <tr><td>Job Card Number</td><td id="sectionJob">127935269</td></tr>
+      <tr>
+        <td>Lot No. : Job No.</td>
+        <td>
+          <select id="ddlLot">
+            <option value="">Select</option>
+            <option value="1">Lot 1:127935258</option>
+            <option value="2">Lot 1:127935264</option>
+            <option value="3" selected>Lot 1:127935269</option>
+          </select>
+        </td>
+      </tr>
+    </table>
+    <table id="assay">
+      <tr><th>Sample Type</th><th>Initial weight M1</th><th>Silver</th><th>Copper</th><th>Lead</th><th>cornet M2</th></tr>
+      <tr><td>Strip 1</td><td><input class="m1" value="164.81" /></td><td><input class="ag" value="0" /></td><td><input class="cu" value="0" /></td><td><input class="pb" value="0" /></td><td><input class="m2" value="0" /></td></tr>
+      <tr><td>Strip 2</td><td><input class="m1" value="164.57" /></td><td><input class="ag" value="0" /></td><td><input class="cu" value="0" /></td><td><input class="pb" value="0" /></td><td><input class="m2" value="0" /></td></tr>
+      <tr><td>C1(Check Gold)</td><td><input class="m1" value="149.6" /></td><td><input class="ag" value="0" /></td><td><input class="cu" value="0" /></td><td><input class="pb" value="0" /></td><td><input class="m2" value="0" /></td></tr>
+      <tr><td>C2(Check Gold)</td><td><input class="m1" value="149.798" /></td><td><input class="ag" value="0" /></td><td><input class="cu" value="0" /></td><td><input class="pb" value="0" /></td><td><input class="m2" value="0" /></td></tr>
+    </table>
+  `
+  const clubbedSheet = {
+    ...SAMPLE_SHEET,
+    rows: [
+      {
+        lotNo: 1,
+        jobCardNo: '1_127935258',
+        manakJobCard: '127935258',
+        sampleDrawn: 333.41,
+        sampleWeight: 164.81,
+        silver: 373.3,
+        lead: 4,
+        wotgcaa: 151.396,
+      },
+      {
+        lotNo: 1,
+        jobCardNo: '1_127935258',
+        manakJobCard: '127935258',
+        sampleDrawn: 333.41,
+        sampleWeight: 164.57,
+        silver: 373.3,
+        lead: 4,
+        wotgcaa: 151.146,
+      },
+      {
+        lotNo: 1,
+        jobCardNo: '1_127935269',
+        manakJobCard: '127935269',
+        sampleDrawn: 332.89,
+        sampleWeight: 164.394,
+        silver: 373.3,
+        lead: 4,
+        wotgcaa: 150.76,
+      },
+      {
+        lotNo: 1,
+        jobCardNo: '1_127935269',
+        manakJobCard: '127935269',
+        sampleDrawn: 332.89,
+        sampleWeight: 164.153,
+        silver: 373.3,
+        lead: 4,
+        wotgcaa: 150.51,
+      },
+    ],
+  }
+  const clubbedDom = new JSDOM(`<!DOCTYPE html><html><body>${clubbedHtml}</body></html>`, {
+    url: 'https://huid.manakonline.in/MANAK/SamplingweightingDeatils',
+    runScripts: 'outside-only',
+  })
+  clubbedDom.window.eval(libCode)
+  const ClubFill = clubbedDom.window.ManakFill
+  ClubFill.delay = () => Promise.resolve()
+  ClubFill.waitUntilSerialGestureExpired = async () => 'skipped'
+  const clubDoc = clubbedDom.window.document
+  assert(ClubFill.readJobCardBesideLot(clubDoc) === '127935269', 'clubbed Job Card section is 269 not header 258')
+  const clubLot = ClubFill.readSelectedLotFromSelect(clubDoc.getElementById('ddlLot'), clubDoc)
+  assert(clubLot.jobCard === '127935269', 'selected lot job is 269')
+  assert(clubLot.lot === 1, 'clubbed lots share Lot 1')
+  assert(ClubFill.lotContextMatches(clubLot, clubDoc) === true, '269 form matches selected 269')
+  assert(
+    ClubFill.lotContextMatches({ lot: 1, jobCard: '127935258' }, clubDoc) === false,
+    'parent 258 does not match 269 form',
+  )
+  assert(ManakFill.readJobCardBesideLot(window.document) === '104736831', 'main mock Job Card is section not header')
+  const staleM1 = ClubFill.collectAssayInputs(clubDoc)
+  const rows269 = ClubFill.resolveStripRowsByJobAndLot(clubbedSheet, '127935269', 1).rows
+  assert(rows269[0].sampleWeight === 164.394, 'sheet M1 for 269')
+  assert(ClubFill.displayedM1MatchesJob(staleM1, rows269) === false, '258 M1 on 269 form is a mismatch')
+  const blockedP2 = await ClubFill.fillPhase2(clubbedSheet, 'Lot 1:127935269', {
+    document: clubDoc,
+    lot: 1,
+    jobCard: '127935269',
+    activationWaitMs: 0,
+    clickSaveCornet: false,
+    postbackWaitMs: 0,
+  })
+  assert(blockedP2.ok === false, 'Phase 2 blocked when M1 belongs to another clubbed job')
+  assert(blockedP2.error === 'm1_mismatch_wrong_job', 'Phase 2 error is m1_mismatch_wrong_job')
+  assert(Number(clubDoc.querySelector('#assay .m2').value) === 0, 'wrong-job M2 was not written')
+  clubDoc.querySelectorAll('#assay .m1')[0].value = '164.394'
+  clubDoc.querySelectorAll('#assay .m1')[1].value = '164.153'
+  const okP2 = await ClubFill.fillPhase2(clubbedSheet, 'Lot 1:127935269', {
+    document: clubDoc,
+    lot: 1,
+    jobCard: '127935269',
+    activationWaitMs: 0,
+    clickSaveCornet: false,
+    postbackWaitMs: 0,
+  })
+  assert(okP2.ok, 'Phase 2 fills 269 after M1 matches')
+  assert(Number(okP2.m2Values[0]) === 150.76, 'Phase 2 M2 is 269 not 258')
+  assert(Number(okP2.m2Values[1]) === 150.51, 'Phase 2 M2 strip 2 is 269')
+  assert(/readSelectedLotFromSelect/.test(manakSrc), 'content-manak reads lot from the select')
+  assert(!/includes\(m\[1\]\)/.test(manakSrc), 'content-manak does not map header job onto a lot option')
+  assert(/m1_mismatch_wrong_job/.test(libCode), 'lib guards clubbed M1 mismatch')
+  assert(/waitForLotForm/.test(manakSrc), 'content-manak waits for Job Card section')
+  clubbedDom.window.close()
 
   console.log('\nALL TESTS PASSED')
 }

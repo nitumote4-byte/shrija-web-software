@@ -377,7 +377,8 @@
     if (!jobCard) return false
     const want = String(jobCard)
     const card = ManakFill.rowManakJob(r)
-    return card === want || String(r.jobCardNo || '').includes(want)
+    if (card === want) return true
+    return ManakFill.parseShrijaJob(r.jobCardNo).card === want
   }
 
   ManakFill.rowMatchesLot = function rowMatchesLot(r, lotNum) {
@@ -626,10 +627,66 @@
   ManakFill.findLotSelect = function findLotSelect(doc) {
     const document = doc || root.document
     const selects = Array.from(document.querySelectorAll('select'))
-    const byOptions = selects.find((s) =>
+    const matches = selects.filter((s) =>
       Array.from(s.options || []).some((o) => /Lot\s*\d+/i.test(String(o.text || o.value || ''))),
     )
-    return byOptions || selects.find((s) => /lot/i.test(`${s.id || ''} ${s.name || ''}`)) || null
+    const visible = matches.find((s) => ManakFill.visible(s))
+    return visible || matches[0] || selects.find((s) => /lot/i.test(`${s.id || ''} ${s.name || ''}`)) || null
+  }
+
+  /**
+   * Job Card Number in the Lot dropdown table — not the clubbed parent in the page header.
+   * Clubbed pages keep the parent job in the header while this section follows the selected lot.
+   */
+  ManakFill.readJobCardBesideLot = function readJobCardBesideLot(doc) {
+    const document = doc || root.document
+    const sel = ManakFill.findLotSelect(document)
+    if (!sel) return ''
+    const table = sel.closest('table')
+    if (!table) return ''
+    const t = (table.textContent || '').replace(/\s+/g, ' ')
+    const m = /Job\s*Card\s*(?:Number|No\.?)\s*[:：]?\s*(\d{6,})/i.exec(t)
+    return m ? m[1] : ''
+  }
+
+  ManakFill.readSelectedLotFromSelect = function readSelectedLotFromSelect(sel, doc) {
+    if (!sel) return { text: '', lot: null, jobCard: '' }
+    const document = doc || sel.ownerDocument || root.document
+    let opt = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null
+    let text = (opt?.text || opt?.label || '').trim()
+    let parsed = ManakFill.parseLotOptionText(text)
+    if (parsed.lot == null && !parsed.jobCard) {
+      const byVal = Array.from(sel.options || []).find((o) => o.selected) || null
+      text = (byVal?.text || sel.value || '').trim()
+      parsed = ManakFill.parseLotOptionText(text)
+    }
+    if (parsed.lot != null && !parsed.jobCard) {
+      const beside = ManakFill.readJobCardBesideLot(document)
+      if (beside) parsed = { lot: parsed.lot, jobCard: beside }
+    }
+    return { text, lot: parsed.lot, jobCard: parsed.jobCard || '' }
+  }
+
+  /** Clubbed jobs: do not fill until the Job Card section matches the selected lot job. */
+  ManakFill.lotContextMatches = function lotContextMatches(selected, doc) {
+    const job = String(selected?.jobCard || '').trim()
+    const lot = selected?.lot
+    if (!job || lot == null || Number.isNaN(Number(lot))) return false
+    const visible = ManakFill.readJobCardBesideLot(doc)
+    if (visible && visible !== job) return false
+    return true
+  }
+
+  /** Phase 2 must not write M2 onto another job's leftover M1 (clubbed Lot 1 pages). */
+  ManakFill.displayedM1MatchesJob = function displayedM1MatchesJob(cols, stripRows) {
+    const want1 = Number(stripRows?.[0]?.sampleWeight)
+    const want2 = Number(stripRows?.[1]?.sampleWeight)
+    const got1 = Number(cols?.m1?.[0]?.value || 0)
+    const got2 = Number(cols?.m1?.[1]?.value || 0)
+    if (!(got1 > 0.01 && got2 > 0.01)) return true
+    if (!(want1 > 0 && want2 > 0)) return true
+    const close = (a, b) => Math.abs(a - b) <= 0.05
+    return close(got1, want1) && close(got2, want2)
   }
 
   ManakFill.NAMED_M2_IDS = [
@@ -1547,6 +1604,19 @@
     let cols = ManakFill.collectAssayInputs(document)
     const m1Before = cols.m1.map((el) => el?.value)
     const silverBefore = cols.silver.map((el) => el?.value)
+    if (!ManakFill.displayedM1MatchesJob(cols, stripRows)) {
+      return {
+        ok: false,
+        phase: 2,
+        error: 'm1_mismatch_wrong_job',
+        message:
+          'Portal pe M1 is job ka nahi (clubbed lot). Phase 2 skip. Galat M1 delete karke Phase 1 dubara bharo.',
+        lotNum: resolved.lotNum,
+        jobCard: resolved.jobCard,
+        m1Values: m1Before,
+        clickedSaveCornet: false,
+      }
+    }
 
     ManakFill.prepareScaleBypass(document)
     await ManakFill.waitUntilSerialGestureExpired(opts)
