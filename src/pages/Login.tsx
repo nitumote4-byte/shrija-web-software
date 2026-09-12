@@ -82,6 +82,10 @@ export function Login() {
       setError(result.error)
       return
     }
+    if (result.session.mustChangePassword) {
+      window.location.assign('/change-password')
+      return
+    }
     if (result.licenseExpired) {
       window.location.assign('/license')
       return

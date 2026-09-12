@@ -15,12 +15,14 @@ import {
   requireAuth,
   requireActiveTenant,
   requireCentreAdmin,
+  requireLiveUser,
   signToken,
   type AuthUser,
   enforceTenantBody,
 } from '../middleware/auth.js'
 import { assertMaster, evaluateLicense, getTenantLicense, trialExpiryIso } from '../license.js'
 import { isMailConfigured, resetBaseUrl, sendPasswordResetEmail, PASSWORD_RESET_TTL_MINUTES } from '../mail.js'
+import { MIN_PASSWORD_LENGTH, passwordPolicyError, strongPasswordSchema } from '../passwordPolicy.js'
 import {
   GENERIC_LOGIN_ERROR,
   listFirmOutlets,
@@ -76,14 +78,6 @@ async function usernameTakenByOtherTenant(username: string, tenantId?: string) {
       )
     : await pool.query(`SELECT 1 FROM users WHERE lower(username) = lower($1) LIMIT 1`, [username])
   return Boolean(rows[0])
-}
-
-async function uniqueLabUsername(slug: string) {
-  const candidates = ['SMG', `SMG-${slug}`, `SMG-${uid('lab').slice(-10)}`]
-  for (const name of candidates) {
-    if (!(await usernameTakenByOtherTenant(name))) return name
-  }
-  return `SMG-${uid('lab')}`
 }
 
 function slugify(name: string) {
@@ -153,7 +147,7 @@ const registerSchema = z.object({
   firmName: z.string().trim().min(1),
   gstin: z.string().trim().optional().default(''),
   adminUsername: z.string().trim().min(1),
-  adminPassword: z.string().min(4),
+  adminPassword: z.string().min(MIN_PASSWORD_LENGTH).max(200),
   adminRole: z.string().optional().default('quality_manager'),
 })
 
@@ -169,6 +163,11 @@ authRouter.post('/register', authLimiter, async (req, res) => {
     return
   }
   const { firmName, gstin, adminUsername, adminPassword, adminRole } = parsed.data
+  const passwordErr = passwordPolicyError(adminPassword, adminUsername)
+  if (passwordErr) {
+    res.status(400).json({ error: passwordErr })
+    return
+  }
   const slug = slugify(firmName)
 
   const clash = await pool.query(
@@ -188,13 +187,10 @@ authRouter.post('/register', authLimiter, async (req, res) => {
 
   const tenantId = uid('tn')
   const userId = uid('usr')
-  const labId = uid('usr')
   const createdAt = nowIso()
   const trialEnds = trialExpiryIso(14)
   const hash = bcrypt.hashSync(adminPassword, 10)
-  const labHash = bcrypt.hashSync('smg123', 10)
   const role = adminRole || 'quality_manager'
-  const labUsername = await uniqueLabUsername(slug)
 
   try {
     await withTransaction(async (client) => {
@@ -204,14 +200,9 @@ authRouter.post('/register', authLimiter, async (req, res) => {
         [tenantId, slug, firmName, gstin || '', createdAt, trialEnds],
       )
       await client.query(
-        `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at)
-         VALUES ($1, $2, $3, $4, $5, TRUE, $6)`,
+        `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at, must_change_password)
+         VALUES ($1, $2, $3, $4, $5, TRUE, $6, FALSE)`,
         [userId, tenantId, adminUsername, role, hash, createdAt],
-      )
-      await client.query(
-        `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at)
-         VALUES ($1, $2, $3, 'assay_lab', $4, FALSE, $5)`,
-        [labId, tenantId, labUsername, labHash, createdAt],
       )
       await client.query(
         `INSERT INTO firm_profiles
@@ -281,6 +272,7 @@ type LoginUserRow = {
   status: string
   plan: string
   licenseExpiresAt: string | null
+  mustChangePassword: boolean
 }
 
 authRouter.post('/login', authLimiter, async (req, res) => {
@@ -295,6 +287,7 @@ authRouter.post('/login', authLimiter, async (req, res) => {
     `SELECT u.id, u.username, u.role, u.password_hash AS "passwordHash",
             u.is_admin AS "isAdmin",
             COALESCE(u.centre_id, 'main') AS "centreId",
+            COALESCE(u.must_change_password, FALSE) AS "mustChangePassword",
             t.id AS "tenantId", t.firm_name AS "firmName", t.status, t.plan,
             t.license_expires_at AS "licenseExpiresAt"
      FROM users u
@@ -339,6 +332,7 @@ authRouter.post('/login', authLimiter, async (req, res) => {
     centreId: centre.centreId,
     centreKind: centre.centreKind,
     centreName: centre.centreName,
+    mustChangePassword: Boolean(user.mustChangePassword),
   }
   const token = signToken(authUser)
   res.json({
@@ -353,6 +347,7 @@ authRouter.post('/login', authLimiter, async (req, res) => {
       centreId: authUser.centreId,
       centreKind: authUser.centreKind,
       centreName: authUser.centreName,
+      mustChangePassword: Boolean(authUser.mustChangePassword),
     },
     license,
   })
@@ -360,20 +355,38 @@ authRouter.post('/login', authLimiter, async (req, res) => {
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(4).max(200),
+  newPassword: z.string().min(MIN_PASSWORD_LENGTH).max(200),
 })
 
 /** Logged-in user may change only their own password (JWT user + tenant). */
-authRouter.post('/change-password', authLimiter, requireAuth, requireActiveTenant, enforceTenantBody, async (req, res) => {
+authRouter.post(
+  '/change-password',
+  authLimiter,
+  requireAuth,
+  requireActiveTenant,
+  enforceTenantBody,
+  requireLiveUser,
+  async (req, res) => {
   const parsed = changePasswordSchema.safeParse(req.body)
   if (!parsed.success) {
-    res.status(400).json({ error: 'Current password and a new password (min 4 characters) are required' })
+    res.status(400).json({
+      error: `Current password and a new password (min ${MIN_PASSWORD_LENGTH} characters) are required`,
+    })
     return
   }
 
   const tenantId = req.user!.tenantId
   const userId = req.user!.userId
   const { currentPassword, newPassword } = parsed.data
+  const policyErr = passwordPolicyError(newPassword, req.user!.username)
+  if (policyErr) {
+    res.status(400).json({ error: policyErr })
+    return
+  }
+  if (newPassword === currentPassword) {
+    res.status(400).json({ error: 'New password must be different from the current password' })
+    return
+  }
 
   const { rows } = await pool.query(
     `SELECT id, password_hash AS "passwordHash"
@@ -392,11 +405,10 @@ authRouter.post('/change-password', authLimiter, requireAuth, requireActiveTenan
   }
 
   const hash = bcrypt.hashSync(newPassword, 10)
-  await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2 AND tenant_id = $3`, [
-    hash,
-    userId,
-    tenantId,
-  ])
+  await pool.query(
+    `UPDATE users SET password_hash = $1, must_change_password = FALSE WHERE id = $2 AND tenant_id = $3`,
+    [hash, userId, tenantId],
+  )
 
   res.json({ ok: true, message: 'Password updated' })
 })
@@ -406,7 +418,14 @@ const verifyPasswordSchema = z.object({
 })
 
 /** Confirm the signed-in user's own login password. Does not store or return the password. */
-authRouter.post('/verify-password', authLimiter, requireAuth, requireActiveTenant, enforceTenantBody, async (req, res) => {
+authRouter.post(
+  '/verify-password',
+  authLimiter,
+  requireAuth,
+  requireActiveTenant,
+  enforceTenantBody,
+  requireLiveUser,
+  async (req, res) => {
   const parsed = verifyPasswordSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Password is required' })
@@ -522,7 +541,7 @@ authRouter.post('/forgot-password', forgotLimiter, async (req, res) => {
 
 const resetPasswordSchema = z.object({
   token: z.string().min(16).max(400),
-  password: z.string().min(4).max(200),
+  password: strongPasswordSchema(),
 })
 
 authRouter.post('/reset-password', authLimiter, async (req, res) => {
@@ -530,7 +549,11 @@ authRouter.post('/reset-password', authLimiter, async (req, res) => {
   if (!parsed.success) {
     const onlyPassword = parsed.error.issues.every((issue) => issue.path[0] === 'password')
     if (onlyPassword) {
-      res.status(400).json({ error: 'A new password (min 4 characters) is required' })
+      res.status(400).json({
+        error:
+          parsed.error.issues[0]?.message ||
+          `A new password (min ${MIN_PASSWORD_LENGTH} characters) is required`,
+      })
       return
     }
     res.status(400).json({ error: GENERIC_RESET_ERROR })
@@ -579,11 +602,10 @@ authRouter.post('/reset-password', authLimiter, async (req, res) => {
       }
 
       const passwordHash = bcrypt.hashSync(password, 10)
-      await client.query(`UPDATE users SET password_hash = $1 WHERE id = $2 AND tenant_id = $3`, [
-        passwordHash,
-        tok.userId,
-        tok.tenantId,
-      ])
+      await client.query(
+        `UPDATE users SET password_hash = $1, must_change_password = FALSE WHERE id = $2 AND tenant_id = $3`,
+        [passwordHash, tok.userId, tok.tenantId],
+      )
       await client.query(
         `UPDATE password_reset_tokens
          SET used_at = NOW()
@@ -602,7 +624,7 @@ authRouter.post('/reset-password', authLimiter, async (req, res) => {
   res.json({ ok: true, message: 'Password has been reset. You can now sign in.' })
 })
 
-authRouter.get('/me', requireAuth, enforceTenantBody, async (req, res) => {
+authRouter.get('/me', requireAuth, enforceTenantBody, requireLiveUser, async (req, res) => {
   assertTenantId(req.user?.tenantId)
   const license = await getTenantLicense(req.user!.tenantId)
   res.json({
@@ -616,12 +638,20 @@ authRouter.get('/me', requireAuth, enforceTenantBody, async (req, res) => {
       centreId: req.user!.centreId || 'main',
       centreKind: req.user!.centreKind || 'main',
       centreName: req.user!.centreName || req.user!.tenantName,
+      mustChangePassword: Boolean(req.user!.mustChangePassword),
     },
     license,
   })
 })
 
-authRouter.get('/users', requireAuth, requireActiveTenant, enforceTenantBody, requireCentreAdmin, async (req, res) => {
+authRouter.get(
+  '/users',
+  requireAuth,
+  requireActiveTenant,
+  enforceTenantBody,
+  requireLiveUser,
+  requireCentreAdmin,
+  async (req, res) => {
   const tenantId = req.user!.tenantId
   const { rows } = await pool.query(
     `SELECT id, username, role, is_admin AS "isAdmin",
@@ -648,7 +678,22 @@ const upsertUsersSchema = z.object({
   ),
 })
 
-authRouter.put('/users', requireAuth, requireActiveTenant, enforceTenantBody, requireCentreAdmin, async (req, res) => {
+type ExistingUserRow = {
+  id: string
+  username: string
+  passwordHash: string
+  centreId: string
+  mustChangePassword: boolean
+}
+
+authRouter.put(
+  '/users',
+  requireAuth,
+  requireActiveTenant,
+  enforceTenantBody,
+  requireLiveUser,
+  requireCentreAdmin,
+  async (req, res) => {
   const tenantId = req.user!.tenantId
   const parsed = upsertUsersSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -667,17 +712,21 @@ authRouter.put('/users', requireAuth, requireActiveTenant, enforceTenantBody, re
   }
 
   const existing = await pool.query(
-    `SELECT username, password_hash AS "passwordHash",
-            COALESCE(centre_id, 'main') AS "centreId"
+    `SELECT id, username, password_hash AS "passwordHash",
+            COALESCE(centre_id, 'main') AS "centreId",
+            COALESCE(must_change_password, FALSE) AS "mustChangePassword"
      FROM users WHERE tenant_id = $1`,
     [tenantId],
   )
-  const byName = new Map(
-    (existing.rows as { username: string; passwordHash: string; centreId: string }[]).map((u) => [
-      u.username.toLowerCase(),
-      u.passwordHash,
-    ]),
-  )
+  const existingRows = existing.rows as ExistingUserRow[]
+  const byName = new Map(existingRows.map((u) => [u.username.toLowerCase(), u]))
+
+  const incomingNames = new Set(parsed.data.users.map((u) => u.username.toLowerCase()))
+  const selfRow = existingRows.find((u) => u.id === req.user!.userId)
+  if (selfRow && !incomingNames.has(selfRow.username.toLowerCase())) {
+    res.status(400).json({ error: 'You cannot remove your own login while signed in' })
+    return
+  }
 
   for (const u of parsed.data.users) {
     const alreadyOurs = byName.has(u.username.toLowerCase())
@@ -691,11 +740,11 @@ authRouter.put('/users', requireAuth, requireActiveTenant, enforceTenantBody, re
 
   const outlets = mergeAssignedOscOutlets(
     await loadTenantOutlets(tenantId, req.user!.tenantName),
-    (existing.rows as { centreId: string }[]).map((u) => u.centreId),
+    existingRows.map((u) => u.centreId),
   )
   const allowed = new Set(outlets.map((c) => c.id))
   allowed.add('main')
-  for (const row of existing.rows as { centreId: string }[]) {
+  for (const row of existingRows) {
     const id = String(row.centreId || '').trim()
     if (id) allowed.add(id)
   }
@@ -713,22 +762,60 @@ authRouter.put('/users', requireAuth, requireActiveTenant, enforceTenantBody, re
     }
   }
 
+  const nextRows: Array<{
+    id: string
+    username: string
+    role: string
+    hash: string
+    isAdmin: boolean
+    centreId: string
+    mustChange: boolean
+    createdAt: string
+  }> = []
+
   const createdAt = nowIso()
+  for (const u of parsed.data.users) {
+    const prev = byName.get(u.username.toLowerCase())
+    const isAdmin = u.role === 'admin' || u.role === 'quality_manager'
+    let hash: string
+    let mustChange: boolean
+    if (u.password === '******') {
+      if (!prev?.passwordHash) {
+        res.status(400).json({
+          error: `Set a password for "${u.username}" (placeholder cannot be used for a new or renamed user)`,
+        })
+        return
+      }
+      hash = prev.passwordHash
+      mustChange = Boolean(prev.mustChangePassword)
+    } else {
+      const policyErr = passwordPolicyError(u.password, u.username)
+      if (policyErr) {
+        res.status(400).json({ error: policyErr })
+        return
+      }
+      hash = bcrypt.hashSync(u.password, 10)
+      mustChange = prev?.id !== req.user!.userId
+    }
+    nextRows.push({
+      id: prev?.id || uid('usr'),
+      username: u.username,
+      role: u.role,
+      hash,
+      isAdmin,
+      centreId: (u.centreId || 'main').trim() || 'main',
+      mustChange,
+      createdAt,
+    })
+  }
+
   await withTransaction(async (client) => {
     await client.query(`DELETE FROM users WHERE tenant_id = $1`, [tenantId])
-    for (const u of parsed.data.users) {
-      const isAdmin = u.role === 'admin' || u.role === 'quality_manager'
-      let hash: string
-      if (u.password === '******') {
-        hash = byName.get(u.username.toLowerCase()) || bcrypt.hashSync('admin123', 10)
-      } else {
-        hash = bcrypt.hashSync(u.password, 10)
-      }
-      const centreId = (u.centreId || 'main').trim() || 'main'
+    for (const u of nextRows) {
       await client.query(
-        `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, centre_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [uid('usr'), tenantId, u.username, u.role, hash, isAdmin, centreId, createdAt],
+        `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, centre_id, created_at, must_change_password)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [u.id, tenantId, u.username, u.role, u.hash, u.isAdmin, u.centreId, u.createdAt, u.mustChange],
       )
     }
   })

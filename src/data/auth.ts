@@ -96,6 +96,10 @@ export async function login(
     setAuth(result.token, result.session)
     if (result.license) setCachedLicense(result.license)
 
+    if (result.session.mustChangePassword) {
+      return { ok: true, session: result.session }
+    }
+
     if (result.license && !result.license.ok) {
       return { ok: true, session: result.session, licenseExpired: true }
     }

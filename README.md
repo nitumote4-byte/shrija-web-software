@@ -29,4 +29,6 @@ Then open **http://localhost:5173**.
 - Touch Form & Touch Billing
 - Reports & Others (backup / reset)
 
-Data is stored in the browser via `localStorage` for demo use.
+Data is stored in PostgreSQL (one JSON store document per centre). The Vite UI talks to the Express API; `npm run dev` starts Docker Postgres, the API, and the UI.
+
+Production hosting is documented in `DEPLOY.md` (Vercel UI + Railway API/Postgres).

@@ -7,7 +7,7 @@ import { store } from '../data/store'
 import { CENTRE_NAME } from '../data/modules'
 import { getFirmProfile, saveFirmProfile, type CentreOutlet } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
-import { getSession } from '../data/auth'
+import { getSession, verifyLoginPassword } from '../data/auth'
 import { getWorkingPeriodName } from '../data/operationalPeriod'
 import { DEFAULT_MIN_BILL_AMOUNT, parseMinBillAmount } from '../utils/minBillCharge'
 import {
@@ -456,14 +456,15 @@ export function PartyDetails() {
 
 export function CompanyProfile() {
   const { toast, Toast } = useToast()
-  const UNLOCK_PASSWORD = 'admin123'
+  const session = getSession()
+  const canEdit = Boolean(session?.isAdmin)
 
   const defaults = {
-    firmName: CENTRE_NAME,
-    email: 'info@shrija-hallmarking.in',
-    address: 'Main Market, City',
-    gstNo: '27AAAAA0000A1Z5',
-    bankName: 'ICICI BANK',
+    firmName: session?.tenantName || CENTRE_NAME,
+    email: '',
+    address: '',
+    gstNo: '',
+    bankName: '',
     accountNo: '',
     ifsc: '',
     city: '',
@@ -491,14 +492,26 @@ export function CompanyProfile() {
     (initial.centres || []).filter((c) => c.kind === 'osc'),
   )
 
-  const checkUnlock = () => {
-    if (password === UNLOCK_PASSWORD) {
-      setLocked(false)
-      setPassword('')
-      toast('Form unlocked')
+  const [unlockBusy, setUnlockBusy] = useState(false)
+
+  const checkUnlock = async () => {
+    if (!canEdit) {
+      toast('Only a centre administrator can edit company profile')
       return
     }
-    toast('Incorrect password')
+    setUnlockBusy(true)
+    try {
+      const result = await verifyLoginPassword(password)
+      if (result.ok) {
+        setLocked(false)
+        setPassword('')
+        toast('Form unlocked')
+        return
+      }
+      toast(result.error || 'Incorrect password')
+    } finally {
+      setUnlockBusy(false)
+    }
   }
 
   const addOsc = () => {
@@ -580,13 +593,18 @@ export function CompanyProfile() {
           </span>
           <input
             type="password"
-            placeholder="Enter password to unlock"
+            placeholder={canEdit ? 'Your login password' : 'Admin only'}
             value={password}
-            disabled={!locked}
+            disabled={!locked || !canEdit}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && checkUnlock()}
+            onKeyDown={(e) => e.key === 'Enter' && void checkUnlock()}
           />
-          <button type="button" className="btn btn-navy" onClick={checkUnlock} disabled={!locked}>
+          <button
+            type="button"
+            className="btn btn-navy"
+            onClick={() => void checkUnlock()}
+            disabled={!locked || !canEdit || unlockBusy}
+          >
             Check
           </button>
         </div>
@@ -1351,20 +1369,7 @@ function loadStaff(): Staff[] {
   } catch {
     /* ignore */
   }
-  const seed: Staff[] = [
-    normalizeStaff({
-      id: 'st1',
-      name: 'RAHUL',
-      role: 'RECIPTION & DELIVERY SYSTEM',
-      phone: '8000132051',
-      salary: 10000,
-      joiningDate: '2026-07-21',
-      shift: 'Day',
-      city: 'DARBHANGA',
-    }),
-  ]
-  tenantSet('shrija-staff', JSON.stringify(seed))
-  return seed
+  return []
 }
 
 function saveStaffList(list: Staff[]) {

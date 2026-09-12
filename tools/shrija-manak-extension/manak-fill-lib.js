@@ -234,7 +234,9 @@
     const start = Date.now()
     try {
       if (!nav || !nav.userActivation) {
-        await ManakFill.delay(max)
+        // Isolated worlds may lack the API. Posted-value fill never clicks weight fields,
+        // so a short settle is enough — do not sleep the full cap.
+        await ManakFill.delay(Math.min(max, 400))
         return 'no-api'
       }
       while (nav.userActivation.isActive && Date.now() - start < max) {
@@ -277,15 +279,30 @@
   ManakFill.isPortalPostbackBusy = function isPortalPostbackBusy(doc) {
     const document = doc || root.document
     if (!document || !document.querySelectorAll) return false
+    const win = (document.defaultView && document.defaultView) || root
+    try {
+      const prm =
+        win.Sys &&
+        win.Sys.WebForms &&
+        win.Sys.WebForms.PageRequestManager &&
+        typeof win.Sys.WebForms.PageRequestManager.getInstance === 'function' &&
+        win.Sys.WebForms.PageRequestManager.getInstance()
+      if (prm && typeof prm.get_isInAsyncPostBack === 'function' && prm.get_isInAsyncPostBack()) {
+        return true
+      }
+    } catch {
+      /* ignore */
+    }
     const nodes = document.querySelectorAll(
       '[id*="UpdateProgress"], [id$="_UpdateProgress"], .UpdateProgress, .blockUI, .Sys-Progress',
     )
     for (const n of nodes) {
-      const style = `${n.getAttribute('style') || ''} ${n.style?.display || ''}`
+      const style = `${n.getAttribute('style') || ''} ${n.style?.display || ''} ${n.style?.visibility || ''}`
       if (/display\s*:\s*none/i.test(style) || n.style?.display === 'none') continue
       if (/visibility\s*:\s*hidden/i.test(style)) continue
+      // MS AJAX sets display:block while the overlay is showing. Idle wrappers stay in the DOM
+      // without that inline display — do not treat them as busy via visible().
       if (/display\s*:\s*block|display\s*:\s*flex/i.test(style)) return true
-      if (ManakFill.visible(n)) return true
     }
     return false
   }
@@ -297,14 +314,14 @@
     }
     if (opts.postbackWaitMs === 0) return 'skip'
     const document = opts.document || root.document
-    const minWait = opts.postbackWaitMs != null ? opts.postbackWaitMs : 700
-    const timeout = opts.postbackTimeoutMs != null ? opts.postbackTimeoutMs : 8000
+    const minWait = opts.postbackWaitMs != null ? opts.postbackWaitMs : 250
+    const timeout = opts.postbackTimeoutMs != null ? opts.postbackTimeoutMs : 4000
     if (minWait > 0) await ManakFill.delay(minWait)
     const start = Date.now()
     while (Date.now() - start < timeout && ManakFill.isPortalPostbackBusy(document)) {
-      await ManakFill.delay(120)
+      await ManakFill.delay(80)
     }
-    await ManakFill.delay(180)
+    await ManakFill.delay(80)
     return 'polled'
   }
 
@@ -505,7 +522,7 @@
 
   ManakFill.findLabelNode = function findLabelNode(labelRe, root) {
     const scope = root || document
-    const nodes = Array.from(scope.querySelectorAll('td, th, label, span, b, strong, font, div, p'))
+    const nodes = Array.from(scope.querySelectorAll('td, th, label, span, b, strong, font'))
     let best = null
     for (const n of nodes) {
       const t = ManakFill.shortText(n)
@@ -526,13 +543,17 @@
   ManakFill.findSamplingInputs = function findSamplingInputs(doc) {
     const document = doc || root.document
     let section = null
-    const tables = Array.from(document.querySelectorAll('table, fieldset, div'))
+    const tables = Array.from(document.querySelectorAll('table, fieldset'))
     for (const t of tables) {
       const text = (t.textContent || '').replace(/\s+/g, ' ')
       if (/Sample Drawn Weight/i.test(text) && /Button Weight/i.test(text) && text.length < 8000) {
         section = t
         break
       }
+    }
+    if (!section) {
+      const label = ManakFill.findLabelNode(/Sample Drawn Weight/i, document)
+      section = label?.closest('table, fieldset, tr') || null
     }
     const rootEl = section || document
 
@@ -1206,7 +1227,7 @@
         settled = true
         resolve(Boolean(ok))
       }
-      const t = setTimeout(() => finish(false), 8000)
+      const t = setTimeout(() => finish(false), 2500)
       try {
         chrome.runtime.sendMessage({ type: 'SHRIJA_MAIN_CLICK_SAVE', role: role || 'cornet' }, (res) => {
           clearTimeout(t)

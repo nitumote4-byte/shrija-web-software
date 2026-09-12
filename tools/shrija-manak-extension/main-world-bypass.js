@@ -698,7 +698,7 @@
       )
     })
 
-    window.__shrijaPrepareTimer = setInterval(prepareScale, 800)
+    window.__shrijaPrepareTimer = setInterval(prepareScale, 2000)
   }
 
   prepareScale()

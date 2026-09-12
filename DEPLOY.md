@@ -25,7 +25,8 @@ SQLite is no longer used. Schema is created automatically on API boot (`initDb`)
 |----------|--------|
 | `DATABASE_URL` | From Postgres (Reference Variable) |
 | `JWT_SECRET` | Long random string (e.g. `openssl rand -hex 32`) |
-| `CORS_ORIGIN` | `https://shrija-web-software.vercel.app` (comma-separate if multiple) |
+| `LICENSE_MASTER_SECRET` | Separate long random string for `/operator` and licence issue — **required**, not a JWT fallback |
+| `CORS_ORIGIN` | `https://shrija-web-software.vercel.app` (comma-separate if multiple). **Required** in production; the API will not start without it. |
 | `FRONTEND_URL` | `https://shrija-web-software.vercel.app` (password-reset links) |
 | `MAIL_HOST` | `smtp.resend.com` |
 | `MAIL_PORT` | `587` |
@@ -36,14 +37,38 @@ SQLite is no longer used. Schema is created automatically on API boot (`initDb`)
 
 Forgot Password uses **Resend SMTP**. `MAIL_FROM` must be a domain/address verified in the Resend dashboard. Emails go to the centre **Company Profile** email. If that address is empty, the API still returns the generic success message and does not send mail. Schema for reset tokens is created automatically on API boot.
 
-5. Deploy → open the public URL → `/api/health` should return `{ ok: true, db: "postgres" }`.
+5. Deploy → open the public URL → `/api/health` should return `{ ok: true, ready: true, service: "shrija-api" }` in production.
 6. Optional seed (Railway shell / one-off):
 
 ```bash
 npm run seed
 ```
 
-Creates **Centre A** → `qm_admin` / `admin123`.
+Creates **Centre A** → `qm_admin` plus a **one-time random password** printed in the seed output. Change it on first sign-in. Lab users are not created automatically.
+
+---
+
+## PostgreSQL backups (required before a paying customer)
+
+Railway Postgres backups are **not configured in this repo**. In the Railway dashboard:
+
+1. Open the PostgreSQL service → Backups (or Point-in-time recovery, depending on the plan).
+2. Enable automatic backups with at least 7 days retention.
+3. Run a restore drill once: create a throwaway project or restore to a staging instance, then confirm `store_docs` for a test centre is intact.
+
+Manual dump from a linked database:
+
+```bash
+pg_dump "$DATABASE_URL" --format=custom --file shrija-$(date +%F).dump
+```
+
+Restore:
+
+```bash
+pg_restore --clean --if-exists --dbname "$DATABASE_URL" shrija-YYYY-MM-DD.dump
+```
+
+The in-app **Others → Backup** JSON export is not a substitute for `pg_dump`. Restore in the UI is admin-only and requires typing `RESTORE`.
 
 ---
 
@@ -65,8 +90,8 @@ Creates **Centre A** → `qm_admin` / `admin123`.
 
 | Variable | Value |
 |----------|--------|
-| `LICENSE_MASTER_SECRET` | Strong secret used only to **issue** keys (Licence page → Issue keys) |
-| `JWT_SECRET` | Already required; also fallback for master if `LICENSE_MASTER_SECRET` unset |
+| `LICENSE_MASTER_SECRET` | Strong secret used only to **issue** keys and open `/operator` |
+| `JWT_SECRET` | Session tokens only. Do **not** reuse it as the licence master in production. |
 
 - New centres get a **14-day trial**.
 - Centre admin activates keys at `/license` or **Others → Licence**.
@@ -86,7 +111,7 @@ npm run dev
 
 Open **http://localhost:5173**. One command starts Docker Postgres, the API on port **8787**, and Vite on **5173** (strict — it will not fall back to 5174). Vite proxies `/api` → `http://127.0.0.1:8787` when `VITE_API_URL` is unset.
 
-Optional seed (empty database only): `npm run seed`
+Optional seed (empty database only): `npm run seed` prints a one-time `qm_admin` password. Change it on first sign-in.
 
 ---
 

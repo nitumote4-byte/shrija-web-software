@@ -231,4 +231,11 @@ activate(
   assert(!canAccessPath('/lab-stock'), 'OSC cannot open lab stock route')
 }
 
+activate(session({ role: 'unknown_role', isAdmin: false }))
+{
+  assert(!canAccessPath('/billing'), 'Unknown role is denied billing')
+  assert(!canAccessPath('/create-fire-assay'), 'Unknown role is denied lab')
+  assert(!canAccessPath('/others'), 'Unknown role is denied others')
+}
+
 console.log('nav-visibility.selftest: ok')

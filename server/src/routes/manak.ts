@@ -8,8 +8,15 @@ import {
   requireAuth,
   requireActiveTenant,
   requireValidLicense,
+  requireLiveUser,
+  requireFreshPassword,
   sessionCentre,
 } from '../middleware/auth.js'
+import {
+  canUseManakDesk,
+  requireAdminRole,
+  requireKnownRole,
+} from '../rbac.js'
 import {
   completePortalFetch,
   demoRequests,
@@ -24,6 +31,9 @@ manakRouter.use(requireAuth)
 manakRouter.use(requireActiveTenant)
 manakRouter.use(enforceTenantBody)
 manakRouter.use(requireValidLicense)
+manakRouter.use(requireLiveUser)
+manakRouter.use(requireFreshPassword)
+manakRouter.use(requireKnownRole)
 
 const KV_KEY = 'manak_credentials'
 
@@ -63,6 +73,10 @@ function normalizeMacs(raw: string) {
 }
 
 manakRouter.get('/credentials', async (req, res) => {
+  if (!canUseManakDesk(req.user!)) {
+    res.status(403).json({ error: 'Manak settings are limited to reception and centre admin' })
+    return
+  }
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
   const creds = await loadCreds(tenantId)
@@ -84,7 +98,7 @@ const putSchema = z.object({
   clearPassword: z.boolean().optional(),
 })
 
-manakRouter.put('/credentials', async (req, res) => {
+manakRouter.put('/credentials', requireAdminRole, async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
   if (sessionCentre(req.user!).centreKind === 'osc') {
@@ -131,7 +145,7 @@ manakRouter.put('/credentials', async (req, res) => {
  * Authenticated desk helper: returns decrypted Manak login for local scrap tool only.
  * Never expose this without JWT. Rate-limited.
  */
-manakRouter.post('/scrap-bundle', scrapBundleLimiter, async (req, res) => {
+manakRouter.post('/scrap-bundle', scrapBundleLimiter, requireAdminRole, async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
   if (sessionCentre(req.user!).centreKind === 'osc') {
@@ -167,6 +181,10 @@ const fetchSchema = z.object({
 manakRouter.post('/fetch', async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
+  if (!canUseManakDesk(req.user!)) {
+    res.status(403).json({ error: 'Manak fetch is limited to reception and centre admin' })
+    return
+  }
   const parsed = fetchSchema.safeParse(req.body || {})
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid fetch body' })
@@ -227,7 +245,12 @@ manakRouter.post('/fetch', async (req, res) => {
     res.json(started)
   } catch (e) {
     const status = (e as { status?: number })?.status || 502
-    const message = e instanceof Error ? e.message : 'Manak fetch failed'
+    const message =
+      process.env.NODE_ENV === 'production'
+        ? 'Manak fetch failed'
+        : e instanceof Error
+          ? e.message
+          : 'Manak fetch failed'
     res.status(status).json({ error: message })
   }
 })

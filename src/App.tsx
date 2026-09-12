@@ -155,6 +155,9 @@ const OperationalPeriodPage = lazy(() =>
   import('./pages/OperationalPeriod').then((m) => ({ default: m.OperationalPeriodPage })),
 )
 const DataBackup = lazy(() => import('./pages/DataBackup').then((m) => ({ default: m.DataBackup })))
+const ChangePasswordPage = lazy(() =>
+  import('./pages/ChangePassword').then((m) => ({ default: m.ChangePasswordPage })),
+)
 const LicensePage = lazy(() => import('./pages/License').then((m) => ({ default: m.LicensePage })))
 const PlatformOperator = lazy(() =>
   import('./pages/PlatformOperator').then((m) => ({ default: m.PlatformOperator })),
@@ -179,6 +182,7 @@ export default function App() {
           <Route path="/operator" element={<PlatformOperator />} />
 
           <Route element={<ProtectedRoute />}>
+            <Route path="change-password" element={<ChangePasswordPage />} />
             <Route element={<Layout />}>
               <Route index element={<Dashboard />} />
               <Route path="dashboard" element={<AnalyticsDashboard />} />

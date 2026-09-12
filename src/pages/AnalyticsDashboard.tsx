@@ -9,7 +9,6 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { getSession } from '../data/auth'
-import { USER_NAME } from '../data/modules'
 import { store } from '../data/store'
 import { FY_MONTH_LABELS, getFinancialYearMonthBuckets } from '../utils/financialYear'
 
@@ -159,7 +158,7 @@ function CalendarWidget({
 export function AnalyticsDashboard() {
   const data = store.getAll()
   const session = getSession()
-  const name = session?.username || USER_NAME
+  const name = session?.username || 'User'
 
   const [calMonth, setCalMonth] = useState(() => {
     const d = new Date()

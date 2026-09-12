@@ -12,6 +12,7 @@ export type ApiSession = {
   centreId?: string
   centreKind?: 'main' | 'osc'
   centreName?: string
+  mustChangePassword?: boolean
 }
 
 export function getToken(): string | null {

@@ -14,9 +14,10 @@ import {
 } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { ChangePasswordForm } from '../components/ChangePasswordForm'
-import { loadAccessUsers, saveAccessUsers } from '../data/auth'
+import { loadAccessUsers, saveAccessUsers, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getCentres, type CentreOutlet } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
+import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '../utils/passwordPolicy'
 
 type AppUser = {
   id: string
@@ -92,14 +93,15 @@ function loadReception(): ReceptionCreds {
     /* ignore */
   }
   return {
-    username: 'mgsachin1',
-    password: '********',
-    macAddresses: '28-D0-43-20-E8-D6',
+    username: '',
+    password: '',
+    macAddresses: '',
   }
 }
 
 export function ManagePassword() {
   const { toast, Toast } = useToast()
+  const isAdmin = Boolean(getSession()?.isAdmin)
   const [users, setUsers] = useState<AppUser[]>([])
   const [reception, setReception] = useState<ReceptionCreds>(loadReception)
   const [storedReception, setStoredReception] = useState<ReceptionCreds>(loadReception)
@@ -122,6 +124,7 @@ export function ManagePassword() {
 
   useEffect(() => {
     setStoredReception(loadReception())
+    if (!getSession()?.isAdmin) return
     void loadAccessUsers()
       .then((result) => {
         const nextUsers = result.users.map((u, i) => ({
@@ -170,6 +173,13 @@ export function ManagePassword() {
     if (!editingId && !form.password.trim()) {
       toast('Password is required for new users')
       return
+    }
+    if (form.password.trim()) {
+      const policyErr = passwordPolicyError(form.password, form.username)
+      if (policyErr) {
+        toast(policyErr)
+        return
+      }
     }
 
     const centreId = form.centreId || 'main'
@@ -301,6 +311,15 @@ export function ManagePassword() {
 
       <ChangePasswordForm toast={toast} />
 
+      {!isAdmin && (
+        <p className="auto-manak-hint">
+          User list, reception credentials, and Auto Tool files are available to centre administrators
+          only.
+        </p>
+      )}
+
+      {isAdmin && (
+        <>
       {/* Active Users */}
       <div className="panel access-card">
         <div className="access-card-head">
@@ -410,7 +429,7 @@ export function ManagePassword() {
               <input
                 value={reception.macAddresses}
                 onChange={(e) => setReception((p) => ({ ...p, macAddresses: e.target.value }))}
-                placeholder="28-D0-43-20-E8-D6"
+                placeholder="AA-BB-CC-DD-EE-FF"
               />
               <small className="field-hint">Separate multiple MACs with commas.</small>
             </div>
@@ -518,7 +537,12 @@ export function ManagePassword() {
                   value={form.password}
                   onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
                   required={!editingId}
+                  minLength={editingId ? undefined : MIN_PASSWORD_LENGTH}
+                  autoComplete="new-password"
                 />
+                <small className="field-hint">
+                  At least {MIN_PASSWORD_LENGTH} characters. New users must change it on first sign-in.
+                </small>
               </div>
               <div className="form-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)}>
@@ -531,6 +555,8 @@ export function ManagePassword() {
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {Toast}

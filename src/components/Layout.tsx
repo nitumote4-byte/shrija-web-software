@@ -2,7 +2,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Bell, Building2, ChevronDown, KeyRound, LogOut, Menu, Search, Settings, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar } from './AppSidebar'
-import { PRODUCT_NAME, USER_NAME, USER_ROLE } from '../data/modules'
+import { PRODUCT_NAME } from '../data/modules'
 import { getPageTitle, getSearchableNav } from '../data/navigation'
 import { clearSession, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getActiveCentre, getFirmName } from '../data/firmProfile'
@@ -33,8 +33,8 @@ export function Layout() {
   const pageTitle = getPageTitle(location.pathname)
   const greeting = useMemo(() => dayGreeting(), [])
   const session = getSession()
-  const displayName = session?.username || USER_NAME
-  const displayRole = roleLabel(session?.role || USER_ROLE)
+  const displayName = session?.username || 'User'
+  const displayRole = roleLabel(session?.role || 'user')
   const tenantLabel =
     session?.centreKind === 'osc'
       ? session.centreName || 'Off-Site Centre'

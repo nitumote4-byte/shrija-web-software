@@ -7,6 +7,7 @@ import { useToast } from '../components/ui'
 import { issueLicenseKeys, listIssuedKeys } from '../data/license'
 import { createTenant } from '../data/tenant'
 import { PRODUCT_NAME } from '../data/modules'
+import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '../utils/passwordPolicy'
 
 export function PlatformOperator() {
   const { toast, Toast } = useToast()
@@ -30,6 +31,11 @@ export function PlatformOperator() {
     e.preventDefault()
     if (!masterSecret.trim()) {
       toast('Enter the master secret first')
+      return
+    }
+    const passErr = passwordPolicyError(adminPass, adminUser)
+    if (passErr) {
+      toast(passErr)
       return
     }
     setBusy(true)
@@ -113,8 +119,8 @@ export function PlatformOperator() {
       <div className="panel">
         <h2>Operator authorization</h2>
         <p className="auto-manak-hint">
-          Paste the Railway <code>LICENSE_MASTER_SECRET</code> (or <code>JWT_SECRET</code> if the
-          master secret is unset). This value is not stored in the application.
+          Paste the Railway <code>LICENSE_MASTER_SECRET</code>. Production no longer falls back to{' '}
+          <code>JWT_SECRET</code>. This value is not stored in the application.
         </p>
         <div className="field">
           <label htmlFor="operator-secret">Master secret</label>
@@ -175,7 +181,7 @@ export function PlatformOperator() {
               value={adminPass}
               onChange={(e) => setAdminPass(e.target.value)}
               required
-              minLength={4}
+              minLength={MIN_PASSWORD_LENGTH}
               autoComplete="new-password"
             />
           </div>

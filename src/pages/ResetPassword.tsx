@@ -4,6 +4,7 @@ import { ArrowRight, Eye, EyeOff, Lock } from 'lucide-react'
 import { BrandLogo } from '../components/BrandLogo'
 import { confirmPasswordReset } from '../data/auth'
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../data/modules'
+import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '../utils/passwordPolicy'
 
 export function ResetPassword() {
   const [params] = useSearchParams()
@@ -25,8 +26,9 @@ export function ResetPassword() {
       setError('Invalid or expired password reset link.')
       return
     }
-    if (password.length < 4) {
-      setError('New password must be at least 4 characters.')
+    const policyErr = passwordPolicyError(password)
+    if (policyErr) {
+      setError(policyErr)
       return
     }
     if (password !== confirm) {
@@ -86,7 +88,7 @@ export function ResetPassword() {
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="new-password"
                     required
-                    minLength={4}
+                    minLength={MIN_PASSWORD_LENGTH}
                     placeholder="Enter new password"
                   />
                   <button
@@ -112,7 +114,7 @@ export function ResetPassword() {
                     onChange={(e) => setConfirm(e.target.value)}
                     autoComplete="new-password"
                     required
-                    minLength={4}
+                    minLength={MIN_PASSWORD_LENGTH}
                     placeholder="Re-enter new password"
                   />
                 </div>

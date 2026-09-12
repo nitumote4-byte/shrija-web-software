@@ -1,9 +1,12 @@
 /**
  * Optional seed: creates Centre A if DB has no tenants.
  * Requires DATABASE_URL. Run: npm run seed
+ *
+ * Prints a one-time admin password. Do not reuse it in production.
  */
 import './loadEnv.js'
 import bcrypt from 'bcryptjs'
+import crypto from 'node:crypto'
 import { emptyStorePayload, initDb, nowIso, pool, uid, withTransaction } from './db.js'
 import { addDaysIso } from './license.js'
 
@@ -21,8 +24,8 @@ const tenantId = uid('tn')
 const userId = uid('usr')
 const createdAt = nowIso()
 const firmName = 'Shrija Hallmarking Centre A'
-const hash = bcrypt.hashSync('admin123', 10)
-const labHash = bcrypt.hashSync('smg123', 10)
+const adminPassword = crypto.randomBytes(12).toString('base64url')
+const hash = bcrypt.hashSync(adminPassword, 10)
 const demoExpires = addDaysIso(new Date(), 365)
 
 await withTransaction(async (client) => {
@@ -32,14 +35,9 @@ await withTransaction(async (client) => {
     [tenantId, firmName, createdAt, demoExpires],
   )
   await client.query(
-    `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at)
-     VALUES ($1, $2, 'qm_admin', 'quality_manager', $3, TRUE, $4)`,
+    `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at, must_change_password)
+     VALUES ($1, $2, 'qm_admin', 'quality_manager', $3, TRUE, $4, TRUE)`,
     [userId, tenantId, hash, createdAt],
-  )
-  await client.query(
-    `INSERT INTO users (id, tenant_id, username, role, password_hash, is_admin, created_at)
-     VALUES ($1, $2, 'SMG', 'assay_lab', $3, FALSE, $4)`,
-    [uid('usr'), tenantId, labHash, createdAt],
   )
   await client.query(
     `INSERT INTO firm_profiles
@@ -53,7 +51,10 @@ await withTransaction(async (client) => {
   )
 })
 
-console.log('Seeded Centre A')
-console.log('  Login: qm_admin / admin123  (no centre selection)')
+console.log('Seeded Centre A (local/demo only)')
+console.log('  Login: qm_admin')
+console.log(`  One-time password: ${adminPassword}`)
+console.log('  You will be asked to change this password on first sign-in.')
+console.log('  Lab users are not created automatically — add them in Access Management.')
 console.log(`  tenantId (server-assigned): ${tenantId}`)
 await pool.end()

@@ -170,6 +170,10 @@ export async function initDb(retries = 8, delayMs = 2000) {
           ADD COLUMN IF NOT EXISTS centre_id TEXT NOT NULL DEFAULT 'main'
       `)
       await p.query(`
+        ALTER TABLE users
+          ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE
+      `)
+      await p.query(`
         CREATE TABLE IF NOT EXISTS store_docs (
           tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
           payload JSONB NOT NULL,

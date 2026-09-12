@@ -236,6 +236,19 @@ describe('store isolation for OSC vs other centres', () => {
     assert.equal(parties.some((p) => p.id === 'p-main'), false)
     assert.equal(parties.some((p) => p.id === 'p-osc'), true)
   })
+
+  it('keeps collections that a partial write omitted', () => {
+    const existing = {
+      parties: [{ id: 'p-main', name: 'Main Party', centreId: 'main' }],
+      invoices: [{ id: 'i1', centreId: 'main' }],
+    }
+    const incoming = {
+      parties: [{ id: 'p-main', name: 'Renamed', centreId: 'main' }],
+    }
+    const merged = mergeMainStoreWrite(existing, incoming)
+    assert.equal((merged.invoices as { id: string }[])[0]?.id, 'i1')
+    assert.equal((merged.parties as { name: string }[])[0]?.name, 'Renamed')
+  })
 })
 
 describe('centre list privacy', () => {

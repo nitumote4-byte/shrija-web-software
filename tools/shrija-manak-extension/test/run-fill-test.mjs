@@ -322,6 +322,7 @@ async function main() {
   window.eval(libCode)
   const ManakFill = window.ManakFill
   assert(ManakFill, 'ManakFill loaded')
+  const nativeWaitSerial = ManakFill.waitUntilSerialGestureExpired
   ManakFill.delay = () => Promise.resolve()
   ManakFill.waitUntilSerialGestureExpired = async () => 'skipped'
   assert(ManakFill.SERIAL_API_USED === false, 'TEST 15 SERIAL_API_USED is false')
@@ -393,6 +394,40 @@ async function main() {
   const samp2 = ManakFill.findSamplingInputs(window.document)
   assert(samp2.sampleDrawn?.id === 'txtSampleDrawn', 'still maps Sample Drawn after wrong values')
   assert(samp2.buttonWt?.id === 'txtButtonWeight', 'still maps Button Weight')
+
+  const idleProgress = window.document.createElement('div')
+  idleProgress.id = 'ctl00_UpdateProgress1'
+  idleProgress.className = 'UpdateProgress'
+  window.document.body.appendChild(idleProgress)
+  assert(ManakFill.isPortalPostbackBusy(window.document) === false, 'idle UpdateProgress wrapper is not busy')
+  idleProgress.setAttribute('style', 'display:block')
+  assert(ManakFill.isPortalPostbackBusy(window.document) === true, 'display:block UpdateProgress is busy')
+  idleProgress.setAttribute('style', 'display:none')
+  idleProgress.style.display = 'none'
+  assert(ManakFill.isPortalPostbackBusy(window.document) === false, 'display:none UpdateProgress is not busy')
+  idleProgress.remove()
+
+  assert(!/P1_COOLDOWN_MS = 180000/.test(manakAutoSrc), '3-minute Phase 2 cooldown removed')
+  assert(/reason === 'load'/.test(manakAutoSrc), 'Phase 2 cooldown only skips postback reload')
+  assert(/activationWaitMs: 0/.test(manakAutoSrc), 'lot auto-fill does not wait serial twice')
+
+  const delayCalls = []
+  const origDelay = ManakFill.delay
+  ManakFill.delay = (ms) => {
+    delayCalls.push(ms)
+    return Promise.resolve()
+  }
+  ManakFill.waitUntilSerialGestureExpired = nativeWaitSerial
+  const serialWait = await ManakFill.waitUntilSerialGestureExpired({
+    document: window.document,
+    activationWaitMs: 5500,
+  })
+  ManakFill.delay = origDelay
+  ManakFill.waitUntilSerialGestureExpired = async () => 'skipped'
+  assert(serialWait === 'no-api' || serialWait === 'cleared' || serialWait === 'skipped', 'serial wait returns')
+  if (serialWait === 'no-api') {
+    assert(delayCalls[0] <= 400, 'no userActivation API does not sleep 5.5s')
+  }
 
   // --- Legacy fillLot mapping (Lot 1 / Lot 2 unique jobs) ---
   resetAssay(window.document)

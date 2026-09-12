@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
-import { isAuthenticated } from '../data/auth'
+import { getSession, isAuthenticated } from '../data/auth'
 import { getCachedLicense } from '../data/license'
 import { canAccessPath } from '../data/roles'
 
@@ -10,6 +10,11 @@ export function ProtectedRoute() {
   }
 
   const path = location.pathname
+  const session = getSession()
+  if (session?.mustChangePassword && path !== '/change-password') {
+    return <Navigate to="/change-password" replace />
+  }
+
   const onLicensePage = path === '/license' || path === '/others/license'
   const license = getCachedLicense()
 

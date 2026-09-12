@@ -15,6 +15,10 @@ const PORT = Number(process.env.PORT || 8787)
 app.set('trust proxy', 1)
 
 const corsOrigin = process.env.CORS_ORIGIN
+if (process.env.NODE_ENV === 'production' && !corsOrigin) {
+  console.error('CORS_ORIGIN is required in production')
+  process.exit(1)
+}
 app.use(
   cors({
     origin: corsOrigin
@@ -67,6 +71,14 @@ app.get('/api/health', async (_req, res) => {
     await ensureDb()
   }
   const dbReady = isDbReady()
+  if (process.env.NODE_ENV === 'production') {
+    res.json({
+      ok: true,
+      ready: dbReady,
+      service: 'shrija-api',
+    })
+    return
+  }
   res.json({
     ok: true,
     ready: dbReady,
@@ -100,21 +112,36 @@ app.use('/api/data/manak', manakRouter)
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = (err as { status?: number })?.status || 500
-  const message = err instanceof Error ? err.message : 'Server error'
   console.error(err)
+  const expose = process.env.NODE_ENV !== 'production' || status < 500
+  const message =
+    expose && err instanceof Error && err.message && !/postgres(ql)?:\/\//i.test(err.message)
+      ? err.message
+      : 'Server error'
   res.status(status).json({ error: message })
 })
 
 async function main() {
-  if (!process.env.JWT_SECRET) {
-    console.warn(
-      'WARNING: JWT_SECRET is not set. Set it in Railway Variables for production.',
-    )
-  }
-  if (!process.env.LICENSE_MASTER_SECRET) {
-    console.warn(
-      'WARNING: LICENSE_MASTER_SECRET is not set. Master-admin licence/centre APIs fall back to JWT_SECRET. Set a separate LICENSE_MASTER_SECRET in production.',
-    )
+  if (process.env.NODE_ENV === 'production') {
+    const missing: string[] = []
+    if (!process.env.JWT_SECRET) missing.push('JWT_SECRET')
+    if (!process.env.LICENSE_MASTER_SECRET) missing.push('LICENSE_MASTER_SECRET')
+    if (!process.env.CORS_ORIGIN) missing.push('CORS_ORIGIN')
+    if (missing.length) {
+      console.error(`Missing required production env: ${missing.join(', ')}`)
+      process.exit(1)
+    }
+  } else {
+    if (!process.env.JWT_SECRET) {
+      console.warn(
+        'WARNING: JWT_SECRET is not set. Set it in Railway Variables for production.',
+      )
+    }
+    if (!process.env.LICENSE_MASTER_SECRET) {
+      console.warn(
+        'WARNING: LICENSE_MASTER_SECRET is not set. Set a separate LICENSE_MASTER_SECRET in production (do not reuse JWT_SECRET).',
+      )
+    }
   }
   if (!process.env.MAIL_HOST || !process.env.MAIL_FROM) {
     console.warn(

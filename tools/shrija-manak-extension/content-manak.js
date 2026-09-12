@@ -10,7 +10,12 @@ const FLOW_KEY = 'shrija-manak-fill-flow'
 const DONE_KEY = 'shrija-manak-fill-done'
 const P1_RESUME_KEY = 'shrija-manak-phase1-resume'
 const P1_COOLDOWN_KEY = 'shrija-manak-phase1-cooldown'
-const P1_COOLDOWN_MS = 180000
+/** Only blocks Phase 2 on Save-Initial postback reload — not a user lot click. */
+const P1_COOLDOWN_MS = 12000
+/** Cap while navigator.userActivation.isActive. Missing API waits 400ms, not this cap. */
+const SERIAL_WAIT_MS = 5500
+const POSTBACK_WAIT_MS = 250
+const POSTBACK_TIMEOUT_MS = 4000
 
 const MF = globalThis.ManakFill
 if (!MF) console.error('[Shrija] manak-fill-lib.js missing — reload extension')
@@ -215,7 +220,11 @@ async function selectPortalLot(jobCard, lotNum) {
   sel.value = opt.value
   sel.dispatchEvent(new Event('change', { bubbles: true }))
   try {
-    await MF.waitForWeightPostback({ document, postbackWaitMs: 600, postbackTimeoutMs: 10000 })
+    await MF.waitForWeightPostback({
+      document,
+      postbackWaitMs: POSTBACK_WAIT_MS,
+      postbackTimeoutMs: POSTBACK_TIMEOUT_MS,
+    })
   } catch {
     /* ignore */
   }
@@ -325,14 +334,14 @@ function requireSelectedLot(resumeOpts = {}) {
   return lot
 }
 
-async function waitForLotForm(lot, tries = 10) {
+async function waitForLotForm(lot, tries = 8) {
   const want = String(lot?.jobCard || '')
   for (let i = 0; i < tries; i++) {
     const current = readSelectedLot()
     if (want && String(current.jobCard || '') === want && MF.lotContextMatches(current, document)) {
       return current
     }
-    if (typeof MF.delay === 'function') await MF.delay(400)
+    if (typeof MF.delay === 'function') await MF.delay(200)
   }
   const last = readSelectedLot()
   if (want && String(last.jobCard || '') === want && MF.lotContextMatches(last, document)) return last
@@ -370,7 +379,9 @@ async function runPhase1(resumeOpts = {}) {
       lot: ready.lot,
       jobCard: ready.jobCard,
       drawn,
-      activationWaitMs: 5500,
+      activationWaitMs: resumeOpts.activationWaitMs != null ? resumeOpts.activationWaitMs : SERIAL_WAIT_MS,
+      postbackWaitMs: POSTBACK_WAIT_MS,
+      postbackTimeoutMs: POSTBACK_TIMEOUT_MS,
       fillAssay: true,
       clickSaveInitial: true,
       startAt: resumeOpts.stage || resumeOpts.startAt || 'sample',
@@ -430,7 +441,7 @@ async function tryResumePhase1() {
   await runPhase1(resume)
 }
 
-async function runPhase2() {
+async function runPhase2(resumeOpts = {}) {
   if (!extAlive() || !MF) return
   if (window.__shrijaFilling) return
   window.__shrijaFilling = true
@@ -462,7 +473,9 @@ async function runPhase2() {
       document,
       lot: ready.lot,
       jobCard: ready.jobCard,
-      activationWaitMs: 5500,
+      activationWaitMs: resumeOpts.activationWaitMs != null ? resumeOpts.activationWaitMs : SERIAL_WAIT_MS,
+      postbackWaitMs: POSTBACK_WAIT_MS,
+      postbackTimeoutMs: POSTBACK_TIMEOUT_MS,
       clickSaveCornet: true,
     })
     if (!result?.ok) {
@@ -498,8 +511,12 @@ async function runLotAutoFill(reason) {
     return
   }
   try {
-    await MF.waitUntilSerialGestureExpired({ document, activationWaitMs: 5500 })
-    await MF.waitForWeightPostback({ document, postbackWaitMs: 600, postbackTimeoutMs: 10000 })
+    await MF.waitUntilSerialGestureExpired({ document, activationWaitMs: SERIAL_WAIT_MS })
+    await MF.waitForWeightPostback({
+      document,
+      postbackWaitMs: POSTBACK_WAIT_MS,
+      postbackTimeoutMs: POSTBACK_TIMEOUT_MS,
+    })
   } catch {
     /* ignore */
   }
@@ -512,16 +529,18 @@ async function runLotAutoFill(reason) {
   }
   const stage = MF.detectAssayFillStage(document)
   if (stage === 'done' || stage === 'unknown') return
-  if (stage === 'phase2' && inPhase1Cooldown(lot2.jobCard, lot2.lot)) return
+  // Postback after Phase 1 Save Initial looks like Phase 2 (M1 filled, M2 empty).
+  // Skip only that automatic reload — a user lot click must run immediately.
+  if (stage === 'phase2' && reason === 'load' && inPhase1Cooldown(lot2.jobCard, lot2.lot)) return
   ensureStatusBadge()
   if (stage === 'phase1') {
     showToast(`Shrija AUTO Phase 1 · Lot ${lot2.lot} · ${lot2.jobCard}`, 4000)
-    await runPhase1({ quiet: true })
+    await runPhase1({ quiet: true, activationWaitMs: 0 })
     return
   }
   if (stage === 'phase2') {
     showToast(`Shrija AUTO Phase 2 · Lot ${lot2.lot} · ${lot2.jobCard}`, 4000)
-    await runPhase2()
+    await runPhase2({ activationWaitMs: 0 })
   }
 }
 
@@ -552,8 +571,8 @@ function attachPortalBypassListeners() {
   }
 }
 
-const onAssayPage = /Samplingweighting|Fire Assaying|Sample Drawn|Assaying Sheet/i.test(
-  `${location.href} ${document.body?.innerText || ''}`,
+const onAssayPage = /Samplingweighting|Fire Assaying|Assaying|Sample Drawn/i.test(
+  `${location.href} ${document.title || ''}`,
 )
 
 if (onAssayPage) {

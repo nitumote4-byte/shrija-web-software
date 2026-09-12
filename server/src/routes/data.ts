@@ -6,10 +6,21 @@ import {
   requireAuth,
   requireActiveTenant,
   requireValidLicense,
+  requireLiveUser,
+  requireFreshPassword,
   sessionCentre,
 } from '../middleware/auth.js'
 import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
 import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeStoreWrite } from '../tenantIsolation.js'
+import {
+  filterKvForRole,
+  isAdminOnlyKvKey,
+  isAdminUser,
+  pickStoreForRole,
+  redactFirmProfileForRole,
+  requireAdminRole,
+  requireKnownRole,
+} from '../rbac.js'
 import { letterheadRouter } from './letterhead.js'
 
 export const dataRouter = Router()
@@ -18,6 +29,9 @@ dataRouter.use(requireAuth)
 dataRouter.use(requireActiveTenant)
 dataRouter.use(enforceTenantBody)
 dataRouter.use(requireValidLicense)
+dataRouter.use(requireLiveUser)
+dataRouter.use(requireFreshPassword)
+dataRouter.use(requireKnownRole)
 dataRouter.use(letterheadRouter)
 
 function asJson(value: unknown): unknown {
@@ -64,12 +78,12 @@ dataRouter.get('/store', async (req, res) => {
       `INSERT INTO store_docs (tenant_id, payload, updated_at, rev) VALUES ($1, $2::jsonb, $3, 0)`,
       [tenantId, JSON.stringify(empty), updatedAt],
     )
-    res.json({ data: filterStoreForSession(empty, centre), rev: 0, updatedAt })
+    res.json({ data: pickStoreForRole(filterStoreForSession(empty, centre), req.user!.role), rev: 0, updatedAt })
     return
   }
 
   res.json({
-    data: filterStoreForSession(asJson(row.payload), centre),
+    data: pickStoreForRole(filterStoreForSession(asJson(row.payload), centre), req.user!.role),
     rev: asRev(row.rev),
     updatedAt: toIso(row.updated_at),
   })
@@ -85,12 +99,18 @@ dataRouter.put('/store', async (req, res) => {
     return
   }
 
-  const incoming = req.body.data as Record<string, unknown>
+  const incoming = pickStoreForRole(req.body.data as Record<string, unknown>, req.user!.role)
   sanitizeXrfStorePayload(incoming)
   const baseRevRaw = req.body.baseRev
   const hasBaseRev = baseRevRaw !== undefined && baseRevRaw !== null && baseRevRaw !== ''
   const baseRev = hasBaseRev ? asRev(baseRevRaw) : null
-  const replaceAll = req.body.replaceAll === true && centre.centreKind === 'main'
+  if (req.body.replaceAll === true) {
+    if (!isAdminUser(req.user!) || centre.centreKind !== 'main') {
+      res.status(403).json({ error: 'Only a centre administrator can replace the full store' })
+      return
+    }
+  }
+  const replaceAll = req.body.replaceAll === true && centre.centreKind === 'main' && isAdminUser(req.user!)
 
   const updatedAt = nowIso()
   const written = await withTransaction(async (client) => {
@@ -132,7 +152,7 @@ dataRouter.put('/store', async (req, res) => {
       code: 'STALE_STORE',
       rev: written.rev,
       updatedAt: written.updatedAt,
-      data: filterStoreForSession(written.payload, centre),
+      data: pickStoreForRole(filterStoreForSession(written.payload, centre), req.user!.role),
     })
     return
   }
@@ -168,7 +188,7 @@ dataRouter.put('/store', async (req, res) => {
   res.json({ ok: true, updatedAt: written.updatedAt, rev: written.rev })
 })
 
-dataRouter.get('/backup', async (req, res) => {
+dataRouter.get('/backup', requireAdminRole, async (req, res) => {
   const tenantId = req.user!.tenantId
   assertTenantId(tenantId)
   const centre = sessionCentre(req.user!)
@@ -190,10 +210,11 @@ dataRouter.get('/backup', async (req, res) => {
   }
   res.json({
     version: 1,
+    tenantId,
     exportedAt: nowIso(),
     store: filterStoreForSession(asJson(storeRow.rows[0]?.payload) || emptyStorePayload(), centre),
     firm,
-    kv: filterKvForSession(kv, centre.centreKind),
+    kv: filterKvForRole(filterKvForSession(kv, centre.centreKind), req.user!),
   })
 })
 
@@ -208,14 +229,14 @@ dataRouter.get('/kv', async (req, res) => {
   for (const row of rows as { key: string; value: unknown }[]) {
     docs[row.key] = asJson(row.value)
   }
-  res.json({ docs: filterKvForSession(docs, centre.centreKind) })
+  res.json({ docs: filterKvForRole(filterKvForSession(docs, centre.centreKind), req.user!) })
 })
 
 dataRouter.get('/kv/:key', async (req, res) => {
   const tenantId = req.user!.tenantId
   const centre = sessionCentre(req.user!)
   const key = String(req.params.key)
-  if (isOscRestrictedKvKey(key, centre.centreKind)) {
+  if (isOscRestrictedKvKey(key, centre.centreKind) || (isAdminOnlyKvKey(key) && !isAdminUser(req.user!))) {
     res.status(404).json({ error: 'Not found' })
     return
   }
@@ -244,6 +265,10 @@ dataRouter.put('/kv/:key', async (req, res) => {
     res.status(403).json({ error: 'Not allowed for this centre' })
     return
   }
+  if (isAdminOnlyKvKey(key) && !isAdminUser(req.user!)) {
+    res.status(403).json({ error: 'Admin access required' })
+    return
+  }
   const parsed = putKvSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'value required' })
@@ -270,6 +295,10 @@ dataRouter.delete('/kv/:key', async (req, res) => {
   const key = String(req.params.key)
   if (isOscRestrictedKvKey(key, centre.centreKind)) {
     res.status(403).json({ error: 'Not allowed for this centre' })
+    return
+  }
+  if (isAdminOnlyKvKey(key) && !isAdminUser(req.user!)) {
+    res.status(403).json({ error: 'Admin access required' })
     return
   }
   await pool.query(`DELETE FROM kv_docs WHERE tenant_id = $1 AND key = $2`, [tenantId, key])
@@ -310,10 +339,10 @@ dataRouter.get('/firm-profile', async (req, res) => {
     city: row.city != null ? String(row.city) : undefined,
     state: row.state != null ? String(row.state) : undefined,
   })
-  res.json({ profile: { ...row, centres: filterFirmCentres(list, centre) } })
+  res.json({ profile: redactFirmProfileForRole({ ...row, centres: filterFirmCentres(list, centre) }, req.user!) })
 })
 
-dataRouter.put('/firm-profile', async (req, res) => {
+dataRouter.put('/firm-profile', requireAdminRole, async (req, res) => {
   const tenantId = req.user!.tenantId
   const centre = sessionCentre(req.user!)
   if (centre.centreKind === 'osc') {

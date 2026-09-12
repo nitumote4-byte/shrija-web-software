@@ -1,10 +1,12 @@
 import { flushStoreNow, getStoreCache, setStoreCache } from './tenantCache'
 import { getFirmProfile, saveFirmProfile } from './firmProfile'
 import { tenantGet, tenantSet } from './tenant'
+import { getSession } from './auth'
 
 export type BackupPayload = {
   version: number
   exportedAt: string
+  tenantId?: string
   firm?: unknown
   store?: unknown
   kv?: Record<string, string>
@@ -25,6 +27,7 @@ export function buildLocalBackup(): BackupPayload {
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
+    tenantId: getSession()?.tenantId,
     firm: getFirmProfile(),
     store: getStoreCache(),
     kv,
@@ -47,6 +50,10 @@ export async function restoreBackupFile(file: File): Promise<{ ok: true } | { ok
     const text = await file.text()
     const parsed = JSON.parse(text) as BackupPayload
     if (!parsed || typeof parsed !== 'object') throw new Error('Invalid backup')
+    const tenantId = getSession()?.tenantId
+    if (parsed.tenantId && tenantId && parsed.tenantId !== tenantId) {
+      return { ok: false, error: 'This backup belongs to a different centre' }
+    }
     if (parsed.store && typeof parsed.store === 'object') {
       setStoreCache(parsed.store as never)
       await flushStoreNow({ replaceAll: true })

@@ -36,6 +36,7 @@ import {
 } from '../data/manakFireAssayBridge'
 import { hasAvailableCgWeightForSheet } from '../data/cgWeightAvailability'
 import { applyFireAssayStockConsumption } from '../data/fireAssayConsumption'
+import { parseFireAssaySpreadsheet } from '../utils/fireAssayExcelImport'
 import { loadCgWeights, markCgWeightsUsed, type CgWeightRow } from './CGWeight'
 
 type SheetRow = {
@@ -1026,74 +1027,87 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     toast('Template downloaded')
   }
 
-  const parseCsvLine = (line: string) => {
-    const cells: string[] = []
-    let cur = ''
-    let inQuotes = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
-      if (ch === '"') {
-        inQuotes = !inQuotes
-        continue
-      }
-      if (ch === ',' && !inQuotes) {
-        cells.push(cur.trim())
-        cur = ''
-        continue
-      }
-      cur += ch
-    }
-    cells.push(cur.trim())
-    return cells
-  }
-
   const handleExcelUpload = (file: File | null) => {
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => {
-      const text = String(reader.result || '')
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean)
-      if (lines.length < 2) {
-        toast('File has no data rows')
-        return
-      }
-      const dataLines = lines.slice(1)
-      const maxRows = Math.min(Number(noOfRows) || 22, dataLines.length)
-      const nextRows: SheetRow[] = dataLines.slice(0, maxRows).map((line, i) => {
-        const c = parseCsvLine(line)
-        const sampleWeight = c[2] || c[0] || '0.250'
-        const wotgcaa = c[5] || ''
-        const fineness = c[6] || finenessFromMasses(sampleWeight, wotgcaa, Number(avgDelta) || 0)
-        return {
-          key: `upload-${Date.now()}-${i}`,
-          sampleDrawn: c[0] || sampleWeight,
-          jobCardNo: c[1] || '',
-          sampleWeight,
-          silver: c[3] || '',
-          lead: c[4] || '4.0',
-          wotgcaa,
-          fineness,
-          meanFineness: c[7] || '',
-          partyName: '',
-          requestNo: '',
-          lotNo: Math.floor(i / 2) + 1,
+      void (async () => {
+        const buf = reader.result
+        if (!(buf instanceof ArrayBuffer)) {
+          toast('Could not read file')
+          return
         }
-      })
-      for (let i = 0; i + 1 < nextRows.length; i += 2) {
-        const a = nextRows[i]
-        const b = nextRows[i + 1]
-        if (a.meanFineness || b.meanFineness) continue
-        const mean = pairMeanFineness(a.fineness, b.fineness)
-        a.meanFineness = mean.first
-        b.meanFineness = mean.second
-      }
-      setRows(nextRows)
-      toast(`Uploaded ${nextRows.length} row(s)`)
+        const parsed = await parseFireAssaySpreadsheet(new Uint8Array(buf))
+        if (parsed.error) {
+          toast(parsed.error)
+          return
+        }
+        if (!parsed.rows.length) {
+          toast('File has no sample rows')
+          return
+        }
+
+        const unused = loadCgWeights().filter((r) => !r.used)
+        const matchCgId = (weight: string, skipId: string) => {
+          const w = Number(weight)
+          if (!(w > 0)) return ''
+          const hit = unused.find(
+            (r) => String(r.id) !== skipId && Math.abs(r.weight - w) < 0.001,
+          )
+          return hit ? String(hit.id) : ''
+        }
+        if (parsed.cg1) {
+          const id = matchCgId(parsed.cg1.weight, '')
+          if (id) setCg1Id(id)
+          if (parsed.cg1.silver) setSilverCg1(parsed.cg1.silver)
+          if (parsed.cg1.lead) setLeadCg1(parsed.cg1.lead)
+          if (parsed.cg1.wotgcaa) setWotgcaa1(parsed.cg1.wotgcaa)
+          if (parsed.cg1.copper) setCopperCg1(parsed.cg1.copper)
+        }
+        if (parsed.cg2) {
+          const id = matchCgId(parsed.cg2.weight, parsed.cg1 ? matchCgId(parsed.cg1.weight, '') : '')
+          if (id) setCg2Id(id)
+          if (parsed.cg2.silver) setSilverCg2(parsed.cg2.silver)
+          if (parsed.cg2.lead) setLeadCg2(parsed.cg2.lead)
+          if (parsed.cg2.wotgcaa) setWotgcaa2(parsed.cg2.wotgcaa)
+          if (parsed.cg2.copper) setCopperCg2(parsed.cg2.copper)
+        }
+
+        const avg = Number(avgDelta) || 0
+        const maxRows = Math.min(50, parsed.rows.length)
+        const nextRows: SheetRow[] = parsed.rows.slice(0, maxRows).map((c, i) => {
+          const sampleWeight = c.sampleWeight || c.sampleDrawn || ''
+          const wotgcaa = c.wotgcaa || ''
+          const fineness = c.fineness || finenessFromMasses(sampleWeight, wotgcaa, avg)
+          return {
+            key: `upload-${Date.now()}-${i}`,
+            sampleDrawn: c.sampleDrawn || sampleWeight,
+            jobCardNo: c.jobCardNo || '',
+            sampleWeight,
+            silver: c.silver || '',
+            lead: c.lead || '4.0',
+            wotgcaa,
+            fineness,
+            meanFineness: c.meanFineness || '',
+            partyName: '',
+            requestNo: '',
+            lotNo: Math.floor(i / 2) + 1,
+          }
+        })
+        for (let i = 0; i + 1 < nextRows.length; i += 2) {
+          const a = nextRows[i]
+          const b = nextRows[i + 1]
+          if (a.meanFineness || b.meanFineness) continue
+          const mean = pairMeanFineness(a.fineness, b.fineness)
+          a.meanFineness = mean.first
+          b.meanFineness = mean.second
+        }
+        setRows(nextRows)
+        setNoOfRows(String(nextRows.length))
+        toast(`Uploaded ${nextRows.length} row(s)`)
+      })()
     }
-    reader.readAsText(file)
+    reader.readAsArrayBuffer(file)
     if (excelInputRef.current) excelInputRef.current.value = ''
   }
 

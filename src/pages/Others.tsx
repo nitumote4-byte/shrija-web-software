@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { canAccessPath } from '../data/roles'
 import {
   ArrowLeft,
   ArrowRight,
@@ -165,7 +166,7 @@ export function Others() {
       </div>
 
       <div className="others-card-grid">
-        {links.map((item) => {
+        {links.filter((item) => canAccessPath(item.path)).map((item) => {
           const Icon = item.icon
           return (
             <Link key={item.path} to={item.path} className="others-link-card" style={{ ['--tile-accent' as string]: item.color }}>

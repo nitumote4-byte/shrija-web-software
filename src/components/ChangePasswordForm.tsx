@@ -1,12 +1,15 @@
 import { useId, useState } from 'react'
 import { KeyRound, Loader2 } from 'lucide-react'
-import { changeOwnPassword, getSession } from '../data/auth'
+import { changeOwnPassword, getSession, setSession } from '../data/auth'
+import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '../utils/passwordPolicy'
 
 type Props = {
   toast: (msg: string) => void
+  onSuccess?: () => void
+  forced?: boolean
 }
 
-export function ChangePasswordForm({ toast }: Props) {
+export function ChangePasswordForm({ toast, onSuccess, forced }: Props) {
   const formId = useId()
   const session = getSession()
   const [currentPassword, setCurrentPassword] = useState('')
@@ -18,8 +21,9 @@ export function ChangePasswordForm({ toast }: Props) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (newPassword.length < 4) {
-      setError('New password must be at least 4 characters.')
+    const policyErr = passwordPolicyError(newPassword, session?.username)
+    if (policyErr) {
+      setError(policyErr)
       return
     }
     if (newPassword !== confirmPassword) {
@@ -33,10 +37,13 @@ export function ChangePasswordForm({ toast }: Props) {
     setBusy(true)
     try {
       const res = await changeOwnPassword(currentPassword, newPassword)
+      const next = getSession()
+      if (next) setSession({ ...next, mustChangePassword: false })
       toast(res.message || 'Password updated')
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
+      onSuccess?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change password')
     } finally {
@@ -48,11 +55,12 @@ export function ChangePasswordForm({ toast }: Props) {
     <div className="panel change-password-panel" id="change-password">
       <h2>
         <KeyRound size={18} aria-hidden style={{ verticalAlign: 'middle', marginRight: 8 }} />
-        Change Password
+        {forced ? 'Set a new password' : 'Change Password'}
       </h2>
       <p className="auto-manak-hint">
-        Updates the password for <strong>{session?.username || 'this account'}</strong> only. Other
-        users are not affected.
+        {forced
+          ? 'This login requires a new password before you can open centre data.'
+          : `Updates the password for ${session?.username || 'this account'} only. Other users are not affected.`}
       </p>
       {error && (
         <p className="login-error" role="alert">
@@ -80,7 +88,7 @@ export function ChangePasswordForm({ toast }: Props) {
             onChange={(e) => setNewPassword(e.target.value)}
             autoComplete="new-password"
             required
-            minLength={4}
+            minLength={MIN_PASSWORD_LENGTH}
           />
         </div>
         <div className="field">
@@ -92,9 +100,10 @@ export function ChangePasswordForm({ toast }: Props) {
             onChange={(e) => setConfirmPassword(e.target.value)}
             autoComplete="new-password"
             required
-            minLength={4}
+            minLength={MIN_PASSWORD_LENGTH}
           />
         </div>
+        <p className="auto-manak-hint">At least {MIN_PASSWORD_LENGTH} characters. Do not reuse a shared default.</p>
         <div className="auto-manak-actions">
           <button type="submit" className="btn btn-navy" disabled={busy} aria-busy={busy}>
             {busy ? (
@@ -110,3 +119,4 @@ export function ChangePasswordForm({ toast }: Props) {
     </div>
   )
 }
+

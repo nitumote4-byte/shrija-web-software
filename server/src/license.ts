@@ -2,11 +2,12 @@ import crypto from 'crypto'
 import { pool } from './db.js'
 
 function masterSecret() {
-  return (
-    process.env.LICENSE_MASTER_SECRET ||
-    process.env.JWT_SECRET ||
-    'shrija-dev-license-master'
-  )
+  const dedicated = process.env.LICENSE_MASTER_SECRET
+  if (dedicated) return dedicated
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('LICENSE_MASTER_SECRET is required in production')
+  }
+  return process.env.JWT_SECRET || 'shrija-dev-license-master'
 }
 
 export type LicensePlan = 'trial' | 'standard' | 'pro'

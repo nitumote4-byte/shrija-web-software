@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
+import { pool } from '../db.js'
 import { getCachedTenantStatus } from '../tenantStatus.js'
 import {
   collectClientCentreOverride,
@@ -27,6 +28,7 @@ export type AuthUser = {
   centreId?: string
   centreKind?: 'main' | 'osc'
   centreName?: string
+  mustChangePassword?: boolean
 }
 
 declare global {
@@ -85,6 +87,63 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' })
   }
+}
+
+/**
+ * Re-bind JWT claims to the current users row. Deleted users get 401.
+ * Role / isAdmin / mustChangePassword always come from the database, not the token.
+ */
+export async function requireLiveUser(req: Request, res: Response, next: NextFunction) {
+  if (!req.user?.userId || !req.user.tenantId) {
+    res.status(401).json({ error: 'Authentication required' })
+    return
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT username, role, is_admin AS "isAdmin",
+              COALESCE(centre_id, 'main') AS "centreId",
+              COALESCE(must_change_password, FALSE) AS "mustChangePassword"
+       FROM users
+       WHERE id = $1 AND tenant_id = $2`,
+      [req.user.userId, req.user.tenantId],
+    )
+    const row = rows[0] as
+      | {
+          username: string
+          role: string
+          isAdmin: boolean
+          centreId: string
+          mustChangePassword: boolean
+        }
+      | undefined
+    if (!row) {
+      res.status(401).json({ error: 'Invalid or expired token', code: 'USER_GONE' })
+      return
+    }
+    const role = String(row.role || '')
+    req.user.username = String(row.username || req.user.username)
+    req.user.role = role
+    req.user.isAdmin = Boolean(row.isAdmin) || role === 'quality_manager' || role === 'admin'
+    req.user.centreId = String(row.centreId || 'main')
+    req.user.centreKind = req.user.centreId !== 'main' ? 'osc' : 'main'
+    req.user.mustChangePassword = Boolean(row.mustChangePassword)
+    next()
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Access check failed' })
+  }
+}
+
+/** Block data APIs until the user changes a first-login / admin-set password. */
+export function requireFreshPassword(req: Request, res: Response, next: NextFunction) {
+  if (req.user?.mustChangePassword) {
+    res.status(403).json({
+      error: 'You must change your password before continuing',
+      code: 'PASSWORD_CHANGE_REQUIRED',
+    })
+    return
+  }
+  next()
 }
 
 export function requireCentreAdmin(req: Request, res: Response, next: NextFunction) {

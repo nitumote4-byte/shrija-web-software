@@ -15,7 +15,6 @@ import {
 } from '../data/manakFireAssayBridge'
 import { FireAssayReportSheet } from '../components/FireAssayReportSheet'
 import { getSession } from '../data/auth'
-import { USER_NAME } from '../data/modules'
 import {
   arrangeFireAssayPresentation,
   finenessFromMasses,
@@ -141,7 +140,7 @@ export function ViewFireAssay() {
   const printableRows = useMemo(() => getPrintableFireAssayRows(rows), [rows])
   /** On-screen grid only. Same Job Card filter; does not replace or mutate `rows`. */
   const visibleRows = useMemo(() => getPrintableFireAssayRows(rows), [rows])
-  const signedBy = getSession()?.username || USER_NAME
+  const signedBy = getSession()?.username || 'User'
 
   useEffect(() => {
     const onBeforePrint = () => applyFireAssayPaperForPrint()

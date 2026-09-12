@@ -231,6 +231,7 @@ export function mergeOscStoreWrite(
   const merged: Record<string, unknown> = { ...current }
 
   for (const key of CENTRE_SCOPED_STORE_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) continue
     const existingArr = Array.isArray(current[key]) ? (current[key] as unknown[]) : []
     const incomingArr = Array.isArray(next[key]) ? (next[key] as unknown[]) : []
     const others = existingArr.filter((item) => !itemBelongsToCentre(item, centreId))
@@ -257,6 +258,7 @@ export function mergeMainStoreWrite(existing: unknown, incoming: unknown): Recor
   const merged: Record<string, unknown> = { ...current, ...next }
 
   for (const key of CENTRE_SCOPED_STORE_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) continue
     const existingArr = Array.isArray(current[key]) ? (current[key] as unknown[]) : []
     const incomingArr = Array.isArray(next[key]) ? (next[key] as unknown[]) : []
     const incomingIds = new Set(incomingArr.map(rowId).filter(Boolean))

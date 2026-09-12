@@ -75,8 +75,9 @@ export function isOscSession(session = getSession()) {
 }
 
 export function getRoleModules(role?: string | null): string[] | '*' {
-  const r = normalizeRole(role || 'quality_manager')
-  return ROLE_MODULES[r] ?? ROLE_MODULES.quality_manager
+  const r = normalizeRole(role || '')
+  if (!r) return []
+  return ROLE_MODULES[r] ?? []
 }
 
 function isLabPath(path: string) {
@@ -96,14 +97,27 @@ export function canAccessPath(pathname: string): boolean {
   // Home always allowed — module cards are filtered separately
   if (path === '/' || path === '') return true
   if (path === '/license' || path.startsWith('/others/license')) return true
+  if (path === '/change-password' || path === '/account-settings') return true
+
+  const adminOnlyOthers = [
+    '/others/company-profile',
+    '/others/manage-password',
+    '/others/add-staff',
+    '/others/staff-attendance',
+    '/others/backup',
+  ]
+  if (adminOnlyOthers.some((p) => path === p || path.startsWith(`${p}/`))) {
+    return Boolean(session.isAdmin)
+  }
 
   // OSC outlet: never lab (fire assay + stock stay on Main)
   if (isOscSession(session) && isLabPath(path)) return false
 
   if (session.isAdmin) return true
-  const role = normalizeRole(session.role || 'quality_manager')
+  const role = normalizeRole(session.role || '')
   const allowed = getRoleModules(role)
   if (allowed === '*') return true
+  if (Array.isArray(allowed) && allowed.length === 0) return false
 
   if (path.startsWith('/reports')) return allowed.includes('reports')
   if (path.startsWith('/others')) {

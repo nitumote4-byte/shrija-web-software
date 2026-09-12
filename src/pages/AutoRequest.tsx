@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, ApiRequestError } from '../api/client'
 import { useToast } from '../components/ui'
+import { getSession } from '../data/auth'
 import { store, type PendingRoughRequest } from '../data/store'
 
 const SCRAP_BASE = 'http://127.0.0.1:19876'
@@ -49,6 +50,7 @@ type ScrapHealth = {
 
 export function AutoRequest() {
   const { toast, Toast } = useToast()
+  const canEditManak = Boolean(getSession()?.isAdmin)
   const [night, setNight] = useState('Night')
   const [rows, setRows] = useState<PendingRoughRequest[]>(() => {
     store.pruneIncompletePendingRough()
@@ -149,6 +151,10 @@ export function AutoRequest() {
   }
 
   const saveCredentials = async () => {
+    if (!canEditManak) {
+      toast('Only a centre administrator can save Manak credentials')
+      return
+    }
     if (!username.trim()) {
       toast('Enter Manak username')
       return
@@ -206,18 +212,27 @@ export function AutoRequest() {
       payload.username = username || 'chrome-session'
       payload.password = ''
     } else {
-      const bundle = await api<{
-        username: string
-        password: string
-        baseUrl: string
-        allowedMacs: string
-      }>('/api/data/manak/scrap-bundle', { method: 'POST', json: {} })
-      payload = {
-        ...payload,
-        username: bundle.username,
-        password: bundle.password,
-        baseUrl: bundle.baseUrl,
-        allowedMacs: bundle.allowedMacs,
+      try {
+        const bundle = await api<{
+          username: string
+          password: string
+          baseUrl: string
+          allowedMacs: string
+        }>('/api/data/manak/scrap-bundle', { method: 'POST', json: {} })
+        payload = {
+          ...payload,
+          username: bundle.username,
+          password: bundle.password,
+          baseUrl: bundle.baseUrl,
+          allowedMacs: bundle.allowedMacs,
+        }
+      } catch (e) {
+        if (e instanceof ApiRequestError && (e.status === 403 || e.status === 401)) {
+          throw new Error(
+            'Manak password export is admin-only. Use GO-FAST.bat (Chrome already logged in) or ask a centre administrator.',
+          )
+        }
+        throw e
       }
     }
 
@@ -407,7 +422,7 @@ export function AutoRequest() {
               <input
                 value={allowedMacs}
                 onChange={(e) => setAllowedMacs(e.target.value)}
-                placeholder="28-D0-43-20-EB-D6"
+                placeholder="AA-BB-CC-DD-EE-FF"
               />
             </label>
             <label>
@@ -420,7 +435,13 @@ export function AutoRequest() {
             </label>
           </div>
           <div className="auto-manak-actions">
-            <button type="button" className="btn btn-navy" disabled={savingCreds} onClick={() => void saveCredentials()}>
+            <button
+              type="button"
+              className="btn btn-navy"
+              disabled={savingCreds || !canEditManak}
+              onClick={() => void saveCredentials()}
+            >
+              {savingCreds ? 'Saving…' : 'Save credentials'}
               {savingCreds ? 'Saving…' : 'Save credentials'}
             </button>
             <button type="button" className="btn btn-ghost" onClick={useDetectedMac}>

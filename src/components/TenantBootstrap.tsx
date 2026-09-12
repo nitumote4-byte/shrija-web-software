@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ApiRequestError, getToken } from '../api/client'
+import { ApiRequestError, getToken, readStoredSession } from '../api/client'
 import { clearSession, isAuthenticated, refreshSessionFromServer } from '../data/auth'
 import { fetchLicenseStatus, getCachedLicense, setCachedLicense, type LicenseStatus } from '../data/license'
 import { hydrateTenantData, isTenantHydrated } from '../data/tenantCache'
@@ -84,6 +84,11 @@ export function TenantBootstrap({ children }: { children: ReactNode }) {
           return
         }
 
+        if (readStoredSession()?.mustChangePassword) {
+          if (!cancelled) setReady(true)
+          return
+        }
+
         if (isTenantHydrated()) {
           if (!cancelled) setReady(true)
           return
@@ -97,6 +102,10 @@ export function TenantBootstrap({ children }: { children: ReactNode }) {
           if (e instanceof ApiRequestError && e.status === 401) {
             clearSession()
             window.location.assign('/login')
+            return
+          }
+          if (e instanceof ApiRequestError && e.code === 'PASSWORD_CHANGE_REQUIRED') {
+            setReady(true)
             return
           }
           if (e instanceof ApiRequestError && (e.code === 'EXPIRED' || e.code === 'SUSPENDED' || e.status === 403)) {

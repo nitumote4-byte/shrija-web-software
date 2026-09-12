@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getFirmName } from '../data/firmProfile'
-import { PRODUCT_NAME, PRODUCT_TAGLINE, USER_NAME, USER_ROLE } from '../data/modules'
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../data/modules'
 import { flattenNavLeaves, getVisibleNavGroups } from '../data/navigation'
 import { canAccessPath, isLabOnlyRole, isOscSession, roleLabel } from '../data/roles'
 import { LiveJobTracking } from '../components/LiveJobTracking'
@@ -74,8 +74,8 @@ const COMPLETED_STATUSES: HallmarkRequest['status'][] = ['Hallmarked', 'Billed',
 
 export function Dashboard() {
   const session = getSession()
-  const name = session?.username || USER_NAME
-  const role = session?.role || USER_ROLE
+  const name = session?.username || 'User'
+  const role = session?.role || ''
   const labOnly = isLabOnlyRole(role)
   const oscDesk = isOscSession(session)
   const [firmName, setFirmName] = useState(() => getFirmName())

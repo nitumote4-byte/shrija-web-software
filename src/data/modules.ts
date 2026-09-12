@@ -239,5 +239,5 @@ export const allModules: ModuleDef[] = [
 
 /** Default centre name — overridden by Company Profile firm name */
 export const CENTRE_NAME = 'SHRIJA ASSAYING & HALLMARKING CENTRE'
-export const USER_NAME = 'qm_admin'
-export const USER_ROLE = 'Quality Manager'
+export const USER_NAME = ''
+export const USER_ROLE = 'User'
