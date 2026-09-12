@@ -395,6 +395,28 @@ async function main() {
   assert(samp2.sampleDrawn?.id === 'txtSampleDrawn', 'still maps Sample Drawn after wrong values')
   assert(samp2.buttonWt?.id === 'txtButtonWeight', 'still maps Button Weight')
 
+  const liveLayoutDom = new JSDOM(
+    `<!DOCTYPE html><html><body>
+      <select id="ddlLot"><option selected>Lot 1:128001004</option></select>
+      <div>
+        <div>Sample Drawn Weight (Mg): * <input id="liveDrawn" type="text" value="0" /> <input type="button" value="Save" id="liveSaveDrawn" /></div>
+        <div>Button Weight (Mg): * <input id="liveButton" type="text" value="0" /> <input type="button" value="Save" id="liveSaveButton" /></div>
+      </div>
+    </body></html>`,
+    { runScripts: 'outside-only', url: 'https://huid.manakonline.in/MANAK/SamplingweightingDeatils' },
+  )
+  liveLayoutDom.window.eval(libCode)
+  const liveSamp = liveLayoutDom.window.ManakFill.findSamplingInputs(liveLayoutDom.window.document)
+  assert(liveSamp.sampleDrawn?.id === 'liveDrawn', 'live card layout Sample Drawn')
+  assert(liveSamp.buttonWt?.id === 'liveButton', 'live card layout Button Weight')
+  assert(liveSamp.sampleDrawn !== liveSamp.buttonWt, 'live card layout Sample ≠ Button')
+  liveLayoutDom.window.close()
+  assert(/fill retry/.test(manakAutoSrc), 'badge click retries fill when lot is already selected')
+  assert(/runLotAutoFill\('change'\)/.test(manakAutoSrc), 'badge/manual retry still uses change reason')
+  assert(/sel\.addEventListener\('change', \(\) => scheduleLotAutoFill\('change'\)\)/.test(manakAutoSrc), 'lot select still uses change reason')
+  assert(/__shrijaLotAutoRunning/.test(manakAutoSrc), 'duplicate-run guard still active')
+  assert(/window\.__shrijaFilling/.test(manakAutoSrc), 'in-flight fill guard still active')
+
   const idleProgress = window.document.createElement('div')
   idleProgress.id = 'ctl00_UpdateProgress1'
   idleProgress.className = 'UpdateProgress'
@@ -408,8 +430,126 @@ async function main() {
   idleProgress.remove()
 
   assert(!/P1_COOLDOWN_MS = 180000/.test(manakAutoSrc), '3-minute Phase 2 cooldown removed')
-  assert(/reason === 'load'/.test(manakAutoSrc), 'Phase 2 cooldown only skips postback reload')
+  assert(/shouldSkipPhase2DuringCooldown\(stage, reason, inPhase1Cooldown/.test(manakAutoSrc), 'Phase 2 cooldown uses shared skip helper')
+  assert(/waitForLotForm\(lot2\)/.test(manakAutoSrc), 'lot auto-fill waits for form before stage detect')
   assert(/activationWaitMs: 0/.test(manakAutoSrc), 'lot auto-fill does not wait serial twice')
+  assert(/__shrijaLotAutoTimer/.test(manakAutoSrc), 'lot auto-fill reuses a single timer')
+  assert(/if \(window\.__shrijaLotAutoTimer\) clearTimeout\(window\.__shrijaLotAutoTimer\)/.test(manakAutoSrc), 'new auto-fill schedule replaces the previous timer')
+  assert(/, 4000\)/.test(manakAutoSrc), '4-second automatic retry still present')
+  assert(
+    /scheduleLotAutoFill\('retry'\)/.test(manakAutoSrc) && /shouldSkipPhase2DuringCooldown\(stage, 'retry'/.test(manakAutoSrc),
+    '4-second automatic retry uses retry reason, not change',
+  )
+  assert(
+    !/if \(stage === 'phase1' \|\| stage === 'phase2'\) scheduleLotAutoFill\('change'\)/.test(manakAutoSrc),
+    '4-second automatic retry no longer calls auto-fill with change',
+  )
+
+  // Race: Phase 1 just saved → form looks like Phase 2 → 4s automatic retry.
+  resetAssay(window.document)
+  m1Inputs(window.document)[0].value = '166.655'
+  m1Inputs(window.document)[1].value = '166.415'
+  assert(ManakFill.detectAssayFillStage(window.document) === 'phase2', 'just-saved Phase 1 form is Phase 2')
+  assert(
+    ManakFill.shouldSkipPhase2DuringCooldown('phase2', 'retry', true) === true,
+    '4s automatic retry does not start Phase 2 during Phase 1 cooldown',
+  )
+  assert(
+    ManakFill.shouldSkipPhase2DuringCooldown(ManakFill.detectAssayFillStage(window.document), 'retry', true) === true,
+    'just-saved Phase 1 + 4s retry + active cooldown skips Phase 2',
+  )
+  assert(
+    ManakFill.shouldSkipPhase2DuringCooldown('phase2', 'load', true) === true,
+    'postback load still skips Phase 2 during Phase 1 cooldown',
+  )
+  assert(
+    ManakFill.shouldSkipPhase2DuringCooldown('phase2', 'change', true) === false,
+    'user lot click / badge retry still runs during cooldown',
+  )
+  assert(
+    ManakFill.shouldSkipPhase2DuringCooldown('phase2', 'retry', false) === false,
+    'automatic retry starts Phase 2 after cooldown expires',
+  )
+  assert(
+    ManakFill.shouldSkipPhase2DuringCooldown('phase1', 'retry', true) === false,
+    'automatic retry still runs Phase 1 even if a cooldown flag is set',
+  )
+  assert(
+    ManakFill.shouldSkipPhase2DuringCooldown('phase2', 'change', false) === false,
+    'normal Phase 1 → Phase 2 workflow still starts Phase 2 when cooldown is idle',
+  )
+
+  {
+    const raceDom = new JSDOM(MOCK_HTML, {
+      runScripts: 'outside-only',
+      url: 'https://huid.manakonline.in/MANAK/SamplingweightingDeatils',
+    })
+    const raceWin = raceDom.window
+    const capturedTimeouts = []
+    raceWin.setTimeout = (fn, ms) => {
+      capturedTimeouts.push({ fn, ms: Number(ms) || 0 })
+      return capturedTimeouts.length
+    }
+    raceWin.setInterval = () => 0
+    raceWin.clearTimeout = () => {}
+    raceWin.clearInterval = () => {}
+    raceWin.chrome = {
+      runtime: {
+        id: 'test-ext',
+        lastError: undefined,
+        onMessage: { addListener() {} },
+      },
+      storage: {
+        local: {
+          get(keys, cb) {
+            const out = {}
+            const list = Array.isArray(keys) ? keys : Object.keys(keys || {})
+            for (const k of list) {
+              if (k === 'shrija-manak-fire-assay-sheet') out[k] = SAMPLE_SHEET
+            }
+            cb(out)
+          },
+          set(_obj, cb) {
+            cb?.()
+          },
+          remove(_keys, cb) {
+            cb?.()
+          },
+        },
+      },
+    }
+    raceWin.eval(libCode)
+    raceWin.ManakFill.delay = () => Promise.resolve()
+    raceWin.ManakFill.waitUntilSerialGestureExpired = async () => 'skipped'
+    raceWin.ManakFill.waitForWeightPostback = async () => {}
+    let phase2Starts = 0
+    const origFillPhase2 = raceWin.ManakFill.fillPhase2
+    raceWin.ManakFill.fillPhase2 = async function (...args) {
+      phase2Starts += 1
+      return origFillPhase2.apply(this, args)
+    }
+    const raceSel = raceWin.document.getElementById('ddlLot')
+    raceSel.value = '1'
+    raceSel.selectedIndex = 1
+    raceWin.document.querySelectorAll('#assay .m1')[0].value = '166.655'
+    raceWin.document.querySelectorAll('#assay .m1')[1].value = '166.415'
+    raceWin.sessionStorage.setItem(
+      'shrija-manak-phase1-cooldown',
+      JSON.stringify({ '104736831:1': Date.now() }),
+    )
+    raceWin.eval(manakAutoSrc)
+    const retryTimer = capturedTimeouts.find((t) => t.ms === 4000)
+    assert(Boolean(retryTimer), 'content-manak registers 4-second automatic retry')
+    const beforeRetry = capturedTimeouts.length
+    retryTimer.fn()
+    assert(phase2Starts === 0, '4s retry during cooldown does not start Phase 2 / cornet save')
+    assert(
+      capturedTimeouts.slice(beforeRetry).every((t) => t.ms !== 700 && t.ms !== 1400),
+      '4s retry during cooldown does not schedule another lot auto-fill',
+    )
+    raceDom.window.close()
+  }
+  resetAssay(window.document)
 
   const delayCalls = []
   const origDelay = ManakFill.delay
@@ -426,7 +566,7 @@ async function main() {
   ManakFill.waitUntilSerialGestureExpired = async () => 'skipped'
   assert(serialWait === 'no-api' || serialWait === 'cleared' || serialWait === 'skipped', 'serial wait returns')
   if (serialWait === 'no-api') {
-    assert(delayCalls[0] <= 400, 'no userActivation API does not sleep 5.5s')
+    assert(delayCalls[0] <= 2000 && delayCalls[0] < 5500, 'no userActivation API does not sleep 5.5s')
   }
 
   // --- Legacy fillLot mapping (Lot 1 / Lot 2 unique jobs) ---

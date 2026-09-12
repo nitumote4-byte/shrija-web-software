@@ -12,10 +12,10 @@ const P1_RESUME_KEY = 'shrija-manak-phase1-resume'
 const P1_COOLDOWN_KEY = 'shrija-manak-phase1-cooldown'
 /** Only blocks Phase 2 on Save-Initial postback reload — not a user lot click. */
 const P1_COOLDOWN_MS = 12000
-/** Cap while navigator.userActivation.isActive. Missing API waits 400ms, not this cap. */
+/** Cap while navigator.userActivation.isActive. Missing API uses minWaitMs, not this cap. */
 const SERIAL_WAIT_MS = 5500
-const POSTBACK_WAIT_MS = 250
-const POSTBACK_TIMEOUT_MS = 4000
+const POSTBACK_WAIT_MS = 600
+const POSTBACK_TIMEOUT_MS = 8000
 
 const MF = globalThis.ManakFill
 if (!MF) console.error('[Shrija] manak-fill-lib.js missing — reload extension')
@@ -185,9 +185,24 @@ function ensureStatusBadge() {
       const lot = MF ? readSelectedLot() : { lot: null, jobCard: '' }
       const lotBit =
         lot.lot != null && lot.jobCard ? ` · Lot ${lot.lot} · ${lot.jobCard}` : ' · lot select karo'
+      const lastErr = window.__shrijaLastFillError
+      wrap.style.cursor = 'pointer'
+      wrap.title = 'Click karke fill dubara chalao'
+      if (wrap.getAttribute('data-shrija-retry') !== '1') {
+        wrap.setAttribute('data-shrija-retry', '1')
+        wrap.addEventListener('click', () => {
+          if (window.__shrijaFilling) return
+          window.__shrijaLastFillError = ''
+          showToast('Shrija AUTO: fill retry…', 2500)
+          void runLotAutoFill('change')
+        })
+      }
       if (window.__shrijaFilling) {
         label.style.background = '#1d4ed8'
         label.textContent = `Shrija AUTO FS-${fs} · filling${lotBit}`
+      } else if (lastErr) {
+        label.style.background = '#b45309'
+        label.textContent = `Shrija AUTO FS-${fs}${lotBit} · ${lastErr}`
       } else if (sheet) {
         label.style.background = '#15803d'
         label.textContent = `Shrija AUTO FS-${fs}${lotBit}`
@@ -334,14 +349,14 @@ function requireSelectedLot(resumeOpts = {}) {
   return lot
 }
 
-async function waitForLotForm(lot, tries = 8) {
+async function waitForLotForm(lot, tries = 12) {
   const want = String(lot?.jobCard || '')
   for (let i = 0; i < tries; i++) {
     const current = readSelectedLot()
     if (want && String(current.jobCard || '') === want && MF.lotContextMatches(current, document)) {
       return current
     }
-    if (typeof MF.delay === 'function') await MF.delay(200)
+    if (typeof MF.delay === 'function') await MF.delay(400)
   }
   const last = readSelectedLot()
   if (want && String(last.jobCard || '') === want && MF.lotContextMatches(last, document)) return last
@@ -412,10 +427,14 @@ async function runPhase1(resumeOpts = {}) {
     })
     if (!result?.ok) {
       await storageRemove([P1_RESUME_KEY])
-      showToast(`Shrija Phase 1: ${result?.message || result?.error || 'failed'}`)
+      const message = result?.message || result?.error || 'failed'
+      window.__shrijaLastFillError = String(message).slice(0, 80)
+      showToast(`Shrija Phase 1: ${message}`, 12000)
+      ensureStatusBadge()
       return
     }
     await storageRemove([P1_RESUME_KEY])
+    window.__shrijaLastFillError = ''
     markPhase1Cooldown(ready.jobCard, ready.lot)
     showToast('Phase 1 complete — Assay weights filled & Initial Weight saved automatically!', 9000)
     ensureStatusBadge()
@@ -479,9 +498,13 @@ async function runPhase2(resumeOpts = {}) {
       clickSaveCornet: true,
     })
     if (!result?.ok) {
-      showToast(`Shrija Phase 2: ${result?.message || result?.error || 'Job + Lot match nahi'}`)
+      const message = result?.message || result?.error || 'Job + Lot match nahi'
+      window.__shrijaLastFillError = String(message).slice(0, 80)
+      showToast(`Shrija Phase 2: ${message}`, 12000)
+      ensureStatusBadge()
       return
     }
+    window.__shrijaLastFillError = ''
     if (result.clickedSaveCornet) {
       showToast('Phase 2 complete — Cornet Weight saved automatically!', 9000)
     } else {
@@ -503,6 +526,9 @@ function scheduleLotAutoFill(reason) {
 async function runLotAutoFill(reason) {
   if (!extAlive() || !MF || window.__shrijaFilling) return
   if (window.__shrijaSuppressLotAuto) return
+  if (window.__shrijaLotAutoRunning) return
+  window.__shrijaLotAutoRunning = true
+  try {
   const sheet = await currentSheet()
   const lot = readSelectedLot()
   if (lot.lot == null || !lot.jobCard) return
@@ -511,7 +537,11 @@ async function runLotAutoFill(reason) {
     return
   }
   try {
-    await MF.waitUntilSerialGestureExpired({ document, activationWaitMs: SERIAL_WAIT_MS })
+    await MF.waitUntilSerialGestureExpired({
+      document,
+      activationWaitMs: SERIAL_WAIT_MS,
+      minWaitMs: reason === 'change' ? 1500 : 0,
+    })
     await MF.waitForWeightPostback({
       document,
       postbackWaitMs: POSTBACK_WAIT_MS,
@@ -523,24 +553,49 @@ async function runLotAutoFill(reason) {
   if (window.__shrijaFilling) return
   const lot2 = readSelectedLot()
   if (lot2.lot == null || !lot2.jobCard) return
-  if (!MF.lotContextMatches(lot2, document)) {
-    showToast(`Shrija AUTO: Lot ${lot2.lot}:${lot2.jobCard} form load nahi hua — fill skip`, 5000)
+  const readyLot = await waitForLotForm(lot2)
+  if (!readyLot) {
+    window.__shrijaLastFillError = 'form load nahi hua'
+    showToast(`Shrija AUTO: Lot ${lot2.lot}:${lot2.jobCard} form load nahi hua — fill skip`, 8000)
+    ensureStatusBadge()
     return
   }
-  const stage = MF.detectAssayFillStage(document)
-  if (stage === 'done' || stage === 'unknown') return
+  let stage = MF.detectAssayFillStage(document)
+  if (stage === 'unknown' || stage === 'done') {
+    if (typeof MF.delay === 'function') await MF.delay(400)
+    await MF.waitForWeightPostback({
+      document,
+      postbackWaitMs: 200,
+      postbackTimeoutMs: POSTBACK_TIMEOUT_MS,
+    })
+    stage = MF.detectAssayFillStage(document)
+  }
+  if (stage === 'done') {
+    if (reason === 'change') showToast('Shrija AUTO: M2 pehle se filled hai — skip', 5000)
+    return
+  }
+  if (stage === 'unknown') {
+    window.__shrijaLastFillError = 'form fields nahi mile'
+    showToast('Shrija AUTO: Sample/M1 fields nahi mile. Badge click karke retry karo.', 8000)
+    ensureStatusBadge()
+    return
+  }
   // Postback after Phase 1 Save Initial looks like Phase 2 (M1 filled, M2 empty).
-  // Skip only that automatic reload — a user lot click must run immediately.
-  if (stage === 'phase2' && reason === 'load' && inPhase1Cooldown(lot2.jobCard, lot2.lot)) return
+  // Automatic load/retry must skip during cooldown. A user lot click or badge
+  // retry (reason === 'change') still runs immediately.
+  if (MF.shouldSkipPhase2DuringCooldown(stage, reason, inPhase1Cooldown(readyLot.jobCard, readyLot.lot))) return
   ensureStatusBadge()
   if (stage === 'phase1') {
-    showToast(`Shrija AUTO Phase 1 · Lot ${lot2.lot} · ${lot2.jobCard}`, 4000)
+    showToast(`Shrija AUTO Phase 1 · Lot ${readyLot.lot} · ${readyLot.jobCard}`, 4000)
     await runPhase1({ quiet: true, activationWaitMs: 0 })
     return
   }
   if (stage === 'phase2') {
-    showToast(`Shrija AUTO Phase 2 · Lot ${lot2.lot} · ${lot2.jobCard}`, 4000)
+    showToast(`Shrija AUTO Phase 2 · Lot ${readyLot.lot} · ${readyLot.jobCard}`, 4000)
     await runPhase2({ activationWaitMs: 0 })
+  }
+  } finally {
+    window.__shrijaLotAutoRunning = false
   }
 }
 
@@ -571,9 +626,7 @@ function attachPortalBypassListeners() {
   }
 }
 
-const onAssayPage = /Samplingweighting|Fire Assaying|Assaying|Sample Drawn/i.test(
-  `${location.href} ${document.title || ''}`,
-)
+const onAssayPage = true
 
 if (onAssayPage) {
   if (!MF) showToast('Shrija AUTO: manak-fill-lib load fail — Reload')
@@ -585,6 +638,17 @@ if (onAssayPage) {
     void tryResumePhase1()
     scheduleLotAutoFill('load')
   }, 900)
+  setTimeout(() => {
+    if (!extAlive() || window.__shrijaFilling) return
+    const lot = readSelectedLot()
+    if (lot.lot == null || !lot.jobCard) return
+    const stage = MF.detectAssayFillStage(document)
+    if (stage !== 'phase1' && stage !== 'phase2') return
+    // Must not use reason "change" — that bypasses Phase 1 cooldown and can
+    // start Phase 2 / cornet save immediately after Save Initial.
+    if (MF.shouldSkipPhase2DuringCooldown(stage, 'retry', inPhase1Cooldown(lot.jobCard, lot.lot))) return
+    scheduleLotAutoFill('retry')
+  }, 4000)
   window.__shrijaBadgeTimer = setInterval(() => {
     if (!extAlive()) return stopTimers()
     attachPortalBypassListeners()

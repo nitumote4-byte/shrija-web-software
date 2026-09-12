@@ -229,14 +229,13 @@
   ManakFill.waitUntilSerialGestureExpired = async function waitUntilSerialGestureExpired(opts = {}) {
     const max = opts.activationWaitMs != null ? opts.activationWaitMs : 5500
     if (!(max > 0)) return 'skipped'
+    const minWait = opts.minWaitMs != null ? Number(opts.minWaitMs) : 0
     const document = opts.document || root.document
     const nav = (document && document.defaultView && document.defaultView.navigator) || root.navigator
     const start = Date.now()
     try {
       if (!nav || !nav.userActivation) {
-        // Isolated worlds may lack the API. Posted-value fill never clicks weight fields,
-        // so a short settle is enough — do not sleep the full cap.
-        await ManakFill.delay(Math.min(max, 400))
+        await ManakFill.delay(Math.max(minWait, Math.min(max, 2000)))
         return 'no-api'
       }
       while (nav.userActivation.isActive && Date.now() - start < max) {
@@ -245,6 +244,8 @@
     } catch {
       /* ignore */
     }
+    const elapsed = Date.now() - start
+    if (minWait > elapsed) await ManakFill.delay(minWait - elapsed)
     return 'cleared'
   }
 
@@ -314,8 +315,8 @@
     }
     if (opts.postbackWaitMs === 0) return 'skip'
     const document = opts.document || root.document
-    const minWait = opts.postbackWaitMs != null ? opts.postbackWaitMs : 250
-    const timeout = opts.postbackTimeoutMs != null ? opts.postbackTimeoutMs : 4000
+    const minWait = opts.postbackWaitMs != null ? opts.postbackWaitMs : 600
+    const timeout = opts.postbackTimeoutMs != null ? opts.postbackTimeoutMs : 8000
     if (minWait > 0) await ManakFill.delay(minWait)
     const start = Date.now()
     while (Date.now() - start < timeout && ManakFill.isPortalPostbackBusy(document)) {
@@ -478,6 +479,16 @@
     return { rows: [], lotNum, jobCard }
   }
 
+  ManakFill.ownText = function ownText(el) {
+    if (!el) return ''
+    return Array.from(el.childNodes)
+      .filter((n) => n.nodeType === 3)
+      .map((n) => n.textContent || '')
+      .join('')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
   /**
    * Input that comes AFTER this label in document order (same row OK).
    * Never use "first input in row" — Sample Drawn + Button Weight share one row on Manak.
@@ -485,24 +496,29 @@
   ManakFill.inputAfterLabel = function inputAfterLabel(labelEl) {
     if (!labelEl) return null
     const anchor = labelEl.closest('td, th, label, span, div') || labelEl
+    const pick = (inp) => inp && ManakFill.visible(inp) && !ManakFill.isUnsafeTarget(inp)
+
+    const wrapOwn = ManakFill.ownText(anchor)
+    if (wrapOwn && wrapOwn.length < 90 && /Sample Drawn|Button Weight/i.test(wrapOwn)) {
+      const inner = anchor.querySelector(
+        'input:not([type="hidden"]):not([type="button"]):not([type="submit"])',
+      )
+      if (pick(inner)) return inner
+    }
 
     // 1) Following sibling cells
     let sib = anchor.nextElementSibling
     for (let i = 0; i < 8 && sib; i++) {
       const tip = (sib.textContent || '').replace(/\s+/g, ' ')
-      // Stop if we hit the other sampling label cell
-      if (
-        /Sample Drawn Weight|Button Weight/i.test(tip) &&
-        tip.length < 80 &&
-        !sib.querySelector('input:not([type="hidden"])')
-      ) {
+      // Stop if we hit the other sampling field — do not steal its input.
+      if (/Sample Drawn Weight|Button Weight/i.test(tip) && tip.length < 160) {
         break
       }
       const inp =
         sib.tagName === 'INPUT'
           ? sib
           : sib.querySelector?.('input:not([type="hidden"]):not([type="button"]):not([type="submit"])')
-      if (inp && ManakFill.visible(inp) && !ManakFill.isUnsafeTarget(inp)) return inp
+      if (pick(inp)) return inp
       sib = sib.nextElementSibling
     }
 
@@ -511,7 +527,7 @@
     if (row) {
       const inputs = Array.from(
         row.querySelectorAll('input:not([type="hidden"]):not([type="button"]):not([type="submit"])'),
-      ).filter((el) => ManakFill.visible(el) && !ManakFill.isUnsafeTarget(el))
+      ).filter((el) => pick(el))
       for (const inp of inputs) {
         const pos = anchor.compareDocumentPosition(inp)
         if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return inp
@@ -522,13 +538,19 @@
 
   ManakFill.findLabelNode = function findLabelNode(labelRe, root) {
     const scope = root || document
-    const nodes = Array.from(scope.querySelectorAll('td, th, label, span, b, strong, font'))
+    const nodes = Array.from(
+      scope.querySelectorAll('td, th, label, span, b, strong, font, legend, div, p, li'),
+    )
     let best = null
+    let bestLen = 999
     for (const n of nodes) {
-      const t = ManakFill.shortText(n)
-      if (!t || !labelRe.test(t)) continue
-      // Prefer shorter exact labels over big wrappers
-      if (!best || t.length < ManakFill.shortText(best).length) best = n
+      const tag = n.tagName || ''
+      const t = /^(DIV|P|LI)$/i.test(tag) ? ManakFill.ownText(n) : ManakFill.shortText(n)
+      if (!t || t.length > 90 || !labelRe.test(t)) continue
+      if (!best || t.length < bestLen) {
+        best = n
+        bestLen = t.length
+      }
     }
     return best
   }
@@ -873,6 +895,17 @@
     if (pairFilled(m1s) && pairEmpty(m2s)) return 'phase2'
     if (drawn < 0.01 || !pairFilled(m1s)) return 'phase1'
     return 'unknown'
+  }
+
+  /**
+   * After Phase 1 Save Initial, the portal postback looks like Phase 2
+   * (M1 filled, M2 empty). Automatic triggers (page load, 4s retry) must not
+   * start Phase 2 during that cooldown. User lot click and badge retry use
+   * reason "change" and still run immediately.
+   */
+  ManakFill.shouldSkipPhase2DuringCooldown = function shouldSkipPhase2DuringCooldown(stage, reason, inCooldown) {
+    if (stage !== 'phase2' || !inCooldown) return false
+    return reason !== 'change'
   }
 
   ManakFill.clickByText = function clickByText(re, doc) {
@@ -1227,7 +1260,7 @@
         settled = true
         resolve(Boolean(ok))
       }
-      const t = setTimeout(() => finish(false), 2500)
+      const t = setTimeout(() => finish(false), 8000)
       try {
         chrome.runtime.sendMessage({ type: 'SHRIJA_MAIN_CLICK_SAVE', role: role || 'cornet' }, (res) => {
           clearTimeout(t)
