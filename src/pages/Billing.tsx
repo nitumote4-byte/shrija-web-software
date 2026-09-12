@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, Home, Printer, Search } from 'lucide-react'
-import { type ChallanView } from '../components/InvoiceChallan'
+import { invoiceToChallan, type ChallanView } from '../components/InvoiceChallan'
 import { InvoicePreviewPanel } from '../components/InvoicePreviewPanel'
 import { useToast } from '../components/ui'
 import {
@@ -28,10 +28,7 @@ import {
   invoiceTotalsFromActual,
   parseMinBillAmount,
 } from '../utils/minBillCharge'
-import {
-  hasCompletedFireAssayForBillingJobs,
-  unusedSampleFromRoughRows,
-} from '../data/fireAssaySampleWeight'
+import { hasCompletedFireAssayForBillingJobs } from '../data/fireAssaySampleWeight'
 
 type InvoiceSettings = {
   startFrom: string
@@ -94,6 +91,17 @@ function liveCornetMg(r: {
   return fa.status === 'ready' && fa.total != null ? fa.total : Number(r.cornet) || 0
 }
 
+function liveUnusedSample(r: {
+  jobCardNo?: string
+  requestNo?: string
+  centreId?: string
+  unusedSample?: number
+}) {
+  const fa = store.getFireAssayUnused(r.jobCardNo, r.requestNo, r.centreId)
+  if (fa.status === 'ready' && fa.total != null) return fa.total
+  return Number(r.unusedSample) || 0
+}
+
 function buildLines(
   request: HallmarkRequest,
   rough: RoughSheetEntry[],
@@ -141,34 +149,7 @@ function buildLines(
 }
 
 function invoiceToPreview(inv: Invoice): ChallanView {
-  return {
-    invoiceNo: inv.invoiceNo,
-    date: inv.date,
-    invoiceDateTime: inv.invoiceDateTime || inv.date,
-    requestNo: inv.requestNo,
-    requestDate: inv.requestDate || '',
-    partyName: inv.partyName,
-    partyAddress: inv.partyAddress || '',
-    partyGstin: inv.partyGstin || '',
-    partyCml: inv.partyCml || '',
-    placeOfSupply: inv.placeOfSupply || '',
-    stateCode: inv.stateCode || '',
-    careOf: inv.careOf || '',
-    sac: inv.sac || '998346',
-    lines: inv.lines || [],
-    weightReceived: inv.weightReceived || 0,
-    sampleWeight: inv.sampleWeight || 0,
-    unusedSample: inv.unusedSample || 0,
-    fireboxScrap: inv.fireboxScrap || 0,
-    weightReturned: inv.weightReturned || 0,
-    taxable: inv.amount,
-    cgst: inv.cgst || 0,
-    sgst: inv.sgst || 0,
-    igst: inv.igst || 0,
-    grandTotal: inv.total,
-    useIgst: Boolean(inv.useIgst),
-    minChargeAdjustment: inv.minChargeAdjustment || 0,
-  }
+  return invoiceToChallan(inv, store.getAll())
 }
 
 export function Billing() {
@@ -287,8 +268,8 @@ export function Billing() {
       const fireboxScrap = Number(
         (related.reduce((s, r) => s + liveCornetMg(r), 0) / 1000).toFixed(3),
       )
-      // Unused sample return is persisted by Fire Assay (drawn − assayed strips).
-      const unusedSample = unusedSampleFromRoughRows(related)
+      // Unused sample return = Fire Assay archive (drawn − assayed strips).
+      const unusedSample = Number(related.reduce((s, r) => s + liveUnusedSample(r), 0).toFixed(3))
       // Jewellery returned = received − sample drawn; the sample-return figures
       // above are reported separately and must not alter this total
       const weightReturned = Number((weightReceived - sampleWeight).toFixed(3))

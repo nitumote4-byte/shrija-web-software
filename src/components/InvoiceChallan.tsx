@@ -2,7 +2,8 @@ import { InvoiceLetterhead } from './InvoiceLetterhead'
 import { getActiveCentre, getFirmProfile, getInvoiceHeader } from '../data/firmProfile'
 import type { Invoice, InvoiceLine } from '../data/store'
 import { tenantGet } from '../data/tenant'
-import { unusedSampleFromRoughRows } from '../data/fireAssaySampleWeight'
+import { unusedSampleForRelatedRows } from '../data/fireAssaySampleWeight'
+import type { ManakFireAssaySheet } from '../data/manakFireAssayBridge'
 import { amountInIndianWords, jurisdictionFooter } from '../utils/amountInWords'
 
 export type ChallanView = {
@@ -121,7 +122,9 @@ export function invoiceToChallan(
       unusedSample?: number
       cornet?: number
       co?: string
+      jobCardNo?: string
     }[]
+    fireAssaySheets?: ManakFireAssaySheet[]
     categories?: { id: string; rate: number }[]
     parties?: {
       id: string
@@ -227,8 +230,11 @@ export function invoiceToChallan(
         (related.reduce((s, r) => s + (Number(r.cornet) || 0), 0) / 1000).toFixed(3),
       )
     }
-    if (!(unused > 0) && !inv.unusedSampleEdited && related.length) {
-      unused = unusedSampleFromRoughRows(related)
+    if (!inv.unusedSampleEdited && related.length) {
+      unused = unusedSampleForRelatedRows(related, {
+        requestNo: inv.requestNo,
+        sheets: data.fireAssaySheets,
+      })
     }
     if (!careOf) careOf = related.map((r) => r.co).find((c) => c && String(c).trim()) || ''
     if (!partyAddress && party) partyAddress = party.address || ''

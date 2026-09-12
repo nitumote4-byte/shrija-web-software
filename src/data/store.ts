@@ -1,6 +1,7 @@
 import {
   fireAssayCornetFromArchive,
   fireAssaySampleWeightFromArchive,
+  fireAssayUnusedFromArchive,
   parseFireAssaySampleWeight,
   totalFromFireAssaySamples,
   unusedSampleWeightGrams,
@@ -2305,6 +2306,21 @@ export const store = {
       return fireAssayCornetFromArchive('')
     }
     return fireAssayCornetFromArchive(jobCardNo || '', fireAssayLookupOpts(requestNo, centreId))
+  },
+
+  /**
+   * Unused sample return (grams) from the same Fire Assay archive sheet as
+   * Sample Weight / Cornet. Ready + 0 is legitimate (strips consumed drawn).
+   */
+  getFireAssayUnused(
+    jobCardNo?: string,
+    requestNo?: string,
+    centreId?: string,
+  ) {
+    if (!normalizeJobCardKey(jobCardNo)) {
+      return fireAssayUnusedFromArchive('')
+    }
+    return fireAssayUnusedFromArchive(jobCardNo || '', fireAssayLookupOpts(requestNo, centreId))
   },
 
   addFireAssay(input: Omit<FireAssay, 'id' | 'assayNo' | 'date'> & { assayNo?: string; date?: string }) {

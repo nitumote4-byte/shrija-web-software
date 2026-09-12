@@ -98,6 +98,14 @@ export function unusedSampleFromRoughRows(rows: Array<{ unusedSample?: number }>
   return Number(rows.reduce((s, r) => s + (Number(r.unusedSample) || 0), 0).toFixed(3))
 }
 
+export type FireAssayUnusedResult = {
+  status: 'ready' | 'pending'
+  /** Unused sample return in grams (3 dp). 0 is a legitimate ready result. */
+  total: number | null
+}
+
+const UNUSED_PENDING: FireAssayUnusedResult = { status: 'pending', total: null }
+
 export type FireAssayLookupOpts = {
   requestNo?: string
   allowRequestNo?: (requestNo: string) => boolean
@@ -205,6 +213,90 @@ export function fireAssayCornetFromArchive(
   const source = newestSheetRowsForJob(jobCardNo, sheets)
   if (!source) return CORNET_PENDING
   return fireAssayCornetFromRows(source, jobCardNo, opts)
+}
+
+/**
+ * Unused sample (grams) for an exact Job Card from sheet rows.
+ * Same Job Card / Request No matching as Sample Weight and Cornet.
+ * Ready only when the sheet has a drawn mass and two assayed strips —
+ * missing archive data is pending (caller may fall back to day-sheet).
+ * Ready + total 0 means strips consumed the drawn mass (legitimate zero).
+ */
+export function fireAssayUnusedFromRows(
+  rows: Array<{
+    jobCardNo?: string
+    manakJobCard?: string
+    sampleWeight?: unknown
+    sampleDrawn?: unknown
+    requestNo?: string
+  }>,
+  jobCardNo: string,
+  opts?: FireAssayLookupOpts,
+): FireAssayUnusedResult {
+  const key = canonicalJobCardNo(jobCardNo)
+  if (!key) return UNUSED_PENDING
+  const matched = rows.filter((r) => rowMatchesFireAssayLookup(r, key, opts))
+  if (!matched.length) return UNUSED_PENDING
+  const weights = matched.map((r) => parseFireAssaySampleWeight(r.sampleWeight))
+  const sample = totalFromFireAssaySamples(weights)
+  if (sample.status !== 'ready') return UNUSED_PENDING
+  const drawn = matched
+    .map((r) => parseFireAssaySampleWeight(r.sampleDrawn))
+    .find((d): d is number => d != null && d > 0)
+  if (drawn == null) return UNUSED_PENDING
+  return {
+    status: 'ready',
+    total: unusedSampleWeightGrams(unusedSampleWeightMg(drawn, weights)),
+  }
+}
+
+/** Unused sample (grams) from the same newest archive sheet as Sample / Cornet. */
+export function fireAssayUnusedFromArchive(
+  jobCardNo: string,
+  opts?: FireAssayLookupOpts,
+  sheets?: ManakFireAssaySheet[],
+): FireAssayUnusedResult {
+  const source = newestSheetRowsForJob(jobCardNo, sheets)
+  if (!source) return UNUSED_PENDING
+  return fireAssayUnusedFromRows(source, jobCardNo, opts)
+}
+
+export type BillingUnusedRow = {
+  jobCardNo?: string
+  requestNo?: string
+  unusedSample?: number
+}
+
+/**
+ * Billing Unused Sample Return for day-sheet rows of one request.
+ * Archive calculation wins when ready (including 0). Rough-sheet
+ * unusedSample is used only when that job's archive is pending.
+ */
+export function unusedSampleForRelatedRows(
+  rows: BillingUnusedRow[],
+  opts?: FireAssayLookupOpts & {
+    sheets?: ManakFireAssaySheet[]
+    lookup?: (jobCardNo: string, requestNo?: string) => FireAssayUnusedResult
+  },
+): number {
+  const lookup =
+    opts?.lookup ??
+    ((jobCardNo: string, requestNo?: string) =>
+      fireAssayUnusedFromArchive(
+        jobCardNo,
+        { requestNo: opts?.requestNo || requestNo, allowRequestNo: opts?.allowRequestNo },
+        opts?.sheets,
+      ))
+  let sum = 0
+  for (const row of rows) {
+    const fa = lookup(row.jobCardNo || '', row.requestNo)
+    if (fa.status === 'ready' && fa.total != null) {
+      sum += fa.total
+    } else {
+      sum += Number(row.unusedSample) || 0
+    }
+  }
+  return Number(sum.toFixed(3))
 }
 
 /**
