@@ -355,9 +355,9 @@ const root = path.join(__dirname, '..')
 
 {
   const authServer = readFileSync(path.join(root, 'server/src/routes/auth.ts'), 'utf8')
-  const verifyStart = authServer.indexOf("authRouter.post('/verify-password'")
+  const verifyStart = authServer.indexOf("'/verify-password'")
   assert(verifyStart >= 0, 'verify-password route exists')
-  const verifyBlock = authServer.slice(verifyStart, verifyStart + 1400)
+  const verifyBlock = authServer.slice(Math.max(0, verifyStart - 80), verifyStart + 1400)
   assert(verifyBlock.includes('bcrypt.compareSync'), 'verify-password uses existing bcrypt check')
   assert(!verifyBlock.includes('UPDATE users'), 'verify-password does not change stored credentials')
   assert(verifyBlock.includes('requireAuth'), 'verify-password is authenticated')

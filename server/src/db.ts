@@ -298,6 +298,7 @@ export function emptyStorePayload() {
     pendingRough: [],
     invoices: [],
     monthlyInvoices: [],
+    deletedInvoices: [],
     funds: [],
     expenses: [],
     fireAssays: [],

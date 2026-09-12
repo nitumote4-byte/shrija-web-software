@@ -168,7 +168,14 @@ export function filterStoreForSession(
   opts: { centreId: string; centreKind: 'main' | 'osc' },
 ): Record<string, unknown> {
   const data = asObjectRecord(payload)
-  if (opts.centreKind !== 'osc') return data
+  const tombstones = unionInvoiceTombstones(data[INVOICE_TOMBSTONES_KEY], [])
+  if (opts.centreKind !== 'osc') {
+    return {
+      ...data,
+      invoices: Array.isArray(data.invoices) ? applyInvoiceTombstones(data.invoices as unknown[], tombstones) : data.invoices,
+      [INVOICE_TOMBSTONES_KEY]: tombstones,
+    }
+  }
 
   const requests = Array.isArray(data.requests) ? data.requests : []
   const scopedRequests = requests.filter((item) => itemBelongsToCentre(item, opts.centreId))
@@ -189,6 +196,10 @@ export function filterStoreForSession(
       return Boolean(requestNo && requestNos.has(requestNo))
     })
   }
+  if (Array.isArray(out.invoices)) {
+    out.invoices = applyInvoiceTombstones(out.invoices as unknown[], tombstones)
+  }
+  out[INVOICE_TOMBSTONES_KEY] = tombstones.filter((row) => row.centreId === opts.centreId)
   return out
 }
 
@@ -217,6 +228,164 @@ function rowId(item: unknown): string {
   return typeof id === 'string' && id.trim() ? id.trim() : ''
 }
 
+/** Explicit OSC/Main invoice deletions. Absence in an array is not a delete signal for OSC rows. */
+export const INVOICE_TOMBSTONES_KEY = 'deletedInvoices'
+
+/** Drop tombstones older than 90 days so the list cannot grow forever. */
+const INVOICE_TOMBSTONE_TTL_MS = 90 * 24 * 60 * 60 * 1000
+
+export type InvoiceTombstone = {
+  id: string
+  centreId: string
+  centreKind: 'main' | 'osc'
+  deletedAt: string
+  requestNo?: string
+}
+
+function logInvoiceTombstone(
+  event: string,
+  info: { invoiceId: string; centreId: string; reason: string },
+) {
+  console.info(`[invoice-tombstone] ${event}`, info)
+}
+
+function parseInvoiceTombstones(value: unknown): InvoiceTombstone[] {
+  if (!Array.isArray(value)) return []
+  const out: InvoiceTombstone[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const rec = item as Record<string, unknown>
+    const id = typeof rec.id === 'string' ? rec.id.trim() : ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    const centreId = typeof rec.centreId === 'string' ? rec.centreId.trim() : ''
+    const centreKind = String(rec.centreKind || '').toLowerCase() === 'osc' ? 'osc' : 'main'
+    const deletedAt = typeof rec.deletedAt === 'string' ? rec.deletedAt : ''
+    const requestNo = typeof rec.requestNo === 'string' ? rec.requestNo.trim() : ''
+    out.push({
+      id,
+      centreId,
+      centreKind,
+      deletedAt,
+      ...(requestNo ? { requestNo } : {}),
+    })
+  }
+  return out
+}
+
+function tombstoneIsActive(tombstone: InvoiceTombstone, now = Date.now()): boolean {
+  if (!tombstone.deletedAt) return true
+  const ts = Date.parse(tombstone.deletedAt)
+  if (!Number.isFinite(ts)) return true
+  return now - ts < INVOICE_TOMBSTONE_TTL_MS
+}
+
+function unionInvoiceTombstones(existing: unknown, incoming: unknown, now = Date.now()): InvoiceTombstone[] {
+  const byId = new Map<string, InvoiceTombstone>()
+  for (const row of [...parseInvoiceTombstones(existing), ...parseInvoiceTombstones(incoming)]) {
+    if (!tombstoneIsActive(row, now)) continue
+    if (!byId.has(row.id)) byId.set(row.id, row)
+  }
+  return [...byId.values()]
+}
+
+function applyInvoiceTombstones(invoices: unknown[], tombstones: InvoiceTombstone[]): unknown[] {
+  const ids = new Set(tombstones.filter((row) => tombstoneIsActive(row)).map((row) => row.id))
+  if (ids.size === 0) return invoices
+  return invoices.filter((item) => {
+    const id = rowId(item)
+    return !id || !ids.has(id)
+  })
+}
+
+function acceptOscInvoiceTombstones(
+  existingInvoices: unknown[],
+  existingTombs: unknown,
+  incomingTombs: unknown,
+  centreId: string,
+): InvoiceTombstone[] {
+  const accepted: InvoiceTombstone[] = []
+  for (const row of parseInvoiceTombstones(incomingTombs)) {
+    if (row.centreId && row.centreId !== centreId) {
+      logInvoiceTombstone('delete-rejected', {
+        invoiceId: row.id,
+        centreId,
+        reason: 'tombstone-centre-mismatch',
+      })
+      continue
+    }
+    const invoice = existingInvoices.find((item) => rowId(item) === row.id)
+    if (invoice && !itemBelongsToCentre(invoice, centreId)) {
+      logInvoiceTombstone('delete-rejected', {
+        invoiceId: row.id,
+        centreId,
+        reason: 'invoice-not-owned',
+      })
+      continue
+    }
+    accepted.push({
+      ...row,
+      centreId,
+      centreKind: 'osc',
+      deletedAt: row.deletedAt || new Date().toISOString(),
+    })
+  }
+  return unionInvoiceTombstones(existingTombs, accepted)
+}
+
+function acceptMainInvoiceTombstones(existingTombs: unknown, incomingTombs: unknown): InvoiceTombstone[] {
+  const existing = parseInvoiceTombstones(existingTombs)
+  const existingIds = new Set(existing.map((row) => row.id))
+  const accepted: InvoiceTombstone[] = []
+  for (const row of parseInvoiceTombstones(incomingTombs)) {
+    if (existingIds.has(row.id)) {
+      accepted.push(row)
+      continue
+    }
+    if (row.centreKind === 'osc' || (row.centreId && row.centreId !== 'main')) {
+      logInvoiceTombstone('delete-rejected', {
+        invoiceId: row.id,
+        centreId: row.centreId || 'main',
+        reason: 'main-cannot-create-osc-tombstone',
+      })
+      continue
+    }
+    accepted.push({
+      ...row,
+      centreId: row.centreId || 'main',
+      centreKind: 'main',
+      deletedAt: row.deletedAt || new Date().toISOString(),
+    })
+  }
+  return unionInvoiceTombstones(existing, accepted)
+}
+
+function applyTombstonesToMergedStore(
+  merged: Record<string, unknown>,
+  tombstones: InvoiceTombstone[],
+  source: string,
+) {
+  merged[INVOICE_TOMBSTONES_KEY] = tombstones
+  if (!Array.isArray(merged.invoices)) return
+  const before = merged.invoices as unknown[]
+  const after = applyInvoiceTombstones(before, tombstones)
+  if (after.length !== before.length) {
+    const kept = new Set(after.map(rowId))
+    for (const item of before) {
+      const id = rowId(item)
+      if (!id || kept.has(id)) continue
+      const rec = item && typeof item === 'object' ? (item as CentreScopedItem) : {}
+      logInvoiceTombstone('resurrection-prevented', {
+        invoiceId: id,
+        centreId: String(rec.centreId || ''),
+        reason: source,
+      })
+    }
+  }
+  merged.invoices = after
+}
+
 /**
  * OSC writes must not replace other outlets' rows in the tenant JSON store.
  * Incoming rows tagged with a different centreId are dropped.
@@ -242,6 +411,18 @@ export function mergeOscStoreWrite(
     }
     merged[key] = [...others, ...owned]
   }
+
+  const existingInvoices = Array.isArray(current.invoices) ? (current.invoices as unknown[]) : []
+  applyTombstonesToMergedStore(
+    merged,
+    acceptOscInvoiceTombstones(
+      existingInvoices,
+      current[INVOICE_TOMBSTONES_KEY],
+      next[INVOICE_TOMBSTONES_KEY],
+      centreId,
+    ),
+    'mergeOscStoreWrite',
+  )
 
   return merged
 }
@@ -270,6 +451,12 @@ export function mergeMainStoreWrite(existing: unknown, incoming: unknown): Recor
     })
     merged[key] = [...keptOsc, ...incomingArr]
   }
+
+  applyTombstonesToMergedStore(
+    merged,
+    acceptMainInvoiceTombstones(current[INVOICE_TOMBSTONES_KEY], next[INVOICE_TOMBSTONES_KEY]),
+    'mergeMainStoreWrite',
+  )
 
   return merged
 }

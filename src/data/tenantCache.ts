@@ -22,7 +22,7 @@ let storeVersion = 0
 /** Server store_docs.rev from last successful GET/PUT. */
 let storeRev = 0
 let flushTimer: ReturnType<typeof setTimeout> | null = null
-let flushInFlight: Promise<void> | null = null
+let flushInFlight: Promise<{ ok: boolean; message?: string }> | null = null
 let flushQueued = false
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 const FLUSH_DEBOUNCE_MS = 450
@@ -144,31 +144,35 @@ function scheduleRetry() {
 
 type FlushOpts = { replaceAll?: boolean }
 
+type FlushResult = { ok: boolean; message?: string }
+
 /** Flush pending store writes immediately (logout / backup / unload). */
-export async function flushStoreNow(opts: FlushOpts = {}) {
+export async function flushStoreNow(opts: FlushOpts = {}): Promise<FlushResult> {
   if (flushTimer) {
     clearTimeout(flushTimer)
     flushTimer = null
   }
-  await flushStore(opts)
+  return flushStore(opts)
 }
 
-async function flushStore(opts: FlushOpts = {}) {
+async function flushStore(opts: FlushOpts = {}): Promise<FlushResult> {
   if (flushInFlight) {
     if (opts.replaceAll) {
       await flushInFlight
       return flushStore(opts)
     }
     flushQueued = true
-    return flushInFlight
+    const inFlight = await flushInFlight
+    if (flushInFlight) return flushInFlight
+    return inFlight
   }
-  const run = (async () => {
+  const run = (async (): Promise<FlushResult> => {
     let attempts = 0
     while (attempts < STALE_RETRY_LIMIT) {
       attempts += 1
       const snapshot = storeCache
       const token = getToken()
-      if (!snapshot || !token) return
+      if (!snapshot || !token) return { ok: true }
       const startedRev = storeRev
       try {
         const res = await api<StoreWriteResult>('/api/data/store', {
@@ -182,7 +186,7 @@ async function flushStore(opts: FlushOpts = {}) {
         storeRev = Number.isFinite(Number(res.rev)) ? Number(res.rev) : startedRev + 1
         emitPersist(true)
         if (storeCache !== snapshot) continue
-        return
+        return { ok: true }
       } catch (e) {
         if (e instanceof ApiRequestError && e.status === 409 && e.code === 'STALE_STORE') {
           const body = e.body as { data?: StoreShape; rev?: number } | null
@@ -200,18 +204,21 @@ async function flushStore(opts: FlushOpts = {}) {
           continue
         }
         console.error('Failed to persist store', e)
-        emitPersist(false, e instanceof Error ? e.message : 'Failed to save data')
+        const message = e instanceof Error ? e.message : 'Failed to save data'
+        emitPersist(false, message)
         scheduleRetry()
-        return
+        return { ok: false, message }
       }
     }
-    emitPersist(false, 'Could not save — another centre updated data. Retrying.')
+    const message = 'Could not save — another centre updated data. Retrying.'
+    emitPersist(false, message)
     scheduleRetry()
+    return { ok: false, message }
   })()
 
   flushInFlight = run
   try {
-    await run
+    return await run
   } finally {
     flushInFlight = null
     if (flushQueued) {

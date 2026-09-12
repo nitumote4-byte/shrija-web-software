@@ -7,12 +7,13 @@ import { useToast } from '../components/ui'
 import { verifyLoginPassword } from '../data/auth'
 import { store, type InvoiceLine } from '../data/store'
 import {
-  BILL_DELETE_CONFIRM_1,
-  BILL_DELETE_CONFIRM_2,
-  BILL_DELETE_PASSWORD_PROMPT,
-  reduceBillDeletePhase,
-  type BillDeletePhase,
+    BILL_DELETE_CONFIRM_1,
+    BILL_DELETE_CONFIRM_2,
+    BILL_DELETE_PASSWORD_PROMPT,
+    reduceBillDeletePhase,
+    type BillDeletePhase,
 } from '../data/requestBillingDeletion'
+import { flushStoreNow } from '../data/tenantCache'
 import { tenantGet } from '../data/tenant'
 import {
   applyInvoicePaperForPrint,
@@ -287,11 +288,11 @@ export function ViewGeneratedBills() {
     setDeleteBusy(false)
   }
 
-  const commitBillDelete = () => {
+  const commitBillDelete = async () => {
     if (!activeId) return
     const ok = store.deleteInvoice(activeId)
-    resetBillDelete()
     if (!ok) {
+      resetBillDelete()
       toast('Delete failed')
       return
     }
@@ -299,7 +300,19 @@ export function ViewGeneratedBills() {
     setActiveId(null)
     setSelectedKey('')
     setTick((t) => t + 1)
-    toast('Invoice deleted · data pushed')
+    setDeleteBusy(true)
+    try {
+      const persisted = await flushStoreNow()
+      resetBillDelete()
+      if (persisted.ok) {
+        toast('Invoice deleted')
+        return
+      }
+      toast(persisted.message || 'Invoice removed here — save to server failed')
+    } catch (e) {
+      resetBillDelete()
+      toast(e instanceof Error ? e.message : 'Invoice removed here — save to server failed')
+    }
   }
 
   const deleteBill = () => {
@@ -339,7 +352,7 @@ export function ViewGeneratedBills() {
   const onConfirm2 = (ok: boolean) => {
     const next = reduceBillDeletePhase('confirm2', { type: 'confirm2', ok })
     if (next === 'deleted') {
-      commitBillDelete()
+      void commitBillDelete()
       return
     }
     setDeletePhase(next)

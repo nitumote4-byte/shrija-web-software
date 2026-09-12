@@ -1,7 +1,14 @@
 /**
  * Client-side union used when a store PUT hits STALE_STORE (409).
  * Local rows win on the same id so in-progress OSC/Main work is not dropped.
+ * Invoice tombstones win over remote-only rows so OSC deletes are not resurrected.
  */
+import {
+  INVOICE_TOMBSTONES_KEY,
+  applyInvoiceTombstones,
+  unionInvoiceTombstones,
+} from './invoiceTombstones'
+
 export const CENTRE_SCOPED_STORE_KEYS = [
   'parties',
   'requests',
@@ -45,6 +52,25 @@ export function unionCentreScopedStore(remote: StoreShape, local: StoreShape): S
       else if (item && typeof item === 'object') extras.push(item)
     }
     out[key] = [...byId.values(), ...extras]
+  }
+  const tombstones = unionInvoiceTombstones(remote[INVOICE_TOMBSTONES_KEY], local[INVOICE_TOMBSTONES_KEY])
+  out[INVOICE_TOMBSTONES_KEY] = tombstones
+  if (Array.isArray(out.invoices)) {
+    const before = out.invoices as unknown[]
+    const after = applyInvoiceTombstones(before, tombstones)
+    if (after.length !== before.length) {
+      console.info('[invoice-tombstone] resurrection-prevented', {
+        centreId: 'stale-store-union',
+        reason: 'STALE_STORE',
+        invoiceId: before
+          .map((item) =>
+            item && typeof item === 'object' ? String((item as { id?: unknown }).id || '') : '',
+          )
+          .filter((id) => id && !after.some((row) => (row as { id?: string }).id === id))
+          .join(','),
+      })
+    }
+    out.invoices = after
   }
   return out
 }

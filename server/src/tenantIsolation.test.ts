@@ -249,6 +249,80 @@ describe('store isolation for OSC vs other centres', () => {
     assert.equal((merged.invoices as { id: string }[])[0]?.id, 'i1')
     assert.equal((merged.parties as { name: string }[])[0]?.name, 'Renamed')
   })
+
+  const oscTombstone = {
+    id: 'i-osc',
+    centreId: 'osc-a',
+    centreKind: 'osc' as const,
+    deletedAt: '2026-09-12T12:00:00.000Z',
+  }
+
+  it('persists an OSC invoice tombstone and omits the invoice on GET', () => {
+    const existing = {
+      invoices: [{ id: 'i-osc', requestNo: 'HM-1', centreId: 'osc-a', centreKind: 'osc' }],
+      requests: [{ id: 'r-osc', requestNo: 'HM-1', centreId: 'osc-a', centreKind: 'osc' }],
+    }
+    const incoming = {
+      invoices: [],
+      requests: [{ id: 'r-osc', requestNo: 'HM-1', centreId: 'osc-a', centreKind: 'osc' }],
+      deletedInvoices: [oscTombstone],
+    }
+    const merged = mergeOscStoreWrite(existing, incoming, 'osc-a')
+    assert.equal((merged.invoices as { id: string }[]).some((i) => i.id === 'i-osc'), false)
+    assert.equal((merged.deletedInvoices as { id: string }[]).some((i) => i.id === 'i-osc'), true)
+    const hydrated = filterStoreForSession(merged, { centreId: 'osc-a', centreKind: 'osc' })
+    assert.equal((hydrated.invoices as { id: string }[]).some((i) => i.id === 'i-osc'), false)
+  })
+
+  it('does not let a Main write resurrect a tombstoned OSC invoice', () => {
+    const existing = {
+      invoices: [],
+      deletedInvoices: [oscTombstone],
+      parties: [{ id: 'p-main', centreId: 'main' }],
+    }
+    const incoming = {
+      invoices: [{ id: 'i-osc', requestNo: 'HM-1', centreId: 'osc-a', centreKind: 'osc' }],
+      parties: [{ id: 'p-main', name: 'Main', centreId: 'main' }],
+    }
+    const merged = mergeMainStoreWrite(existing, incoming)
+    assert.equal((merged.invoices as { id: string }[]).some((i) => i.id === 'i-osc'), false)
+    assert.equal((merged.deletedInvoices as { id: string }[]).some((i) => i.id === 'i-osc'), true)
+  })
+
+  it('does not let a stale OSC tab resurrect a tombstoned invoice', () => {
+    const existing = {
+      invoices: [],
+      deletedInvoices: [oscTombstone],
+    }
+    const incoming = {
+      invoices: [{ id: 'i-osc', requestNo: 'HM-1', centreId: 'osc-a', centreKind: 'osc' }],
+      deletedInvoices: [],
+    }
+    const merged = mergeOscStoreWrite(existing, incoming, 'osc-a')
+    assert.equal((merged.invoices as { id: string }[]).some((i) => i.id === 'i-osc'), false)
+  })
+
+  it('rejects a forged OSC tombstone for another centre\'s invoice', () => {
+    const existing = {
+      invoices: [{ id: 'i-b', requestNo: 'HM-B', centreId: 'osc-b', centreKind: 'osc' }],
+    }
+    const incoming = {
+      invoices: [],
+      deletedInvoices: [{ ...oscTombstone, id: 'i-b', centreId: 'osc-a' }],
+    }
+    const merged = mergeOscStoreWrite(existing, incoming, 'osc-a')
+    assert.equal((merged.invoices as { id: string }[]).some((i) => i.id === 'i-b'), true)
+  })
+
+  it('strips tombstoned invoices from GET even if they remain in the payload array', () => {
+    const payload = {
+      requests: [{ requestNo: 'HM-1', centreId: 'osc-a' }],
+      invoices: [{ id: 'i-osc', requestNo: 'HM-1', centreId: 'osc-a', centreKind: 'osc' }],
+      deletedInvoices: [oscTombstone],
+    }
+    const scoped = filterStoreForSession(payload, { centreId: 'osc-a', centreKind: 'osc' })
+    assert.equal((scoped.invoices as { id: string }[]).some((i) => i.id === 'i-osc'), false)
+  })
 })
 
 describe('centre list privacy', () => {

@@ -39,6 +39,13 @@ describe('RBAC store scoping', () => {
     assert.ok(rec.requests)
   })
 
+  it('lets reception and accountant persist invoice tombstones', () => {
+    const withTombs = { ...full, deletedInvoices: [{ id: 'i1', centreId: 'osc-a' }] }
+    assert.ok(pickStoreForRole(withTombs, 'reception').deletedInvoices)
+    assert.ok(pickStoreForRole(withTombs, 'accountant').deletedInvoices)
+    assert.equal('deletedInvoices' in pickStoreForRole(withTombs, 'assay_lab'), false)
+  })
+
   it('gives quality_manager the full blob', () => {
     assert.equal(storeKeysForRole('quality_manager'), '*')
     assert.deepEqual(pickStoreForRole(full, 'quality_manager'), full)

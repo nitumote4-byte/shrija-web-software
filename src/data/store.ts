@@ -17,6 +17,13 @@ import {
   hasGeneratedBillForRequest as invoicesExistForRequest,
 } from './requestBillingDeletion'
 import {
+  applyInvoiceTombstones,
+  canDeleteInvoiceForCentre,
+  makeInvoiceTombstone,
+  unionInvoiceTombstones,
+  type InvoiceTombstone,
+} from './invoiceTombstones'
+import {
   ensureVoucherItemMasterName,
   matchItemMasterName,
   type EnsureItemMasterResult,
@@ -394,6 +401,8 @@ type StoreShape = {
   pendingRough: PendingRoughRequest[]
   invoices: Invoice[]
   monthlyInvoices: MonthlyInvoice[]
+  /** Explicit deletions so OSC invoice removes survive Main writes and 409 unions. */
+  deletedInvoices: InvoiceTombstone[]
   funds: FundEntry[]
   expenses: ExpenseEntry[]
   purchaseParties: PurchaseParty[]
@@ -416,6 +425,7 @@ function emptyStore(): StoreShape {
     pendingRough: [],
     invoices: [],
     monthlyInvoices: [],
+    deletedInvoices: [],
     funds: [],
     expenses: [],
     purchaseParties: [],
@@ -996,6 +1006,7 @@ function seed(): StoreShape {
       },
     ],
     monthlyInvoices: [],
+    deletedInvoices: [],
     funds: [
       {
         id: 'f1',
@@ -1137,6 +1148,9 @@ function normalizeParty(p: Partial<Party> & { id: string; name: string }): Party
 function normalizeLoaded(parsed: StoreShape): StoreShape {
   if (!parsed.pendingRough) parsed.pendingRough = []
   if (!parsed.monthlyInvoices) parsed.monthlyInvoices = []
+  if (!parsed.deletedInvoices) parsed.deletedInvoices = []
+  parsed.deletedInvoices = unionInvoiceTombstones(parsed.deletedInvoices, [])
+  parsed.invoices = applyInvoiceTombstones(parsed.invoices ?? [], parsed.deletedInvoices)
   if (!parsed.jewelleryCategories) parsed.jewelleryCategories = []
   if (!parsed.purchaseParties) parsed.purchaseParties = []
   if (!parsed.xrfStandardChecks) parsed.xrfStandardChecks = []
@@ -1920,6 +1934,20 @@ export const store = {
     const data = load()
     const row = data.invoices.find((i) => i.id === id)
     if (!row) return false
+    const session = getSession()
+    const actor = {
+      centreId: session?.centreId || 'main',
+      centreKind: (session?.centreKind === 'osc' ? 'osc' : 'main') as 'main' | 'osc',
+    }
+    if (!canDeleteInvoiceForCentre(row, actor)) {
+      console.warn('[invoice-tombstone] delete-rejected', {
+        invoiceId: id,
+        centreId: actor.centreId,
+        reason: 'invoice-not-owned',
+      })
+      return false
+    }
+    data.deletedInvoices = unionInvoiceTombstones(data.deletedInvoices, [makeInvoiceTombstone(row, actor)])
     const partyName = row.partyName
     if (!removeInvoiceRecord(data, id)) return false
     applyInvoicePaymentStatuses(data, partyName)
