@@ -84,12 +84,11 @@ function stripTags(html: string): string {
 }
 
 async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  if (typeof DecompressionStream === 'function') {
-    const stream = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
-    return new Uint8Array(await new Response(stream).arrayBuffer())
+  if (typeof DecompressionStream !== 'function') {
+    throw new Error('This browser cannot read compressed Excel files. Save as CSV UTF-8 and upload that.')
   }
-  const zlib = await import('node:zlib')
-  return new Uint8Array(zlib.inflateRawSync(data))
+  const stream = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
 }
 
 function findEocd(bytes: Uint8Array): number {
