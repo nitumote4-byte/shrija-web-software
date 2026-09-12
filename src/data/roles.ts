@@ -32,6 +32,7 @@ export const RECEPTION_MODULES = [
   'touch-billing',
   'reports',
   'others',
+  'other-services',
 ] as const
 
 /** Gold Shark–style desk roles → module access */
@@ -54,6 +55,7 @@ const ROLE_MODULES: Record<string, string[] | '*'> = {
     'reports',
     'dashboard',
     'stock',
+    'other-services',
   ],
 }
 
@@ -98,6 +100,19 @@ export function canAccessPath(pathname: string): boolean {
   if (path === '/' || path === '') return true
   if (path === '/license' || path.startsWith('/others/license')) return true
   if (path === '/change-password' || path === '/account-settings') return true
+
+  const osPath = path === '/other-services' || path.startsWith('/other-services/')
+  if (osPath) {
+    const settingsPath = path === '/other-services/settings' || path.startsWith('/other-services/settings/')
+    const role = normalizeRole(session.role || '')
+    if (settingsPath) {
+      return Boolean(session.isAdmin) || role === 'admin' || role === 'quality_manager'
+    }
+    if (session.isAdmin) return true
+    const allowed = getRoleModules(role)
+    if (allowed === '*') return true
+    return Array.isArray(allowed) && allowed.includes('other-services')
+  }
 
   const adminOnlyOthers = [
     '/others/company-profile',

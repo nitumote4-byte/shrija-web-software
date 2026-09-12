@@ -21,6 +21,7 @@ import {
   File,
   BarChart3,
   MoreHorizontal,
+  Wrench,
 } from 'lucide-react'
 
 /** Card accent identity — presentation only, see [data-accent] in index.css */
@@ -221,6 +222,14 @@ export const modules: ModuleDef[] = [
     path: '/others',
     icon: MoreHorizontal,
     accent: 'slate',
+  },
+  {
+    id: 'other-services',
+    title: 'Other Services',
+    description: 'Vibrator, silver polish, laser soldering and manual service slips.',
+    path: '/other-services',
+    icon: Wrench,
+    accent: 'teal',
   },
 ]
 

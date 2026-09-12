@@ -162,6 +162,24 @@ const LicensePage = lazy(() => import('./pages/License').then((m) => ({ default:
 const PlatformOperator = lazy(() =>
   import('./pages/PlatformOperator').then((m) => ({ default: m.PlatformOperator })),
 )
+const OtherServicesHub = lazy(() =>
+  import('./pages/other-services/OtherServicesHub').then((m) => ({ default: m.OtherServicesHub })),
+)
+const NewServiceEntry = lazy(() =>
+  import('./pages/other-services/NewServiceEntry').then((m) => ({ default: m.NewServiceEntry })),
+)
+const ServiceRecords = lazy(() =>
+  import('./pages/other-services/ServiceRecords').then((m) => ({ default: m.ServiceRecords })),
+)
+const ServiceReceipts = lazy(() =>
+  import('./pages/other-services/ServiceReceipts').then((m) => ({ default: m.ServiceReceipts })),
+)
+const OtherServicesReports = lazy(() =>
+  import('./pages/other-services/OtherServicesReports').then((m) => ({ default: m.OtherServicesReports })),
+)
+const ServiceMaster = lazy(() =>
+  import('./pages/other-services/ServiceMaster').then((m) => ({ default: m.ServiceMaster })),
+)
 
 function PageFallback() {
   return (
@@ -251,6 +269,12 @@ export default function App() {
               <Route path="others/operational-period" element={<OperationalPeriodPage />} />
               <Route path="others/backup" element={<DataBackup />} />
               <Route path="others/license" element={<LicensePage />} />
+              <Route path="other-services" element={<OtherServicesHub />} />
+              <Route path="other-services/entry" element={<NewServiceEntry />} />
+              <Route path="other-services/records" element={<ServiceRecords />} />
+              <Route path="other-services/receipts" element={<ServiceReceipts />} />
+              <Route path="other-services/reports" element={<OtherServicesReports />} />
+              <Route path="other-services/settings" element={<ServiceMaster />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Route>

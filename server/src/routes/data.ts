@@ -11,6 +11,7 @@ import {
   sessionCentre,
 } from '../middleware/auth.js'
 import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
+import { sanitizeOtherServicesStorePayload } from '../../../src/data/otherServices.ts'
 import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeStoreWrite } from '../tenantIsolation.js'
 import {
   filterKvForRole,
@@ -101,6 +102,7 @@ dataRouter.put('/store', async (req, res) => {
 
   const incoming = pickStoreForRole(req.body.data as Record<string, unknown>, req.user!.role)
   sanitizeXrfStorePayload(incoming)
+  sanitizeOtherServicesStorePayload(incoming)
   const baseRevRaw = req.body.baseRev
   const hasBaseRev = baseRevRaw !== undefined && baseRevRaw !== null && baseRevRaw !== ''
   const baseRev = hasBaseRev ? asRev(baseRevRaw) : null
@@ -135,6 +137,7 @@ dataRouter.put('/store', async (req, res) => {
     if (!replaceAll) {
       payload = mergeStoreWrite(currentPayload, incoming, centre)
       sanitizeXrfStorePayload(payload)
+      sanitizeOtherServicesStorePayload(payload)
     }
 
     const nextRev = row ? currentRev + 1 : 1

@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Receipt,
   Sparkles,
+  Wrench,
 } from 'lucide-react'
 import { allModules, modules, type ModuleAccent, type ModuleDef } from './modules'
 import { canAccessPath } from './roles'
@@ -78,6 +79,46 @@ const EXTRA_NAV: NavItem[] = [
     description: 'Browse saved monthly invoices.',
     accent: 'teal',
   },
+  {
+    id: 'os-entry',
+    title: 'New Service Entry',
+    path: '/other-services/entry',
+    icon: Wrench,
+    description: 'Create vibrator, laser or manual service slips.',
+    accent: 'teal',
+  },
+  {
+    id: 'os-records',
+    title: 'Service Records',
+    path: '/other-services/records',
+    icon: FileSpreadsheet,
+    description: 'Search and manage other service slips.',
+    accent: 'cyan',
+  },
+  {
+    id: 'os-receipts',
+    title: 'Receipts',
+    path: '/other-services/receipts',
+    icon: Receipt,
+    description: 'Preview, print and reprint other service receipts.',
+    accent: 'emerald',
+  },
+  {
+    id: 'os-reports',
+    title: 'Reports',
+    path: '/other-services/reports',
+    icon: BarChart3,
+    description: 'Other Services revenue, received and pending.',
+    accent: 'violet',
+  },
+  {
+    id: 'os-settings',
+    title: 'Service Settings',
+    path: '/other-services/settings',
+    icon: Sparkles,
+    description: 'Manual service master — add or deactivate types.',
+    accent: 'slate',
+  },
 ]
 
 /** Visual grouping only — does not grant or deny access. */
@@ -101,6 +142,20 @@ const NAV_GROUPS: NavGroupDef[] = [
       'billing',
       'fund-entry',
       'expense-entry',
+    ],
+  },
+  {
+    id: 'other-services',
+    label: 'Other Services',
+    entries: [
+      {
+        folder: 'other-services-menu',
+        title: 'Other Services',
+        icon: Wrench,
+        accent: 'teal',
+        description: 'Non-hallmarking service slips, receipts and reports.',
+        children: ['os-entry', 'os-records', 'os-receipts', 'os-reports', 'os-settings'],
+      },
     ],
   },
   {
@@ -270,6 +325,12 @@ const PAGE_TITLE_ALIASES: Record<string, string> = {
   '/account-settings': 'Account Settings',
   '/license': 'Licence',
   '/others/operational-period': 'Operational Financial Period',
+  '/other-services': 'Other Services',
+  '/other-services/entry': 'New Service Entry',
+  '/other-services/records': 'Service Records',
+  '/other-services/receipts': 'Other Service Receipts',
+  '/other-services/reports': 'Other Services Reports',
+  '/other-services/settings': 'Service Settings',
 }
 
 /** Header title for the current route — presentation only. */

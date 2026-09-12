@@ -50,6 +50,10 @@ export const RECEPTION_STORE_KEYS = [
   'xrfStandards',
   'xrfStandardSettings',
   'purchaseParties',
+  'otherServiceTypes',
+  'otherServices',
+  'otherServiceReceipts',
+  'otherServiceAudit',
 ] as const
 
 export const ACCOUNTANT_STORE_KEYS = [
@@ -65,6 +69,10 @@ export const ACCOUNTANT_STORE_KEYS = [
   'stock',
   'touches',
   'fireAssays',
+  'otherServiceTypes',
+  'otherServices',
+  'otherServiceReceipts',
+  'otherServiceAudit',
 ] as const
 
 /** KV keys that only centre admin / QM may read or write. */

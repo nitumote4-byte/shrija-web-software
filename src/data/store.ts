@@ -51,6 +51,37 @@ import {
   type XrfStandardCheck,
   type XrfStandardSettings,
 } from './xrfStandards'
+import {
+  calculateOtherServiceTotal,
+  defaultUnitForKind,
+  defaultRateBasisForUnit,
+  ensureOtherServiceTypes,
+  fundModeOf,
+  isOtherServiceFund,
+  money2,
+  nextOtherServiceReceiptNo,
+  nextOtherServiceSlipNo,
+  normalizeOtherServiceLineItems,
+  normalizeSlipPrefix,
+  OTHER_SERVICE_FUND_SOURCE,
+  otherServiceFundRemarks,
+  pendingAmountOf,
+  paymentStatusOf,
+  sanitizeOtherServicesStorePayload,
+  summarizeOtherServiceItems,
+  totalPiecesOf,
+  validateOtherServiceInput,
+  type OtherService,
+  type OtherServiceAudit,
+  type OtherServiceKind,
+  type OtherServiceLineItem,
+  type OtherServiceLineItemInput,
+  type OtherServicePaymentMode,
+  type OtherServiceRateBasis,
+  type OtherServiceReceipt,
+  type OtherServiceType,
+  type OtherServiceUnit,
+} from './otherServices'
 
 export type {
   XrfCheckSaveResult,
@@ -414,6 +445,10 @@ type StoreShape = {
   xrfStandardChecks: XrfStandardCheck[]
   xrfStandards: XrfStandard[]
   xrfStandardSettings: XrfStandardSettings
+  otherServiceTypes: OtherServiceType[]
+  otherServices: OtherService[]
+  otherServiceReceipts: OtherServiceReceipt[]
+  otherServiceAudit: OtherServiceAudit[]
 }
 
 function emptyStore(): StoreShape {
@@ -437,6 +472,10 @@ function emptyStore(): StoreShape {
     xrfStandardChecks: [],
     xrfStandards: [],
     xrfStandardSettings: { ...DEFAULT_XRF_STANDARD_SETTINGS },
+    otherServiceTypes: [],
+    otherServices: [],
+    otherServiceReceipts: [],
+    otherServiceAudit: [],
   }
 }
 
@@ -503,6 +542,8 @@ function scopeStoreForWorkingPeriod(data: StoreShape): StoreShape {
     expenses: keepInWorkingPeriod(data.expenses, working),
     touches: keepInWorkingPeriod(data.touches, working),
     xray: keepInWorkingPeriod(data.xray, working),
+    otherServices: keepInWorkingPeriod(data.otherServices || [], working),
+    otherServiceReceipts: keepInWorkingPeriod(data.otherServiceReceipts || [], working),
   }
 }
 
@@ -645,6 +686,10 @@ function scopeStoreForSession(data: StoreShape): StoreShape {
       (fa) => fa.requestNo && requestNos.has(fa.requestNo),
     )
     const jewelleryCategories = data.jewelleryCategories
+    const otherServiceTypes = data.otherServiceTypes || []
+    const otherServices = (data.otherServices || []).filter((r) => match(r))
+    const otherServiceReceipts = (data.otherServiceReceipts || []).filter((r) => match(r))
+    const otherServiceAudit = (data.otherServiceAudit || []).filter((r) => match(r))
 
     return {
       ...data,
@@ -662,6 +707,10 @@ function scopeStoreForSession(data: StoreShape): StoreShape {
       xrfStandardChecks,
       fireAssays,
       jewelleryCategories,
+      otherServiceTypes,
+      otherServices,
+      otherServiceReceipts,
+      otherServiceAudit,
     }
   }
 
@@ -1088,6 +1137,10 @@ function seed(): StoreShape {
     xrfStandardChecks: [],
     xrfStandards: defaultXrfStandards(),
     xrfStandardSettings: { ...DEFAULT_XRF_STANDARD_SETTINGS, standardsInitialized: true },
+    otherServiceTypes: ensureOtherServiceTypes([]),
+    otherServices: [],
+    otherServiceReceipts: [],
+    otherServiceAudit: [],
   }
 }
 
@@ -1213,6 +1266,11 @@ function normalizeLoaded(parsed: StoreShape): StoreShape {
     ...a,
     assayType: a.assayType ?? 'Manual',
   }))
+  parsed.otherServiceTypes = ensureOtherServiceTypes(parsed.otherServiceTypes)
+  if (!parsed.otherServices) parsed.otherServices = []
+  if (!parsed.otherServiceReceipts) parsed.otherServiceReceipts = []
+  if (!parsed.otherServiceAudit) parsed.otherServiceAudit = []
+  sanitizeOtherServicesStorePayload(parsed as unknown as Record<string, unknown>)
   const rawRough = parsed.roughSheets ?? []
   const looksLegacy = rawRough.some(
     (r) => 'roughWeight' in r && !('sampleWeight' in r),
@@ -1302,6 +1360,100 @@ export function computeInvoicePaymentStatuses(
     }
   }
   return result
+}
+
+function pushOtherServiceAudit(
+  data: StoreShape,
+  input: Omit<OtherServiceAudit, 'id' | 'at' | 'centreId' | 'centreKind'> & {
+    centreId?: string
+    centreKind?: 'main' | 'osc'
+  },
+) {
+  if (!data.otherServiceAudit) data.otherServiceAudit = []
+  const stamp = sessionCentreStamp()
+  data.otherServiceAudit.unshift({
+    id: uid('osa'),
+    at: nowIso(),
+    centreId: input.centreId || stamp.centreId,
+    centreKind: input.centreKind || stamp.centreKind,
+    ...input,
+  })
+}
+
+function createOtherServiceReceiptRow(
+  data: StoreShape,
+  row: OtherService,
+  actor: string,
+  stamp: { centreId: string; centreKind: 'main' | 'osc' },
+): OtherServiceReceipt {
+  if (!data.otherServiceReceipts) data.otherServiceReceipts = []
+  const now = nowIso()
+  const receiptNo =
+    row.receiptNo ||
+    nextOtherServiceReceiptNo(data.otherServiceReceipts, data.otherServices || [], data.funds)
+  const receipt: OtherServiceReceipt = {
+    id: uid('osr'),
+    receiptNo,
+    serviceId: row.id,
+    slipNo: row.slipNo,
+    printedAt: now,
+    reprintCount: 0,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actor,
+    updatedBy: actor,
+    ...stamp,
+    ...periodStamp(),
+  }
+  data.otherServiceReceipts.unshift(receipt)
+  return receipt
+}
+
+function insertOtherServiceFund(
+  data: StoreShape,
+  row: OtherService,
+  _actor: string,
+  stamp: { centreId: string; centreKind: 'main' | 'osc' },
+): FundEntry {
+  const fund: FundEntry = {
+    id: uid('f'),
+    date: row.date,
+    source: OTHER_SERVICE_FUND_SOURCE,
+    amount: row.amountReceived,
+    mode: fundModeOf(row.paymentMode),
+    remarks: otherServiceFundRemarks(row),
+    voucherNo: row.receiptNo,
+    ...stamp,
+    ...periodStamp(),
+  }
+  data.funds.unshift(fund)
+  return fund
+}
+
+function syncOtherServiceFund(
+  data: StoreShape,
+  row: OtherService,
+  actor: string,
+  stamp: { centreId: string; centreKind: 'main' | 'osc' },
+) {
+  const existing = row.fundId ? data.funds.find((f) => f.id === row.fundId) : undefined
+  if (row.amountReceived <= 0) {
+    if (existing) data.funds = data.funds.filter((f) => f.id !== existing.id)
+    row.fundId = undefined
+    return
+  }
+  if (existing && isOtherServiceFund(existing)) {
+    existing.date = row.date
+    existing.amount = row.amountReceived
+    existing.mode = fundModeOf(row.paymentMode)
+    existing.remarks = otherServiceFundRemarks(row)
+    existing.source = OTHER_SERVICE_FUND_SOURCE
+    if ('partyName' in existing) delete existing.partyName
+    if ('partyId' in existing) delete existing.partyId
+    return
+  }
+  const fund = insertOtherServiceFund(data, row, actor, stamp)
+  row.fundId = fund.id
 }
 
 /** Persist Paid/Partial/Unpaid from Fund Entry totals (FIFO). */
@@ -2039,8 +2191,10 @@ export const store = {
   addFund(input: Omit<FundEntry, 'id' | 'voucherNo'> & { voucherNo?: string }) {
     const data = load()
     const stamp = sessionCentreStamp()
-    const centreFunds = data.funds.filter((f) =>
-      stamp.centreKind === 'osc' ? f.centreId === stamp.centreId : !isOscRecord(f),
+    const centreFunds = data.funds.filter(
+      (f) =>
+        (stamp.centreKind === 'osc' ? f.centreId === stamp.centreId : !isOscRecord(f)) &&
+        !isOtherServiceFund(f),
     )
     const n = centreFunds.length + 1
     const entry: FundEntry = {
@@ -3200,5 +3354,404 @@ export const store = {
     data.pendingRough.unshift(entry)
     save(data)
     return entry
+  },
+
+  getOtherServiceTypes(includeInactive = false) {
+    const types = store.getAll().otherServiceTypes || []
+    return includeInactive ? types : types.filter((t) => t.active)
+  },
+
+  addOtherServiceType(input: {
+    name: string
+    kind?: OtherServiceKind
+    slipPrefix?: string
+  }) {
+    const data = load()
+    data.otherServiceTypes = ensureOtherServiceTypes(data.otherServiceTypes)
+    const name = String(input.name || '').trim()
+    if (!name) return { ok: false as const, error: 'Service name is required' }
+    if (data.otherServiceTypes.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+      return { ok: false as const, error: 'A service with this name already exists' }
+    }
+    const kind: OtherServiceKind = input.kind || 'manual'
+    const now = nowIso()
+    const actor = getSession()?.username || 'user'
+    const row: OtherServiceType = {
+      id: uid('ost'),
+      name,
+      kind,
+      slipPrefix: normalizeSlipPrefix(input.slipPrefix || 'MS', kind),
+      builtIn: false,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actor,
+      updatedBy: actor,
+    }
+    data.otherServiceTypes.unshift(row)
+    pushOtherServiceAudit(data, {
+      action: 'type_created',
+      typeId: row.id,
+      detail: `Created service type ${row.name}`,
+      createdBy: actor,
+    })
+    save(data)
+    return { ok: true as const, type: row }
+  },
+
+  updateOtherServiceType(
+    id: string,
+    patch: Partial<Pick<OtherServiceType, 'name' | 'kind' | 'slipPrefix' | 'active'>>,
+  ) {
+    const data = load()
+    data.otherServiceTypes = ensureOtherServiceTypes(data.otherServiceTypes)
+    const row = data.otherServiceTypes.find((t) => t.id === id)
+    if (!row) return { ok: false as const, error: 'Service type not found' }
+    if (patch.name != null) {
+      const name = String(patch.name).trim()
+      if (!name) return { ok: false as const, error: 'Service name is required' }
+      const clash = data.otherServiceTypes.some(
+        (t) => t.id !== id && t.name.toLowerCase() === name.toLowerCase(),
+      )
+      if (clash) return { ok: false as const, error: 'A service with this name already exists' }
+      row.name = name
+    }
+    if (patch.kind && !row.builtIn) row.kind = patch.kind
+    if (patch.slipPrefix && !row.builtIn) {
+      row.slipPrefix = normalizeSlipPrefix(patch.slipPrefix, row.kind)
+    }
+    if (patch.active != null) row.active = Boolean(patch.active)
+    const actor = getSession()?.username || 'user'
+    row.updatedAt = nowIso()
+    row.updatedBy = actor
+    pushOtherServiceAudit(data, {
+      action: 'type_changed',
+      typeId: row.id,
+      detail: `Updated service type ${row.name} (${row.active ? 'active' : 'inactive'})`,
+      createdBy: actor,
+    })
+    save(data)
+    return { ok: true as const, type: row }
+  },
+
+  addOtherService(input: {
+    typeId: string
+    customerName: string
+    address?: string
+    contactNo: string
+    date?: string
+    unit?: OtherServiceUnit
+    quantity?: number
+    rate?: number
+    rateBasis?: OtherServiceRateBasis
+    item?: string
+    productDescription?: string
+    remark?: string
+    amountReceived?: number
+    paymentMode?: OtherServicePaymentMode
+    items?: OtherServiceLineItemInput[]
+  }) {
+    const data = load()
+    data.otherServiceTypes = ensureOtherServiceTypes(data.otherServiceTypes)
+    data.otherServices = data.otherServices || []
+    data.otherServiceReceipts = data.otherServiceReceipts || []
+    const type = data.otherServiceTypes.find((t) => t.id === input.typeId)
+    if (!type || !type.active) return { ok: false as const, error: 'Select an active service type' }
+    const unit = type.kind === 'piece' ? 'Piece' : input.unit || defaultUnitForKind(type.kind)
+    const rateBasis =
+      type.kind === 'weight' ? 'Per KG' : input.rateBasis || defaultRateBasisForUnit(unit)
+    let quantity = Number(input.quantity) || 0
+    let rate = Number(input.rate) || 0
+    let item = String(input.item || '').trim()
+    let items: OtherServiceLineItem[] | undefined
+    if (type.kind === 'piece') {
+      const normalized = normalizeOtherServiceLineItems(input.items)
+      if (!normalized.ok) return { ok: false as const, error: normalized.error }
+      items = normalized.items.map((row) => ({ ...row, id: row.id || uid('osi') }))
+      quantity = totalPiecesOf(items)
+      rate = items.length === 1 ? items[0].rate : 0
+      item = summarizeOtherServiceItems(items)
+    }
+    const amountReceived = money2(Number(input.amountReceived) || 0)
+    const err = validateOtherServiceInput({
+      typeId: type.id,
+      customerName: input.customerName,
+      contactNo: input.contactNo,
+      kind: type.kind,
+      unit,
+      rateBasis,
+      quantity,
+      rate,
+      amountReceived,
+      items,
+    })
+    if (err) return { ok: false as const, error: err }
+    const calc = calculateOtherServiceTotal({
+      kind: type.kind,
+      unit,
+      rateBasis,
+      quantity,
+      rate,
+      items,
+    })
+    if (!calc.ok) return { ok: false as const, error: calc.error }
+    const stamp = sessionCentreStamp()
+    const actor = getSession()?.username || 'user'
+    const now = nowIso()
+    const date = input.date || today()
+    const prefix = normalizeSlipPrefix(type.slipPrefix, type.kind)
+    const slipNo = nextOtherServiceSlipNo(prefix, data.otherServices)
+    const receiptNo = nextOtherServiceReceiptNo(
+      data.otherServiceReceipts,
+      data.otherServices,
+      data.funds,
+    )
+    const totalAmount = calc.total
+    const pendingAmount = pendingAmountOf(totalAmount, amountReceived)
+    const paymentMode = input.paymentMode || 'Cash'
+    const row: OtherService = {
+      id: uid('os'),
+      slipNo,
+      typeId: type.id,
+      typeName: type.name,
+      kind: type.kind,
+      customerName: String(input.customerName).trim(),
+      address: String(input.address || '').trim(),
+      contactNo: String(input.contactNo).trim(),
+      date,
+      dateTime: now,
+      unit,
+      quantity,
+      rate: money2(rate),
+      rateBasis,
+      totalAmount,
+      amountReceived,
+      pendingAmount,
+      paymentMode,
+      paymentStatus: paymentStatusOf(totalAmount, amountReceived),
+      item,
+      productDescription: String(input.productDescription || '').trim(),
+      remark: String(input.remark || '').trim(),
+      receiptNo,
+      status: 'Open',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actor,
+      updatedBy: actor,
+      ...stamp,
+      ...periodStamp(),
+    }
+    if (items?.length) row.items = items
+    const receipt = createOtherServiceReceiptRow(data, row, actor, stamp)
+    row.receiptNo = receipt.receiptNo
+    if (amountReceived > 0) {
+      const fund = insertOtherServiceFund(data, row, actor, stamp)
+      row.fundId = fund.id
+    }
+    data.otherServices.unshift(row)
+    pushOtherServiceAudit(data, {
+      action: 'service_created',
+      serviceId: row.id,
+      detail: `Created ${row.typeName} slip ${row.slipNo}`,
+      createdBy: actor,
+    })
+    if (amountReceived > 0) {
+      pushOtherServiceAudit(data, {
+        action: 'payment_recorded',
+        serviceId: row.id,
+        detail: `Received ₹${row.amountReceived} for ${row.slipNo}`,
+        createdBy: actor,
+      })
+    }
+    pushOtherServiceAudit(data, {
+      action: 'receipt_generated',
+      serviceId: row.id,
+      detail: `Receipt ${row.receiptNo} for ${row.slipNo}`,
+      createdBy: actor,
+    })
+    save(data)
+    return { ok: true as const, service: row, receipt }
+  },
+
+  updateOtherService(
+    id: string,
+    patch: {
+      customerName?: string
+      address?: string
+      contactNo?: string
+      date?: string
+      unit?: OtherServiceUnit
+      quantity?: number
+      rate?: number
+      rateBasis?: OtherServiceRateBasis
+      item?: string
+      productDescription?: string
+      remark?: string
+      amountReceived?: number
+      paymentMode?: OtherServicePaymentMode
+      items?: OtherServiceLineItemInput[]
+    },
+  ) {
+    const data = load()
+    const row = (data.otherServices || []).find((s) => s.id === id)
+    if (!row) return { ok: false as const, error: 'Service not found' }
+    if (row.status === 'Cancelled') return { ok: false as const, error: 'Cancelled services cannot be edited' }
+    const unit = row.kind === 'piece' ? 'Piece' : patch.unit ?? row.unit
+    const touchingAmounts =
+      patch.unit != null || patch.quantity != null || patch.rate != null || patch.rateBasis != null
+    const rateBasis =
+      row.kind === 'weight' && touchingAmounts ? 'Per KG' : patch.rateBasis ?? row.rateBasis
+    let quantity = patch.quantity != null ? Number(patch.quantity) : row.quantity
+    let rate = patch.rate != null ? Number(patch.rate) : row.rate
+    let item = patch.item != null ? String(patch.item).trim() : row.item
+    let items = row.items
+    if (row.kind === 'piece') {
+      if (patch.items != null) {
+        const normalized = normalizeOtherServiceLineItems(patch.items)
+        if (!normalized.ok) return { ok: false as const, error: normalized.error }
+        items = normalized.items.map((line) => ({ ...line, id: line.id || uid('osi') }))
+      } else if (!items?.length) {
+        items = undefined
+      }
+      if (items?.length) {
+        quantity = totalPiecesOf(items)
+        rate = items.length === 1 ? items[0].rate : 0
+        item = summarizeOtherServiceItems(items)
+      }
+    }
+    const amountReceived =
+      patch.amountReceived != null ? money2(Number(patch.amountReceived) || 0) : row.amountReceived
+    const customerName = patch.customerName != null ? String(patch.customerName).trim() : row.customerName
+    const contactNo = patch.contactNo != null ? String(patch.contactNo).trim() : row.contactNo
+    const err = validateOtherServiceInput({
+      typeId: row.typeId,
+      customerName,
+      contactNo,
+      kind: row.kind,
+      unit,
+      rateBasis,
+      quantity,
+      rate,
+      amountReceived,
+      items,
+    })
+    if (err) return { ok: false as const, error: err }
+    const calc = calculateOtherServiceTotal({
+      kind: row.kind,
+      unit,
+      rateBasis,
+      quantity,
+      rate,
+      items,
+    })
+    if (!calc.ok) return { ok: false as const, error: calc.error }
+    const actor = getSession()?.username || 'user'
+    const stamp = sessionCentreStamp()
+    row.customerName = customerName
+    row.contactNo = contactNo
+    if (patch.address != null) row.address = String(patch.address).trim()
+    if (patch.date) row.date = patch.date
+    row.item = item
+    if (patch.productDescription != null) row.productDescription = String(patch.productDescription).trim()
+    if (patch.remark != null) row.remark = String(patch.remark).trim()
+    if (patch.paymentMode) row.paymentMode = patch.paymentMode
+    row.unit = unit
+    row.quantity = quantity
+    row.rate = money2(rate)
+    row.rateBasis = rateBasis
+    if (row.kind === 'piece') {
+      if (items?.length) row.items = items
+      else delete row.items
+    }
+    row.totalAmount = calc.total
+    row.amountReceived = amountReceived
+    row.pendingAmount = pendingAmountOf(calc.total, amountReceived)
+    row.paymentStatus = paymentStatusOf(calc.total, amountReceived)
+    row.updatedAt = nowIso()
+    row.updatedBy = actor
+    syncOtherServiceFund(data, row, actor, stamp)
+    pushOtherServiceAudit(data, {
+      action: 'service_edited',
+      serviceId: row.id,
+      detail: `Edited slip ${row.slipNo}`,
+      createdBy: actor,
+    })
+    if (patch.amountReceived != null) {
+      pushOtherServiceAudit(data, {
+        action: 'payment_recorded',
+        serviceId: row.id,
+        detail: `Payment updated for ${row.slipNo}: received ₹${row.amountReceived}`,
+        createdBy: actor,
+      })
+    }
+    save(data)
+    return { ok: true as const, service: row }
+  },
+
+  recordOtherServicePayment(
+    id: string,
+    input: { amountReceived: number; paymentMode?: OtherServicePaymentMode },
+  ) {
+    return store.updateOtherService(id, {
+      amountReceived: input.amountReceived,
+      paymentMode: input.paymentMode,
+    })
+  },
+
+  cancelOtherService(id: string) {
+    const data = load()
+    const row = (data.otherServices || []).find((s) => s.id === id)
+    if (!row) return { ok: false as const, error: 'Service not found' }
+    if (row.status === 'Cancelled') return { ok: false as const, error: 'Service is already cancelled' }
+    const actor = getSession()?.username || 'user'
+    if (row.fundId) {
+      data.funds = data.funds.filter((f) => f.id !== row.fundId)
+      row.fundId = undefined
+    }
+    row.status = 'Cancelled'
+    row.cancelledAt = nowIso()
+    row.cancelledBy = actor
+    row.updatedAt = row.cancelledAt
+    row.updatedBy = actor
+    pushOtherServiceAudit(data, {
+      action: 'service_cancelled',
+      serviceId: row.id,
+      detail: `Cancelled slip ${row.slipNo}`,
+      createdBy: actor,
+    })
+    save(data)
+    return { ok: true as const, service: row }
+  },
+
+  markOtherServiceReceiptPrinted(id: string, reprint: boolean) {
+    const data = load()
+    const row = (data.otherServices || []).find((s) => s.id === id)
+    if (!row) return { ok: false as const, error: 'Service not found' }
+    const actor = getSession()?.username || 'user'
+    const stamp = sessionCentreStamp()
+    let receipt = (data.otherServiceReceipts || []).find((r) => r.serviceId === row.id)
+    if (!receipt) {
+      receipt = createOtherServiceReceiptRow(data, row, actor, stamp)
+      row.receiptNo = receipt.receiptNo
+    } else if (reprint) {
+      receipt.reprintCount += 1
+      receipt.printedAt = nowIso()
+      receipt.updatedAt = receipt.printedAt
+      receipt.updatedBy = actor
+    } else {
+      return { ok: true as const, service: row, receipt }
+    }
+    pushOtherServiceAudit(data, {
+      action: reprint ? 'receipt_reprinted' : 'receipt_generated',
+      serviceId: row.id,
+      detail: `${reprint ? 'Reprinted' : 'Printed'} ${row.receiptNo} for ${row.slipNo}`,
+      createdBy: actor,
+    })
+    save(data)
+    return { ok: true as const, service: row, receipt }
+  },
+
+  getOtherServiceById(id: string) {
+    return (store.getAll().otherServices || []).find((s) => s.id === id)
   },
 }

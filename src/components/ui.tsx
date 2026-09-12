@@ -29,8 +29,11 @@ export function statusBadge(status: string) {
     Partial: 'badge-progress',
     'In Lab': 'badge-progress',
     Completed: 'badge-done',
+    Active: 'badge-done',
+    Inactive: 'badge-pending',
     Accepted: 'badge-done',
     Rejected: 'badge-danger',
+    Cancelled: 'badge-danger',
   }
   return <span className={`badge ${map[status] ?? 'badge-progress'}`}>{status}</span>
 }

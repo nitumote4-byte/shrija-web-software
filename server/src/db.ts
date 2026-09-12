@@ -313,6 +313,10 @@ export function emptyStorePayload() {
       valueDecimals: 1,
       standardsInitialized: false,
     },
+    otherServiceTypes: [],
+    otherServices: [],
+    otherServiceReceipts: [],
+    otherServiceAudit: [],
   }
 }
 

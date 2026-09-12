@@ -24,6 +24,9 @@ export const CENTRE_SCOPED_STORE_KEYS = [
   'xrfStandardChecks',
   'fireAssays',
   'stock',
+  'otherServices',
+  'otherServiceReceipts',
+  'otherServiceAudit',
 ] as const
 
 type StoreShape = Record<string, unknown>

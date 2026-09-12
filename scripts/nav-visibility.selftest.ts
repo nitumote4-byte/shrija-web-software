@@ -107,6 +107,9 @@ activate(session({ role: 'quality_manager' }))
   assert(has(paths, '/print-job-card'), 'QM sees Print Job Card')
   assert(topLevel.includes('/print-job-card'), 'Print Job Card is a top-level sidebar item')
   assert(has(paths, '/billing'), 'QM sees Billing')
+  assert(titles.includes('Other Services'), 'QM sees Other Services')
+  assert(has(paths, '/other-services/entry'), 'QM sees New Service Entry')
+  assert(has(paths, '/other-services/settings'), 'QM sees Service Settings')
   assert(topLevel.includes('/billing'), 'Billing is a top-level sidebar item, not a dropdown')
   assert(has(paths, '/fund-entry'), 'QM sees Fund Entry')
   assert(topLevel.includes('/fund-entry'), 'Fund Entry is a top-level sidebar item')
@@ -191,6 +194,12 @@ activate(session({ role: 'reception' }))
   assert(!canAccessPath('/lab-stock'), 'Reception cannot open lab stock route')
   assert(canAccessPath('/billing'), 'Reception can still open Billing')
   assert(canAccessPath('/generated-bills'), 'Reception can still open Generated Bills')
+  assert(titles.includes('Other Services'), 'Reception sees Other Services')
+  assert(has(paths, '/other-services/entry'), 'Reception sees New Service Entry')
+  assert(has(paths, '/other-services/records'), 'Reception sees Service Records')
+  assert(!has(paths, '/other-services/settings'), 'Reception does not see Service Settings')
+  assert(!canAccessPath('/other-services/settings'), 'Reception cannot open Service Settings')
+  assert(folderChildren('reception').length === 3, 'Reception folder children stay at three')
 }
 
 // In Lab — fire assay + stock only
@@ -207,7 +216,9 @@ activate(session({ role: 'assay_lab' }))
   assert(!has(paths, '/billing'), 'Lab does not see Billing')
   assert(!has(paths, '/reports'), 'Lab does not see Reports')
   assert(!has(paths, '/touch-form'), 'Lab does not see Touch Form')
+  assert(!has(paths, '/other-services/entry'), 'Lab does not see Other Services')
   assert(!canAccessPath('/billing'), 'Lab cannot open billing route')
+  assert(!canAccessPath('/other-services'), 'Lab cannot open Other Services')
   assert(!canAccessPath('/dashboard'), 'Lab cannot open analytics dashboard')
 }
 
@@ -231,11 +242,23 @@ activate(
   assert(!canAccessPath('/lab-stock'), 'OSC cannot open lab stock route')
 }
 
+activate(session({ role: 'accountant', isAdmin: false }))
+{
+  const paths = navPaths()
+  assert(has(paths, '/other-services/entry'), 'Accountant sees Other Services entry')
+  assert(has(paths, '/other-services/reports'), 'Accountant sees Other Services reports')
+  assert(!has(paths, '/other-services/settings'), 'Accountant does not see Service Settings')
+  assert(canAccessPath('/other-services'), 'Accountant can open Other Services')
+  assert(!canAccessPath('/other-services/settings'), 'Accountant cannot open Service Settings')
+  assert(canAccessPath('/billing'), 'Accountant can still open Billing')
+}
+
 activate(session({ role: 'unknown_role', isAdmin: false }))
 {
   assert(!canAccessPath('/billing'), 'Unknown role is denied billing')
   assert(!canAccessPath('/create-fire-assay'), 'Unknown role is denied lab')
   assert(!canAccessPath('/others'), 'Unknown role is denied others')
+  assert(!canAccessPath('/other-services'), 'Unknown role is denied Other Services')
 }
 
 console.log('nav-visibility.selftest: ok')

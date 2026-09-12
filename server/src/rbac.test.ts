@@ -22,6 +22,19 @@ describe('RBAC store scoping', () => {
     requests: [{ id: 'r1' }],
   }
 
+  it('does not send other services to lab roles', () => {
+    const withOs = { ...full, otherServices: [{ id: 'os1' }], otherServiceTypes: [{ id: 't1' }] }
+    const lab = pickStoreForRole(withOs, 'assay_lab')
+    assert.equal('otherServices' in lab, false)
+    assert.equal('otherServiceTypes' in lab, false)
+  })
+
+  it('lets reception and accountant persist other services', () => {
+    const withOs = { ...full, otherServices: [{ id: 'os1' }], otherServiceTypes: [{ id: 't1' }] }
+    assert.ok(pickStoreForRole(withOs, 'reception').otherServices)
+    assert.ok(pickStoreForRole(withOs, 'accountant').otherServices)
+  })
+
   it('does not send invoices or funds to lab roles', () => {
     const lab = pickStoreForRole(full, 'assay_lab')
     assert.equal('invoices' in lab, false)
