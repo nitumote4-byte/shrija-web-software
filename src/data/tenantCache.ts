@@ -2,8 +2,15 @@
  * In-memory tenant cache hydrated from the API.
  * Pages keep sync read/write; mutations flush to the server with JWT tenant_id.
  */
-import { api, ApiRequestError, getToken } from '../api/client'
+import { api, ApiRequestError, getToken, readStoredSession } from '../api/client'
 import { fetchLetterhead, resetLetterheadCache } from './letterhead'
+import { INVOICE_TOMBSTONES_KEY, tombstoneIds } from './invoiceTombstones'
+import {
+  applyPendingInvoiceTombstonesToStore,
+  clearAllPendingInvoiceTombstones,
+  clearPendingInvoiceTombstones,
+  type PendingTombstoneScope,
+} from './pendingInvoiceTombstones'
 import { unionCentreScopedStore } from './storeMerge'
 
 type StoreShape = Record<string, unknown>
@@ -53,6 +60,24 @@ function emitPersist(ok: boolean, message?: string) {
   window.dispatchEvent(new CustomEvent(STORE_PERSIST_EVENT, { detail: { ok, message } }))
 }
 
+function currentStoreScope(): PendingTombstoneScope | null {
+  const session = readStoredSession()
+  if (!session?.tenantId) return null
+  const centreId = session.centreId || 'main'
+  const centreKind = session.centreKind === 'osc' ? 'osc' : 'main'
+  return { tenantId: session.tenantId, centreId, centreKind }
+}
+
+function clearPendingForSuccessfulSnapshot(snapshot: StoreShape, replaceAll: boolean) {
+  const scope = currentStoreScope()
+  if (!scope) return
+  if (replaceAll) {
+    clearAllPendingInvoiceTombstones(scope)
+    return
+  }
+  clearPendingInvoiceTombstones(scope, tombstoneIds(snapshot[INVOICE_TOMBSTONES_KEY]))
+}
+
 export function resetTenantCache() {
   if (flushTimer) {
     clearTimeout(flushTimer)
@@ -91,7 +116,18 @@ export async function hydrateTenantData() {
       api<{ profile: Record<string, unknown> }>('/api/data/firm-profile'),
       fetchLetterhead(true).catch(() => null),
     ])
-    storeCache = storeRes.data
+    let data = storeRes.data
+    const scope = currentStoreScope()
+    let outstandingPending = false
+    if (scope) {
+      const recovered = applyPendingInvoiceTombstonesToStore(data, scope)
+      data = recovered.store
+      const serverTombIds = tombstoneIds(storeRes.data[INVOICE_TOMBSTONES_KEY])
+      const confirmed = recovered.applied.filter((row) => serverTombIds.has(row.id)).map((row) => row.id)
+      if (confirmed.length) clearPendingInvoiceTombstones(scope, confirmed)
+      outstandingPending = recovered.applied.some((row) => !serverTombIds.has(row.id))
+    }
+    storeCache = data
     storeRev = Number.isFinite(Number(storeRes.rev)) ? Number(storeRes.rev) : 0
     storeVersion += 1
     kvCache.clear()
@@ -100,6 +136,7 @@ export async function hydrateTenantData() {
     }
     firmCache = firmRes.profile || null
     hydrated = true
+    if (outstandingPending) void flushStore()
   })()
 
   try {
@@ -185,6 +222,7 @@ async function flushStore(opts: FlushOpts = {}): Promise<FlushResult> {
         })
         storeRev = Number.isFinite(Number(res.rev)) ? Number(res.rev) : startedRev + 1
         emitPersist(true)
+        clearPendingForSuccessfulSnapshot(snapshot, Boolean(opts.replaceAll))
         if (storeCache !== snapshot) continue
         return { ok: true }
       } catch (e) {

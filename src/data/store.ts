@@ -24,6 +24,7 @@ import {
   unionInvoiceTombstones,
   type InvoiceTombstone,
 } from './invoiceTombstones'
+import { rememberPendingInvoiceTombstone } from './pendingInvoiceTombstones'
 import {
   ensureVoucherItemMasterName,
   matchItemMasterName,
@@ -2100,7 +2101,14 @@ export const store = {
       })
       return false
     }
-    data.deletedInvoices = unionInvoiceTombstones(data.deletedInvoices, [makeInvoiceTombstone(row, actor)])
+    const tombstone = makeInvoiceTombstone(row, actor)
+    if (session?.tenantId) {
+      rememberPendingInvoiceTombstone(
+        { tenantId: session.tenantId, centreId: actor.centreId, centreKind: actor.centreKind },
+        tombstone,
+      )
+    }
+    data.deletedInvoices = unionInvoiceTombstones(data.deletedInvoices, [tombstone])
     const partyName = row.partyName
     if (!removeInvoiceRecord(data, id)) return false
     applyInvoicePaymentStatuses(data, partyName)
