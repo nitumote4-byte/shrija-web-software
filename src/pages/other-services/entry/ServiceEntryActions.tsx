@@ -1,23 +1,27 @@
-import { ArrowLeft, ArrowRight, Eraser, Printer, Save } from 'lucide-react'
+import { ArrowLeft, Eraser, Printer, Save } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export function ServiceEntryActions({
   editing,
   saving,
   onClear,
+  compact,
 }: {
   editing: boolean
   saving: boolean
   onClear: () => void
+  /** When true, primary Save & Print lives in the aside — show secondary actions only. */
+  compact?: boolean
 }) {
   return (
-    <div className="nse-actions">
+    <div className={`nse-actions${compact ? ' nse-actions-compact' : ''}`}>
       <div className="nse-actions-left">
-        <button type="submit" name="intent" value="print" className="nse-btn nse-btn-primary" disabled={saving}>
-          <Printer size={16} />
-          {saving ? 'Saving…' : editing ? 'Update & Print Receipt' : 'Save & Print Receipt'}
-          <ArrowRight size={16} />
-        </button>
+        {!compact ? (
+          <button type="submit" name="intent" value="print" className="nse-btn nse-btn-primary" disabled={saving}>
+            <Printer size={16} />
+            {saving ? 'Saving…' : editing ? 'Update & Print Receipt' : 'Save & Print Receipt'}
+          </button>
+        ) : null}
         <button type="submit" name="intent" value="save" className="nse-btn nse-btn-secondary" disabled={saving}>
           <Save size={15} />
           {editing ? 'Update Only' : 'Save Only'}
@@ -31,5 +35,26 @@ export function ServiceEntryActions({
         <ArrowLeft size={16} /> Back to Records
       </Link>
     </div>
+  )
+}
+
+export function SavePrintAsideButton({
+  editing,
+  saving,
+}: {
+  editing: boolean
+  saving: boolean
+}) {
+  return (
+    <button
+      type="submit"
+      name="intent"
+      value="print"
+      className="nse-btn nse-btn-primary nse-btn-save-print"
+      disabled={saving}
+    >
+      <Printer size={18} strokeWidth={2.1} />
+      {saving ? 'Saving…' : editing ? 'Update & Print Receipt' : 'Save & Print Receipt'}
+    </button>
   )
 }

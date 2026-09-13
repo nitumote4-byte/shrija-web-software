@@ -8,18 +8,25 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   calculateOtherServiceTotal,
+  ensureOtherServiceTypes,
   formatOtherServiceQuantity,
   hallmarkingFundVoucherCandidates,
   isOtherServiceFund,
+  isLegacyMergedWeightServiceType,
   nextOtherServiceReceiptNo,
   nextOtherServiceSlipNo,
   normalizeOtherServiceLineItems,
+  normalizeOtherServiceWeightLineItems,
   OTHER_SERVICE_FUND_SOURCE,
   otherServiceReceiptLines,
   pendingAmountOf,
   paymentStatusOf,
   reportBucketForService,
   sanitizeOtherServicesStorePayload,
+  selectableOtherServiceTypes,
+  totalWeightOf,
+  UNIFIED_WEIGHT_SERVICE_ID,
+  UNIFIED_WEIGHT_SERVICE_NAME,
   validateOtherServiceInput,
   type OtherService,
 } from '../src/data/otherServices.ts'
@@ -205,8 +212,10 @@ const funds: FundEntry[] = [
 const statuses = computeInvoicePaymentStatuses(invoices, funds, 'Rajesh Jewellers')
 assertEq(statuses.get('i1'), 'Unpaid', 'OS fund without matching partyName does not pay HM invoices')
 
-assertEq(reportBucketForService({ typeName: 'Vibrator', kind: 'weight' }), 'Vibrator', 'vibrator bucket')
-assertEq(reportBucketForService({ typeName: 'Silver Polish', kind: 'weight' }), 'Silver Polish', 'polish bucket')
+assertEq(reportBucketForService({ typeName: 'Vibrator', kind: 'weight' }), 'Silver Polish / Vibrating', 'vibrator maps to unified bucket')
+assertEq(reportBucketForService({ typeName: 'Silver Polish', kind: 'weight' }), 'Silver Polish / Vibrating', 'polish maps to unified bucket')
+assertEq(reportBucketForService({ typeName: 'Silver Polish / Vibrating', kind: 'weight' }), 'Silver Polish / Vibrating', 'unified bucket')
+assertEq(reportBucketForService({ typeName: 'Braveting', kind: 'weight' }), 'Silver Polish / Vibrating', 'braveting maps to unified bucket')
 assertEq(reportBucketForService({ typeName: 'Chain Cleaning', kind: 'manual' }), 'Manual Services', 'manual bucket')
 
 assert.equal(CENTRE_SCOPED_STORE_KEYS.includes('otherServices'), true)
@@ -668,5 +677,294 @@ const polishSlip = buildOtherServiceReceiptSlip({
 } as OtherService)
 assert.equal(polishSlip.facts.some((f) => f.value === '2 KG'), true, 'silver polish animation keeps KG')
 assert.equal(polishSlip.totalAmount.includes('2,000') || polishSlip.totalAmount.includes('2000'), true, 'silver polish uses saved amount')
+
+const ensuredTypes = ensureOtherServiceTypes([
+  {
+    id: 'os-type-vibrator',
+    name: 'Vibrator',
+    kind: 'weight',
+    slipPrefix: 'VS',
+    builtIn: true,
+    active: true,
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  },
+  {
+    id: 'os-type-silver-polish',
+    name: 'Silver Polish',
+    kind: 'weight',
+    slipPrefix: 'VS',
+    builtIn: true,
+    active: true,
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  },
+])
+assert.equal(
+  ensuredTypes.some((t) => t.id === UNIFIED_WEIGHT_SERVICE_ID && t.name === UNIFIED_WEIGHT_SERVICE_NAME),
+  true,
+  'unified service exists',
+)
+assert.equal(
+  ensuredTypes.find((t) => t.id === 'os-type-vibrator')?.active,
+  false,
+  'legacy vibrator deactivated for new entry',
+)
+assert.equal(
+  ensuredTypes.find((t) => t.id === 'os-type-silver-polish')?.active,
+  false,
+  'legacy silver polish deactivated for new entry',
+)
+assert.equal(
+  selectableOtherServiceTypes(ensuredTypes).some((t) => t.id === 'os-type-vibrator'),
+  false,
+  'legacy vibrator not selectable',
+)
+assert.equal(
+  selectableOtherServiceTypes(ensuredTypes).some((t) => t.id === UNIFIED_WEIGHT_SERVICE_ID),
+  true,
+  'unified service is selectable',
+)
+assert.equal(isLegacyMergedWeightServiceType({ id: 'os-type-vibrator', name: 'Vibrator' }), true)
+assert.equal(isLegacyMergedWeightServiceType({ id: UNIFIED_WEIGHT_SERVICE_ID, name: UNIFIED_WEIGHT_SERVICE_NAME }), false)
+
+const multiItems = normalizeOtherServiceWeightLineItems([
+  { description: 'Dulhan Payal', quantity: 150, unit: 'GM', rate: 1000, amount: 1 },
+  { description: 'Ring', quantity: 200, unit: 'GM', rate: 1000, amount: 1 },
+  { description: 'Choti', quantity: 500, unit: 'GM', rate: 1000, amount: 1 },
+])
+assert.equal(multiItems.ok, true, 'three weight items normalize')
+if (multiItems.ok) {
+  assertEq(multiItems.items.length, 3, 'three items can be saved for one customer')
+  assertEq(multiItems.items[0].amount, 150, '150 g Dulhan Payal at ₹1000/KG = ₹150')
+  assertEq(multiItems.items[1].amount, 200, '200 g Ring at ₹1000/KG = ₹200')
+  assertEq(multiItems.items[2].amount, 500, '500 g Choti at ₹1000/KG = ₹500')
+  assertEq(multiItems.items[0].quantity, 150, 'original gram quantity preserved')
+  assertEq(multiItems.items[0].unit, 'GM', 'original gram unit preserved')
+  assert.equal(String(multiItems.items[0].quantity).includes('0.15'), false, 'grams not rewritten as 0.15')
+}
+
+const multiTotal = calculateOtherServiceTotal({
+  kind: 'weight',
+  unit: 'GM',
+  rateBasis: 'Per KG',
+  quantity: 0,
+  rate: 0,
+  items: [
+    { description: 'Dulhan Payal', quantity: 150, unit: 'GM', rate: 1000 },
+    { description: 'Ring', quantity: 200, unit: 'GM', rate: 1000 },
+    { description: 'Choti', quantity: 500, unit: 'GM', rate: 1000 },
+  ],
+})
+assert.equal(multiTotal.ok, true)
+if (multiTotal.ok) assertEq(multiTotal.total, 850, 'Total = ₹850')
+
+const weightSummary = totalWeightOf([
+  { quantity: 150, unit: 'GM' },
+  { quantity: 200, unit: 'GM' },
+  { quantity: 500, unit: 'GM' },
+])
+assertEq(weightSummary.label, '850 g', 'Total weight = 850 g')
+assertEq(weightSummary.unit, 'GM', 'total weight stays grams when all rows are grams')
+
+const mixedTotal = calculateOtherServiceTotal({
+  kind: 'weight',
+  unit: 'GM',
+  rateBasis: 'Per KG',
+  quantity: 0,
+  rate: 0,
+  items: [
+    { description: 'Dulhan Payal', quantity: 500, unit: 'GM', rate: 1000 },
+    { description: 'Chain', quantity: 1, unit: 'KG', rate: 1000 },
+  ],
+})
+assert.equal(mixedTotal.ok, true, 'mixed Gram/KG calculations work')
+if (mixedTotal.ok) assertEq(mixedTotal.total, 1500, '500 g + 1 KG at ₹1000 = ₹1500')
+
+assert.equal(
+  Boolean(
+    validateOtherServiceInput({
+      typeId: UNIFIED_WEIGHT_SERVICE_ID,
+      customerName: 'A',
+      contactNo: '9876543210',
+      kind: 'weight',
+      unit: 'GM',
+      rateBasis: 'Per KG',
+      quantity: 0,
+      rate: 0,
+      amountReceived: 0,
+      items: [{ description: 'Ring', quantity: -1, unit: 'GM', rate: 1000 }],
+    }),
+  ),
+  true,
+  'negative weight quantity rejected',
+)
+assert.equal(
+  Boolean(
+    validateOtherServiceInput({
+      typeId: UNIFIED_WEIGHT_SERVICE_ID,
+      customerName: 'A',
+      contactNo: '9876543210',
+      kind: 'weight',
+      unit: 'GM',
+      rateBasis: 'Per KG',
+      quantity: 0,
+      rate: 0,
+      amountReceived: 0,
+      items: [{ description: 'Ring', quantity: 150, unit: 'GM', rate: -5 }],
+    }),
+  ),
+  true,
+  'negative weight rate rejected',
+)
+assert.equal(
+  Boolean(
+    validateOtherServiceInput({
+      typeId: UNIFIED_WEIGHT_SERVICE_ID,
+      customerName: 'A',
+      contactNo: '9876543210',
+      kind: 'weight',
+      unit: 'GM',
+      rateBasis: 'Per KG',
+      quantity: 0,
+      rate: 0,
+      amountReceived: 0,
+      items: [{ description: 'Ring', quantity: 150, unit: 'Piece', rate: 1000 }],
+    }),
+  ),
+  true,
+  'invalid weight unit rejected',
+)
+
+const multiReceipt = otherServiceReceiptLines({
+  kind: 'weight',
+  typeName: UNIFIED_WEIGHT_SERVICE_NAME,
+  item: 'Dulhan Payal, Ring, Choti',
+  productDescription: '',
+  quantity: 850,
+  unit: 'GM',
+  rate: 1000,
+  rateBasis: 'Per KG',
+  totalAmount: 850,
+  items: [
+    { description: 'Dulhan Payal', quantity: 150, unit: 'GM', rate: 1000, amount: 150 },
+    { description: 'Ring', quantity: 200, unit: 'GM', rate: 1000, amount: 200 },
+    { description: 'Choti', quantity: 500, unit: 'GM', rate: 1000, amount: 500 },
+  ],
+})
+assert.equal(multiReceipt.some((line) => line.includes('Dulhan Payal') && line.includes('150 g')), true, 'receipt prints Dulhan Payal')
+assert.equal(multiReceipt.some((line) => line.includes('Ring') && line.includes('200 g')), true, 'receipt prints Ring')
+assert.equal(multiReceipt.some((line) => line.includes('Choti') && line.includes('500 g')), true, 'receipt prints Choti')
+assert.equal(multiReceipt.some((line) => line.includes('Total Weight') && line.includes('850 g')), true, 'receipt prints total weight')
+assert.equal(multiReceipt.join(' ').includes('0.15 KG'), false, 'receipt does not convert grams')
+
+const multiTampered = {
+  otherServiceTypes: ensuredTypes,
+  otherServices: [
+    {
+      id: 'os-multi',
+      typeId: UNIFIED_WEIGHT_SERVICE_ID,
+      typeName: UNIFIED_WEIGHT_SERVICE_NAME,
+      kind: 'weight',
+      unit: 'GM',
+      rateBasis: 'Per KG',
+      quantity: 1,
+      rate: 1,
+      totalAmount: 99999,
+      amountReceived: 0,
+      pendingAmount: 0,
+      paymentMode: 'Cash',
+      paymentStatus: 'Pending',
+      item: '',
+      customerName: 'Multi',
+      contactNo: '9876543210',
+      items: [
+        { description: 'Dulhan Payal', quantity: 150, unit: 'GM', rate: 1000, amount: 1 },
+        { description: 'Ring', quantity: 200, unit: 'GM', rate: 1000, amount: 1 },
+        { description: 'Choti', quantity: 500, unit: 'GM', rate: 1000, amount: 1 },
+      ],
+    },
+    {
+      id: 'os-legacy-vib',
+      typeId: 'os-type-vibrator',
+      typeName: 'Vibrator',
+      kind: 'weight',
+      unit: 'GM',
+      rateBasis: 'Per KG',
+      quantity: 500,
+      rate: 1000,
+      totalAmount: 500,
+      amountReceived: 500,
+      pendingAmount: 0,
+      paymentMode: 'Cash',
+      paymentStatus: 'Paid',
+      item: '',
+      customerName: 'Legacy Vib',
+      contactNo: '9876543210',
+    },
+  ],
+} as Record<string, unknown>
+sanitizeOtherServicesStorePayload(multiTampered)
+const multiSanitized = multiTampered.otherServices as Array<Record<string, unknown>>
+assertEq(multiSanitized[0].totalAmount, 850, 'server recalculates multi-item total')
+assertEq(multiSanitized[0].quantity, 850, 'server recalculates total weight quantity')
+assertEq(multiSanitized[0].unit, 'GM', 'server keeps gram total unit')
+assertEq(multiSanitized[1].typeName, 'Vibrator', 'historical vibrator type name remains readable')
+assertEq(multiSanitized[1].totalAmount, 500, 'historical vibrator total remains readable')
+
+const multiSlip = buildOtherServiceReceiptSlip({
+  id: 'os-anim-multi',
+  slipNo: 'VS-000010',
+  typeId: UNIFIED_WEIGHT_SERVICE_ID,
+  typeName: UNIFIED_WEIGHT_SERVICE_NAME,
+  kind: 'weight',
+  customerName: 'XYZ',
+  address: '',
+  contactNo: '9876543210',
+  date: '2026-09-13',
+  dateTime: '2026-09-13T12:29:00',
+  unit: 'GM',
+  quantity: 850,
+  rate: 1000,
+  rateBasis: 'Per KG',
+  totalAmount: 850,
+  amountReceived: 850,
+  pendingAmount: 0,
+  paymentMode: 'Cash',
+  paymentStatus: 'Paid',
+  item: 'Dulhan Payal, Ring, Choti',
+  productDescription: '',
+  remark: '',
+  receiptNo: 'RC-OS-000130',
+  items: [
+    { description: 'Dulhan Payal', quantity: 150, unit: 'GM', rate: 1000, amount: 150 },
+    { description: 'Ring', quantity: 200, unit: 'GM', rate: 1000, amount: 200 },
+    { description: 'Choti', quantity: 500, unit: 'GM', rate: 1000, amount: 500 },
+  ],
+  status: 'Open',
+  createdAt: '2026-09-13T12:29:00',
+  updatedAt: '2026-09-13T12:29:00',
+  createdBy: 'user',
+  updatedBy: 'user',
+} as OtherService)
+assertEq(multiSlip.itemRows.length, 3, 'receipt animation lists all weight item rows')
+assert.equal(
+  multiSlip.itemRows.some((row) => row.description === 'Dulhan Payal' && row.quantity.includes('150 g')),
+  true,
+  'animation keeps Dulhan Payal grams',
+)
+assert.equal(
+  multiSlip.facts.some((f) => f.label === 'Total Weight' && f.value === '850 g'),
+  true,
+  'animation shows total weight',
+)
+
+const reprintSrc = readFileSync(path.join(root, '../src/utils/otherServiceReceiptPrint.ts'), 'utf8')
+assert.match(reprintSrc, /export function openOtherServiceReceiptPrint/, 'reprint helper still present')
+assert.equal(reprintSrc.includes('addFund('), false, 'reprint does not create another fund')
+assert.equal(reprintSrc.includes('addOtherService('), false, 'reprint does not create another service')
+assert.equal(entrySrc.includes('insertOtherServiceFund'), false, 'entry UI does not insert funds directly')
+assert.match(entrySrc, /WeightPolishItems/, 'unified weight multi-item editor is used')
+assert.equal(entrySrc.includes('WeightServiceDetails'), false, 'legacy single weight form is no longer the entry UI')
 
 console.log('other-services.selftest.ts: ok')

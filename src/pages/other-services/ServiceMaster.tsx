@@ -2,7 +2,11 @@ import { useState, type FormEvent } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { statusBadge, useToast } from '../../components/ui'
 import { store } from '../../data/store'
-import type { OtherServiceKind } from '../../data/otherServices'
+import {
+  UNIFIED_WEIGHT_SERVICE_NAME,
+  isLegacyMergedWeightServiceType,
+  type OtherServiceKind,
+} from '../../data/otherServices'
 import './other-services.css'
 
 export function ServiceMaster() {
@@ -28,6 +32,11 @@ export function ServiceMaster() {
   }
 
   const toggle = (id: string, active: boolean) => {
+    const row = types.find((t) => t.id === id)
+    if (row && isLegacyMergedWeightServiceType(row) && active) {
+      toast(`Use "${UNIFIED_WEIGHT_SERVICE_NAME}" for new entries. Legacy types stay for history only.`)
+      return
+    }
     const result = store.updateOtherServiceType(id, { active })
     if (!result.ok) {
       toast(result.error)
@@ -40,8 +49,8 @@ export function ServiceMaster() {
   return (
     <div className="os-page">
       <PageHeader
-        title="Service Master"
-        subtitle="Add manual service types. Types with transactions cannot be deleted — deactivate them instead."
+        title="Service Settings"
+        subtitle={`Built-in weight service is "${UNIFIED_WEIGHT_SERVICE_NAME}". Older Vibrator / Silver Polish / Braveting types remain for history only.`}
       />
       <form className="os-card" onSubmit={add}>
         <div className="os-grid">
@@ -84,16 +93,22 @@ export function ServiceMaster() {
             <tbody>
               {types.map((t) => {
                 const used = usedTypeIds.has(t.id)
+                const legacy = isLegacyMergedWeightServiceType(t)
                 return (
                   <tr key={t.id}>
-                    <td>{t.name}</td>
+                    <td>
+                      {t.name}
+                      {legacy ? <div className="os-muted">Merged into {UNIFIED_WEIGHT_SERVICE_NAME}</div> : null}
+                    </td>
                     <td>{t.kind}</td>
                     <td>{t.slipPrefix}</td>
-                    <td>{statusBadge(t.active ? 'Active' : 'Inactive')}</td>
+                    <td>{statusBadge(t.active ? 'Active' : legacy ? 'Historical' : 'Inactive')}</td>
                     <td>{used ? 'Yes' : 'No'}</td>
                     <td>
                       <div className="os-row-actions">
-                        {t.active ? (
+                        {legacy ? (
+                          <span className="os-muted">Kept for historical records</span>
+                        ) : t.active ? (
                           <button type="button" className="btn btn-ghost" onClick={() => toggle(t.id, false)}>
                             Deactivate
                           </button>
@@ -102,7 +117,7 @@ export function ServiceMaster() {
                             Activate
                           </button>
                         )}
-                        {used ? <span className="os-muted">Cannot delete — has transactions</span> : null}
+                        {used && !legacy ? <span className="os-muted">Cannot delete — has transactions</span> : null}
                       </div>
                     </td>
                   </tr>

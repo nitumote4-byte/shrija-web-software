@@ -226,7 +226,7 @@ export const modules: ModuleDef[] = [
   {
     id: 'other-services',
     title: 'Other Services',
-    description: 'Vibrator, silver polish, laser soldering and manual service slips.',
+    description: 'Silver polish / vibrating, laser soldering and manual service slips.',
     path: '/other-services',
     icon: Wrench,
     accent: 'teal',

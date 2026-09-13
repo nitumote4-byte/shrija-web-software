@@ -13,10 +13,17 @@ export type OtherServicePaymentMode = 'Cash' | 'UPI' | 'Bank' | 'Other'
 export type OtherServicePaymentStatus = 'Paid' | 'Partial' | 'Pending'
 export type OtherServiceRecordStatus = 'Open' | 'Cancelled'
 
+/** Weight unit stored on multi-item Silver Polish / Vibrating rows. */
+export type OtherServiceWeightUnit = 'GM' | 'KG'
+
 export type OtherServiceLineItem = {
   id?: string
+  /** Product / jewellery name (also used for Laser Soldering item description). */
   description: string
   quantity: number
+  /** Present on weight multi-item rows; omitted for Laser Soldering piece rows. */
+  unit?: OtherServiceWeightUnit
+  /** Rate per piece (laser) or rate per KG (weight multi-item). */
   rate: number
   amount: number
 }
@@ -24,8 +31,12 @@ export type OtherServiceLineItem = {
 export type OtherServiceLineItemInput = {
   id?: string
   description?: string
+  /** Alias accepted for weight multi-item product name. */
+  productName?: string
   quantity?: number
+  unit?: OtherServiceUnit | OtherServiceWeightUnit | string
   rate?: number
+  ratePerKg?: number
   amount?: number
 }
 
@@ -64,7 +75,10 @@ export type OtherService = {
   paymentStatus: OtherServicePaymentStatus
   item: string
   productDescription: string
-  /** Laser Soldering (and other piece services): multiple jewellery items on one slip. */
+  /**
+   * Multi-item rows for Laser Soldering (piece) and Silver Polish / Vibrating (weight).
+   * Legacy weight slips may omit this and use top-level quantity/unit/rate instead.
+   */
   items?: OtherServiceLineItem[]
   remark: string
   receiptNo?: string
@@ -125,9 +139,29 @@ export const WEIGHT_UNIT_OPTIONS: Array<{ value: 'GM' | 'KG'; label: string }> =
   { value: 'KG', label: 'Kilogram (kg)' },
 ]
 
+/** Unified weight service replacing separate Vibrator / Silver Polish / Braveting cards. */
+export const UNIFIED_WEIGHT_SERVICE_ID = 'os-type-silver-polish-vibrating'
+export const UNIFIED_WEIGHT_SERVICE_NAME = 'Silver Polish / Vibrating'
+export const UNIFIED_WEIGHT_SERVICE_SUBTITLE = 'Silver polishing / vibrating / braveting'
+
+/** Historical built-in IDs kept readable; deactivated for new entry selection. */
+export const LEGACY_WEIGHT_SERVICE_IDS = [
+  'os-type-vibrator',
+  'os-type-silver-polish',
+  'os-type-braveting',
+] as const
+
+/** Initial product presets for Silver Polish / Vibrating — not an exclusive allow-list. */
+export const WEIGHT_PRODUCT_PRESETS = ['Dulhan Payal', 'Ring', 'Choti'] as const
+export const WEIGHT_PRODUCT_CUSTOM = 'Other / Custom Item'
+
 const BUILTIN_DEFS: Array<Pick<OtherServiceType, 'id' | 'name' | 'kind' | 'slipPrefix'>> = [
-  { id: 'os-type-vibrator', name: 'Vibrator', kind: 'weight', slipPrefix: 'VS' },
-  { id: 'os-type-silver-polish', name: 'Silver Polish', kind: 'weight', slipPrefix: 'VS' },
+  {
+    id: UNIFIED_WEIGHT_SERVICE_ID,
+    name: UNIFIED_WEIGHT_SERVICE_NAME,
+    kind: 'weight',
+    slipPrefix: 'VS',
+  },
   { id: 'os-type-laser', name: 'Laser Soldering', kind: 'piece', slipPrefix: 'LS' },
   { id: 'os-type-manual', name: 'Manual Service', kind: 'manual', slipPrefix: 'MS' },
 ]
@@ -143,6 +177,44 @@ export function defaultOtherServiceTypes(now = new Date().toISOString()): OtherS
   }))
 }
 
+export function isLegacyMergedWeightServiceName(name: string): boolean {
+  const key = String(name || '')
+    .trim()
+    .toLowerCase()
+  return (
+    key === 'vibrator' ||
+    key === 'silver polish' ||
+    key === 'braveting' ||
+    key === 'vibrating' ||
+    key === 'silver polishing'
+  )
+}
+
+export function isLegacyMergedWeightServiceType(
+  type: Pick<OtherServiceType, 'id' | 'name'> | null | undefined,
+): boolean {
+  if (!type) return false
+  if (type.id === UNIFIED_WEIGHT_SERVICE_ID) return false
+  if ((LEGACY_WEIGHT_SERVICE_IDS as readonly string[]).includes(type.id)) return true
+  return isLegacyMergedWeightServiceName(type.name)
+}
+
+export function isUnifiedWeightServiceType(
+  type: Pick<OtherServiceType, 'id' | 'name' | 'kind'> | null | undefined,
+): boolean {
+  if (!type) return false
+  if (type.id === UNIFIED_WEIGHT_SERVICE_ID) return true
+  const key = String(type.name || '')
+    .trim()
+    .toLowerCase()
+  return type.kind === 'weight' && (key === UNIFIED_WEIGHT_SERVICE_NAME.toLowerCase() || key.includes('silver polish / vibrat'))
+}
+
+/** Types shown on New Service Entry (legacy merged weight types are hidden). */
+export function selectableOtherServiceTypes(types: OtherServiceType[]): OtherServiceType[] {
+  return types.filter((t) => t.active && !isLegacyMergedWeightServiceType(t))
+}
+
 export function ensureOtherServiceTypes(types: OtherServiceType[] | undefined): OtherServiceType[] {
   const list = Array.isArray(types) ? [...types] : []
   const ids = new Set(list.map((t) => t.id))
@@ -152,6 +224,15 @@ export function ensureOtherServiceTypes(types: OtherServiceType[] | undefined): 
     if (ids.has(builtin.id)) continue
     if (names.has(builtin.name.trim().toLowerCase())) continue
     list.push(builtin)
+    ids.add(builtin.id)
+    names.add(builtin.name.trim().toLowerCase())
+  }
+  // Keep legacy Vibrator / Silver Polish / Braveting rows for history, but hide from new entry.
+  for (const row of list) {
+    if (isLegacyMergedWeightServiceType(row)) {
+      row.active = false
+      row.builtIn = row.builtIn || (LEGACY_WEIGHT_SERVICE_IDS as readonly string[]).includes(row.id)
+    }
   }
   return list
 }
@@ -235,14 +316,43 @@ export function calculateLineItemAmount(quantity: number, rate: number): number 
   return money2(quantity * rate)
 }
 
+export function calculateWeightLineItemAmount(
+  quantity: number,
+  unit: OtherServiceWeightUnit,
+  ratePerKg: number,
+): number {
+  if (unit === 'GM') return money2((quantity / 1000) * ratePerKg)
+  return money2(quantity * ratePerKg)
+}
+
+function lineItemDescriptionOf(raw: OtherServiceLineItemInput | null | undefined): string {
+  return String(raw?.description || raw?.productName || '').trim()
+}
+
+function lineItemRateOf(raw: OtherServiceLineItemInput | null | undefined): number {
+  if (raw?.ratePerKg != null && Number.isFinite(Number(raw.ratePerKg))) return Number(raw.ratePerKg)
+  return Number(raw?.rate)
+}
+
+export function parseWeightLineUnit(
+  value: unknown,
+): OtherServiceWeightUnit | null {
+  const raw = String(value || '')
+    .trim()
+    .toUpperCase()
+  if (raw === 'GM' || raw === 'G' || raw === 'GRAM' || raw === 'GRAMS') return 'GM'
+  if (raw === 'KG' || raw === 'KILOGRAM' || raw === 'KILOGRAMS') return 'KG'
+  return null
+}
+
 export function normalizeOtherServiceLineItem(
   raw: OtherServiceLineItemInput | null | undefined,
   index: number,
 ): { ok: true; item: OtherServiceLineItem } | { ok: false; error: string } {
-  const description = String(raw?.description || '').trim()
+  const description = lineItemDescriptionOf(raw)
   if (!description) return { ok: false, error: `Item ${index + 1}: description is required` }
   const quantity = Number(raw?.quantity)
-  const rate = Number(raw?.rate)
+  const rate = lineItemRateOf(raw)
   if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isInteger(quantity)) {
     return { ok: false, error: `Item ${index + 1}: quantity must be a positive integer` }
   }
@@ -277,6 +387,53 @@ export function normalizeOtherServiceLineItems(
   return { ok: true, items }
 }
 
+export function normalizeOtherServiceWeightLineItem(
+  raw: OtherServiceLineItemInput | null | undefined,
+  index: number,
+): { ok: true; item: OtherServiceLineItem } | { ok: false; error: string } {
+  const description = lineItemDescriptionOf(raw)
+  if (!description) return { ok: false, error: `Item ${index + 1}: product / item name is required` }
+  const quantity = Number(raw?.quantity)
+  const rate = lineItemRateOf(raw)
+  const unit = parseWeightLineUnit(raw?.unit)
+  if (!unit) {
+    return { ok: false, error: `Item ${index + 1}: unit must be Gram (g) or Kilogram (kg)` }
+  }
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return { ok: false, error: `Item ${index + 1}: weight / quantity must be greater than zero` }
+  }
+  if (!Number.isFinite(rate) || rate < 0) {
+    return { ok: false, error: `Item ${index + 1}: rate per KG must be zero or greater` }
+  }
+  const id = String(raw?.id || '').trim()
+  return {
+    ok: true,
+    item: {
+      ...(id ? { id } : {}),
+      description,
+      quantity,
+      unit,
+      rate: money2(rate),
+      amount: calculateWeightLineItemAmount(quantity, unit, rate),
+    },
+  }
+}
+
+export function normalizeOtherServiceWeightLineItems(
+  raw: OtherServiceLineItemInput[] | null | undefined,
+): { ok: true; items: OtherServiceLineItem[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { ok: false, error: 'At least one jewellery item is required' }
+  }
+  const items: OtherServiceLineItem[] = []
+  for (let i = 0; i < raw.length; i++) {
+    const one = normalizeOtherServiceWeightLineItem(raw[i], i)
+    if (!one.ok) return one
+    items.push(one.item)
+  }
+  return { ok: true, items }
+}
+
 function calculateWeightAmount(
   quantity: number,
   unit: OtherServiceUnit,
@@ -293,6 +450,39 @@ function calculateWeightAmount(
   return { ok: true, total: money2(quantity * rate) }
 }
 
+export function totalWeightOf(
+  items: Array<Pick<OtherServiceLineItem, 'quantity' | 'unit'>>,
+): { quantity: number; unit: OtherServiceWeightUnit; label: string } {
+  const weightItems = items.filter((item) => item.unit === 'GM' || item.unit === 'KG') as Array<{
+    quantity: number
+    unit: OtherServiceWeightUnit
+  }>
+  if (!weightItems.length) {
+    return { quantity: 0, unit: 'GM', label: '0 g' }
+  }
+  const allGm = weightItems.every((item) => item.unit === 'GM')
+  const allKg = weightItems.every((item) => item.unit === 'KG')
+  if (allGm) {
+    const quantity = money2(weightItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0))
+    return { quantity, unit: 'GM', label: formatOtherServiceQuantity(quantity, 'GM') }
+  }
+  if (allKg) {
+    const quantity = money2(weightItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0))
+    return { quantity, unit: 'KG', label: formatOtherServiceQuantity(quantity, 'KG') }
+  }
+  const grams = money2(
+    weightItems.reduce((sum, item) => {
+      const qty = Number(item.quantity) || 0
+      return sum + (item.unit === 'KG' ? qty * 1000 : qty)
+    }, 0),
+  )
+  if (grams >= 1000 && Math.abs(grams % 1000) < 0.0001) {
+    const kg = money2(grams / 1000)
+    return { quantity: kg, unit: 'KG', label: formatOtherServiceQuantity(kg, 'KG') }
+  }
+  return { quantity: grams, unit: 'GM', label: formatOtherServiceQuantity(grams, 'GM') }
+}
+
 export function calculateOtherServiceTotal(input: {
   kind: OtherServiceKind
   unit: OtherServiceUnit
@@ -303,6 +493,14 @@ export function calculateOtherServiceTotal(input: {
 }): { ok: true; total: number } | { ok: false; error: string } {
   if (input.kind === 'piece' && input.items != null) {
     const normalized = normalizeOtherServiceLineItems(input.items)
+    if (!normalized.ok) return { ok: false, error: normalized.error }
+    const total = money2(normalized.items.reduce((sum, item) => sum + item.amount, 0))
+    if (!Number.isFinite(total)) return { ok: false, error: 'Amount cannot be calculated' }
+    return { ok: true, total }
+  }
+
+  if (input.kind === 'weight' && input.items != null) {
+    const normalized = normalizeOtherServiceWeightLineItems(input.items)
     if (!normalized.ok) return { ok: false, error: normalized.error }
     const total = money2(normalized.items.reduce((sum, item) => sum + item.amount, 0))
     if (!Number.isFinite(total)) return { ok: false, error: 'Amount cannot be calculated' }
@@ -426,7 +624,7 @@ export function validateOtherServiceInput(input: {
   if (!String(input.customerName || '').trim()) return 'Customer name is required'
   const contactErr = validateContactNo(input.contactNo)
   if (contactErr) return contactErr
-  if (input.kind === 'weight' && input.unit !== 'GM' && input.unit !== 'KG') {
+  if (input.kind === 'weight' && input.items == null && input.unit !== 'GM' && input.unit !== 'KG') {
     return 'Unit must be Gram (g) or Kilogram (kg)'
   }
   if (input.kind === 'piece' && input.items == null && input.unit !== 'Piece') {
@@ -449,12 +647,18 @@ export function otherServiceFundRemarks(row: Pick<OtherService, 'typeName' | 'sl
 export function reportBucketForService(row: Pick<OtherService, 'typeName' | 'kind'>): string {
   const name = String(row.typeName || '').trim()
   const key = name.toLowerCase()
-  if (key === 'vibrator') return 'Vibrator'
-  if (key === 'silver polish') return 'Silver Polish'
   if (key.includes('laser')) return 'Laser Soldering'
   if (row.kind === 'manual' || key.includes('manual')) return 'Manual Services'
-  if (key.includes('vibrator')) return 'Vibrator'
-  if (key.includes('polish')) return 'Silver Polish'
+  if (
+    key === UNIFIED_WEIGHT_SERVICE_NAME.toLowerCase() ||
+    key.includes('silver polish / vibrat') ||
+    isLegacyMergedWeightServiceName(name) ||
+    key.includes('vibrator') ||
+    key.includes('bravet') ||
+    (key.includes('polish') && !key.includes('laser'))
+  ) {
+    return UNIFIED_WEIGHT_SERVICE_NAME
+  }
   return name || 'Other'
 }
 
@@ -483,17 +687,38 @@ export function formatOtherServiceRate(rate: number, rateBasis: OtherServiceRate
 }
 
 export function otherServiceLineItemsOf(
-  row: Pick<OtherService, 'kind' | 'item' | 'quantity' | 'rate' | 'totalAmount' | 'items'>,
+  row: Pick<OtherService, 'kind' | 'item' | 'quantity' | 'rate' | 'totalAmount' | 'items' | 'unit'>,
 ): OtherServiceLineItem[] {
   if (Array.isArray(row.items) && row.items.length > 0) {
+    const weightLike =
+      row.kind === 'weight' || row.items.some((item) => item.unit === 'GM' || item.unit === 'KG')
     return row.items.map((item, index) => {
+      if (weightLike) {
+        const normalized = normalizeOtherServiceWeightLineItem(item, index)
+        if (normalized.ok) return normalized.item
+        const unit = parseWeightLineUnit(item.unit) || undefined
+        return {
+          description: lineItemDescriptionOf(item) || 'Item',
+          quantity: Number(item.quantity) || 0,
+          ...(unit ? { unit } : {}),
+          rate: money2(lineItemRateOf(item)),
+          amount: money2(
+            item.amount ??
+              (unit
+                ? calculateWeightLineItemAmount(Number(item.quantity) || 0, unit, lineItemRateOf(item) || 0)
+                : calculateLineItemAmount(Number(item.quantity) || 0, lineItemRateOf(item) || 0)),
+          ),
+        }
+      }
       const normalized = normalizeOtherServiceLineItem(item, index)
       if (normalized.ok) return normalized.item
       return {
-        description: String(item.description || '').trim() || 'Item',
+        description: lineItemDescriptionOf(item) || 'Item',
         quantity: Number(item.quantity) || 0,
-        rate: money2(item.rate),
-        amount: money2(item.amount ?? calculateLineItemAmount(Number(item.quantity) || 0, Number(item.rate) || 0)),
+        rate: money2(lineItemRateOf(item)),
+        amount: money2(
+          item.amount ?? calculateLineItemAmount(Number(item.quantity) || 0, lineItemRateOf(item) || 0),
+        ),
       }
     })
   }
@@ -510,6 +735,13 @@ export function otherServiceLineItemsOf(
     ]
   }
   return []
+}
+
+export function formatOtherServiceLineQuantity(item: Pick<OtherServiceLineItem, 'quantity' | 'unit'>): string {
+  if (item.unit === 'GM' || item.unit === 'KG') {
+    return formatOtherServiceQuantity(item.quantity, item.unit)
+  }
+  return `${item.quantity} ${item.quantity === 1 ? 'pc' : 'pcs'}`
 }
 
 export function summarizeOtherServiceItems(items: OtherServiceLineItem[]): string {
@@ -531,6 +763,17 @@ export function otherServiceReceiptLines(
       `Total | ${row.totalAmount}`,
     ]
   }
+  if (row.kind === 'weight' && items.length) {
+    const weight = totalWeightOf(items)
+    return [
+      ...items.map(
+        (item) =>
+          `${item.description} | ${formatOtherServiceLineQuantity(item)} | ${formatOtherServiceRate(item.rate, 'Per KG')} | ${item.amount}`,
+      ),
+      `Total Weight: ${weight.label}`,
+      `Total | ${row.totalAmount}`,
+    ]
+  }
   return [
     `Quantity: ${formatOtherServiceQuantity(row.quantity, row.unit)}`,
     `Rate: ${formatOtherServiceRate(row.rate, row.rateBasis)}`,
@@ -540,6 +783,26 @@ export function otherServiceReceiptLines(
 
 export function totalPiecesOf(items: OtherServiceLineItem[]): number {
   return items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+}
+
+/** Prefer an existing weight-service rate (Per KG) for new multi-item defaults. */
+export function suggestDefaultWeightRatePerKg(
+  services: Array<Pick<OtherService, 'kind' | 'status' | 'rate' | 'rateBasis' | 'items' | 'typeName' | 'typeId'>>,
+): number | null {
+  for (const row of services) {
+    if (row.kind !== 'weight' || row.status === 'Cancelled') continue
+    if (Array.isArray(row.items) && row.items.length) {
+      for (const item of row.items) {
+        const rate = Number(item.rate)
+        if (Number.isFinite(rate) && rate > 0) return money2(rate)
+      }
+    }
+    const rate = Number(row.rate)
+    if (!Number.isFinite(rate) || rate <= 0) continue
+    if (row.rateBasis === 'Per Gram') return money2(rate * 1000)
+    return money2(rate)
+  }
+  return null
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -576,7 +839,12 @@ export function sanitizeOtherServicesStorePayload(data: Record<string, unknown>)
     const kind: OtherServiceKind = type?.kind || row.kind
     if (kind !== 'weight' && kind !== 'piece' && kind !== 'manual') continue
     row.kind = kind
-    if (type?.name) row.typeName = type.name
+    // Preserve historical type names for legacy Vibrator / Silver Polish / Braveting rows.
+    if (type?.name && !isLegacyMergedWeightServiceType(type)) {
+      row.typeName = type.name
+    } else if (type?.name && !row.typeName) {
+      row.typeName = type.name
+    }
 
     const unit = row.unit
     const rateBasis = row.rateBasis
@@ -589,7 +857,12 @@ export function sanitizeOtherServicesStorePayload(data: Record<string, unknown>)
       rateBasis,
       quantity,
       rate,
-      items: kind === 'piece' && itemsInput ? itemsInput : undefined,
+      items:
+        kind === 'piece' && itemsInput
+          ? itemsInput
+          : kind === 'weight' && itemsInput
+            ? itemsInput
+            : undefined,
     })
     if (!calc.ok) {
       next.push(row)
@@ -608,6 +881,20 @@ export function sanitizeOtherServicesStorePayload(data: Record<string, unknown>)
       row.rateBasis = 'Per Piece'
       row.item = summarizeOtherServiceItems(normalized.items)
       row.rate = normalized.items.length === 1 ? normalized.items[0].rate : money2(row.rate)
+    } else if (kind === 'weight' && itemsInput) {
+      const normalized = normalizeOtherServiceWeightLineItems(itemsInput)
+      if (!normalized.ok) {
+        next.push(row)
+        continue
+      }
+      row.items = normalized.items
+      const weight = totalWeightOf(normalized.items)
+      row.quantity = weight.quantity
+      row.unit = weight.unit
+      row.rateBasis = 'Per KG'
+      row.item = summarizeOtherServiceItems(normalized.items)
+      const rates = normalized.items.map((item) => item.rate)
+      row.rate = rates.every((r) => r === rates[0]) ? rates[0] : money2(row.rate)
     } else {
       row.quantity = quantity
       row.rate = money2(rate)

@@ -66,15 +66,14 @@ export function CustomerDetailsCard({
             <input id="nse-date" type="date" value={date} onChange={(e) => onDate(e.target.value)} required />
           </span>
         </label>
-        <label className="nse-field nse-field-span">
+        <label className="nse-field">
           <span>Address</span>
-          <span className="nse-input nse-input-top">
+          <span className="nse-input">
             <MapPin size={16} />
-            <textarea
+            <input
               value={address}
               onChange={(e) => onAddress(e.target.value)}
               placeholder="e.g. Bara Bazar, Darbhanga, Bihar"
-              rows={2}
             />
           </span>
         </label>

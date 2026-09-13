@@ -46,7 +46,7 @@ export function OtherServicesHub() {
     <div className="others-hub">
       <div className="others-hub-head">
         <h1>Other Services</h1>
-        <p>Vibrator, silver polish, laser soldering and manual services — separate from Hallmarking bills.</p>
+        <p>Silver polish / vibrating, laser soldering and manual services — separate from Hallmarking bills.</p>
       </div>
       <div className="others-card-grid">
         {links

@@ -68,7 +68,7 @@ export function OtherServicesReports() {
 
   const byService = useMemo(() => {
     const map = new Map<string, { count: number; revenue: number; received: number; pending: number }>()
-    const order = ['Vibrator', 'Silver Polish', 'Laser Soldering', 'Manual Services']
+    const order = ['Silver Polish / Vibrating', 'Laser Soldering', 'Manual Services']
     for (const label of order) map.set(label, { count: 0, revenue: 0, received: 0, pending: 0 })
     for (const r of rows) {
       const bucket = reportBucketForService(r)

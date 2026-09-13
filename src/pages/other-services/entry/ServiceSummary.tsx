@@ -4,11 +4,15 @@ export function ServiceSummary({
   serviceName,
   itemCount,
   quantityLabel,
+  weightLabel,
+  weightSecondary,
   total,
 }: {
   serviceName: string
   itemCount?: number
   quantityLabel: string
+  weightLabel?: string
+  weightSecondary?: string
   total: number
 }) {
   return (
@@ -33,6 +37,15 @@ export function ServiceSummary({
             <dd>{quantityLabel}</dd>
           </div>
         )}
+        {weightLabel != null ? (
+          <div>
+            <dt>Total Weight</dt>
+            <dd className="nse-summary-weight">
+              <span>{weightLabel}</span>
+              {weightSecondary ? <small>({weightSecondary})</small> : null}
+            </dd>
+          </div>
+        ) : null}
       </dl>
       <div className="nse-summary-total">
         <span>Total Amount</span>

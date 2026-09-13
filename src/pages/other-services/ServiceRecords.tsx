@@ -4,10 +4,12 @@ import { PageHeader } from '../../components/PageHeader'
 import { statusBadge, useToast } from '../../components/ui'
 import { store } from '../../data/store'
 import {
+  formatOtherServiceLineQuantity,
   formatOtherServiceQuantity,
   otherServiceLineItemsOf,
   PAYMENT_MODES,
   summarizeOtherServiceItems,
+  totalWeightOf,
   type OtherService,
   type OtherServicePaymentMode,
   type OtherServicePaymentStatus,
@@ -22,6 +24,9 @@ function money(n: number) {
 function qtyCell(row: OtherService) {
   const items = otherServiceLineItemsOf(row)
   if (items.length) {
+    if (row.kind === 'weight' || items.some((item) => item.unit === 'GM' || item.unit === 'KG')) {
+      return totalWeightOf(items).label
+    }
     const pcs = items.reduce((sum, item) => sum + item.quantity, 0)
     return `${pcs} pcs`
   }
@@ -253,7 +258,7 @@ export function ServiceRecords() {
                 <thead>
                   <tr>
                     <th>Item</th>
-                    <th>Qty</th>
+                    <th>{view.kind === 'weight' ? 'Weight' : 'Qty'}</th>
                     <th>Rate</th>
                     <th>Amount</th>
                   </tr>
@@ -262,7 +267,11 @@ export function ServiceRecords() {
                   {otherServiceLineItemsOf(view).map((item, i) => (
                     <tr key={item.id || `${item.description}-${i}`}>
                       <td>{item.description}</td>
-                      <td>{item.quantity} pcs</td>
+                      <td>
+                        {view.kind === 'weight' || item.unit === 'GM' || item.unit === 'KG'
+                          ? formatOtherServiceLineQuantity(item)
+                          : `${item.quantity} pcs`}
+                      </td>
                       <td>{money(item.rate)}</td>
                       <td>{money(item.amount)}</td>
                     </tr>

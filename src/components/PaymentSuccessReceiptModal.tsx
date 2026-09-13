@@ -187,7 +187,8 @@ export function PaymentSuccessReceiptModal({
                     ))}
                   </tbody>
                 </table>
-              ) : (
+              ) : null}
+              {slip.facts.length > 0 ? (
                 <dl className="os-pr-rows">
                   {slip.facts.map((fact) => (
                     <div className="os-pr-row" key={fact.label}>
@@ -196,7 +197,7 @@ export function PaymentSuccessReceiptModal({
                     </div>
                   ))}
                 </dl>
-              )}
+              ) : null}
               <hr className="os-pr-rule" />
               <div className="os-pr-total">
                 <span>TOTAL AMOUNT</span>

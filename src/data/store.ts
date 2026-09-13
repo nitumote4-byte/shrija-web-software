@@ -63,6 +63,7 @@ import {
   nextOtherServiceReceiptNo,
   nextOtherServiceSlipNo,
   normalizeOtherServiceLineItems,
+  normalizeOtherServiceWeightLineItems,
   normalizeSlipPrefix,
   OTHER_SERVICE_FUND_SOURCE,
   otherServiceFundRemarks,
@@ -71,6 +72,7 @@ import {
   sanitizeOtherServicesStorePayload,
   summarizeOtherServiceItems,
   totalPiecesOf,
+  totalWeightOf,
   validateOtherServiceInput,
   type OtherService,
   type OtherServiceAudit,
@@ -3479,6 +3481,14 @@ export const store = {
       quantity = totalPiecesOf(items)
       rate = items.length === 1 ? items[0].rate : 0
       item = summarizeOtherServiceItems(items)
+    } else if (type.kind === 'weight') {
+      const normalized = normalizeOtherServiceWeightLineItems(input.items)
+      if (!normalized.ok) return { ok: false as const, error: normalized.error }
+      items = normalized.items.map((row) => ({ ...row, id: row.id || uid('osi') }))
+      const weight = totalWeightOf(items)
+      quantity = weight.quantity
+      rate = items.every((row) => row.rate === items![0].rate) ? items[0].rate : 0
+      item = summarizeOtherServiceItems(items)
     }
     const amountReceived = money2(Number(input.amountReceived) || 0)
     const err = validateOtherServiceInput({
@@ -3486,7 +3496,7 @@ export const store = {
       customerName: input.customerName,
       contactNo: input.contactNo,
       kind: type.kind,
-      unit,
+      unit: type.kind === 'weight' && items?.length ? totalWeightOf(items).unit : unit,
       rateBasis,
       quantity,
       rate,
@@ -3494,9 +3504,10 @@ export const store = {
       items,
     })
     if (err) return { ok: false as const, error: err }
+    const savedUnit = type.kind === 'weight' && items?.length ? totalWeightOf(items).unit : unit
     const calc = calculateOtherServiceTotal({
       kind: type.kind,
-      unit,
+      unit: savedUnit,
       rateBasis,
       quantity,
       rate,
@@ -3528,7 +3539,7 @@ export const store = {
       contactNo: String(input.contactNo).trim(),
       date,
       dateTime: now,
-      unit,
+      unit: savedUnit,
       quantity,
       rate: money2(rate),
       rateBasis,
@@ -3606,13 +3617,18 @@ export const store = {
     if (row.status === 'Cancelled') return { ok: false as const, error: 'Cancelled services cannot be edited' }
     const unit = row.kind === 'piece' ? 'Piece' : patch.unit ?? row.unit
     const touchingAmounts =
-      patch.unit != null || patch.quantity != null || patch.rate != null || patch.rateBasis != null
+      patch.unit != null ||
+      patch.quantity != null ||
+      patch.rate != null ||
+      patch.rateBasis != null ||
+      patch.items != null
     const rateBasis =
       row.kind === 'weight' && touchingAmounts ? 'Per KG' : patch.rateBasis ?? row.rateBasis
     let quantity = patch.quantity != null ? Number(patch.quantity) : row.quantity
     let rate = patch.rate != null ? Number(patch.rate) : row.rate
     let item = patch.item != null ? String(patch.item).trim() : row.item
     let items = row.items
+    let savedUnit = unit
     if (row.kind === 'piece') {
       if (patch.items != null) {
         const normalized = normalizeOtherServiceLineItems(patch.items)
@@ -3626,6 +3642,19 @@ export const store = {
         rate = items.length === 1 ? items[0].rate : 0
         item = summarizeOtherServiceItems(items)
       }
+    } else if (row.kind === 'weight') {
+      if (patch.items != null) {
+        const normalized = normalizeOtherServiceWeightLineItems(patch.items)
+        if (!normalized.ok) return { ok: false as const, error: normalized.error }
+        items = normalized.items.map((line) => ({ ...line, id: line.id || uid('osi') }))
+      }
+      if (items?.length) {
+        const weight = totalWeightOf(items)
+        quantity = weight.quantity
+        savedUnit = weight.unit
+        rate = items.every((line) => line.rate === items![0].rate) ? items[0].rate : 0
+        item = summarizeOtherServiceItems(items)
+      }
     }
     const amountReceived =
       patch.amountReceived != null ? money2(Number(patch.amountReceived) || 0) : row.amountReceived
@@ -3636,21 +3665,21 @@ export const store = {
       customerName,
       contactNo,
       kind: row.kind,
-      unit,
+      unit: savedUnit,
       rateBasis,
       quantity,
       rate,
       amountReceived,
-      items,
+      items: row.kind === 'weight' || row.kind === 'piece' ? items : undefined,
     })
     if (err) return { ok: false as const, error: err }
     const calc = calculateOtherServiceTotal({
       kind: row.kind,
-      unit,
+      unit: savedUnit,
       rateBasis,
       quantity,
       rate,
-      items,
+      items: row.kind === 'weight' || row.kind === 'piece' ? items : undefined,
     })
     if (!calc.ok) return { ok: false as const, error: calc.error }
     const actor = getSession()?.username || 'user'
@@ -3663,13 +3692,13 @@ export const store = {
     if (patch.productDescription != null) row.productDescription = String(patch.productDescription).trim()
     if (patch.remark != null) row.remark = String(patch.remark).trim()
     if (patch.paymentMode) row.paymentMode = patch.paymentMode
-    row.unit = unit
+    row.unit = savedUnit
     row.quantity = quantity
     row.rate = money2(rate)
     row.rateBasis = rateBasis
-    if (row.kind === 'piece') {
+    if (row.kind === 'piece' || row.kind === 'weight') {
       if (items?.length) row.items = items
-      else delete row.items
+      else if (row.kind === 'piece') delete row.items
     }
     row.totalAmount = calc.total
     row.amountReceived = amountReceived

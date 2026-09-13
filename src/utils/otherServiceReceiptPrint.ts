@@ -1,8 +1,10 @@
 import { getInvoiceHeader } from '../data/firmProfile'
 import {
+  formatOtherServiceLineQuantity,
   formatOtherServiceQuantity,
   formatOtherServiceRate,
   otherServiceLineItemsOf,
+  totalWeightOf,
   type OtherService,
 } from '../data/otherServices'
 
@@ -87,16 +89,22 @@ export type OtherServiceReceiptSlip = {
 export function buildOtherServiceReceiptSlip(row: OtherService): OtherServiceReceiptSlip {
   const items = otherServiceLineItemsOf(row)
   const itemRows: OtherServiceReceiptSlipItem[] =
-    row.kind === 'piece' && items.length
+    items.length && (row.kind === 'piece' || row.kind === 'weight')
       ? items.map((item) => ({
           description: item.description,
-          quantity: String(item.quantity),
-          rate: money(item.rate),
+          quantity:
+            row.kind === 'weight' ? formatOtherServiceLineQuantity(item) : String(item.quantity),
+          rate:
+            row.kind === 'weight'
+              ? formatOtherServiceRate(item.rate, 'Per KG')
+              : money(item.rate),
           amount: money(item.amount),
         }))
       : []
   const facts: OtherServiceReceiptSlipFact[] = itemRows.length
-    ? []
+    ? row.kind === 'weight'
+      ? [{ label: 'Total Weight', value: totalWeightOf(items).label }]
+      : []
     : [
         {
           label: row.kind === 'weight' ? 'Weight' : 'Quantity',
@@ -139,6 +147,31 @@ export function otherServiceReceiptDetailsHtml(row: OtherService): string {
           <thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr><td colspan="3">Total</td><td>${money(row.totalAmount)}</td></tr></tfoot>
+        </table>
+      </td></tr>`
+  }
+
+  if (row.kind === 'weight' && items.length) {
+    const weight = totalWeightOf(items)
+    const rows = items
+      .map(
+        (item) => `<tr>
+          <td>${escapeHtml(item.description)}</td>
+          <td>${escapeHtml(formatOtherServiceLineQuantity(item))}</td>
+          <td>${escapeHtml(formatOtherServiceRate(item.rate, 'Per KG'))}</td>
+          <td>${money(item.amount)}</td>
+        </tr>`,
+      )
+      .join('')
+    return `<tr><td class="lbl">SERVICE</td><td>${escapeHtml(row.typeName)}</td></tr>
+      <tr><td colspan="2">
+        <table class="items">
+          <thead><tr><th>Item</th><th>Weight</th><th>Rate</th><th>Amount</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr><td colspan="3">Total Weight</td><td>${escapeHtml(weight.label)}</td></tr>
+            <tr><td colspan="3">Total Amount</td><td>${money(row.totalAmount)}</td></tr>
+          </tfoot>
         </table>
       </td></tr>`
   }
@@ -218,7 +251,7 @@ function receiptHtml(row: OtherService, reprint: boolean) {
       <tr><td class="lbl">CONTACT NO.</td><td>${escapeHtml(row.contactNo || '—')}</td></tr>
       ${otherServiceReceiptDetailsHtml(row)}
       ${
-        row.kind === 'piece'
+        row.kind === 'piece' || (row.kind === 'weight' && otherServiceLineItemsOf(row).length)
           ? `<tr><td class="lbl">TOTAL AMOUNT</td><td><strong>${money(row.totalAmount)}</strong></td></tr>`
           : ''
       }
