@@ -3,6 +3,7 @@ import { History, PackageOpen, Pencil, Plus, Printer, RefreshCw, Trash2, X } fro
 import { useToast } from '../components/ui'
 import { getInvoiceHeader } from '../data/firmProfile'
 import { calcPartyBalance, store, type FundEntry, type Party } from '../data/store'
+import { isOtherServiceFund } from '../data/otherServices'
 
 function money(n: number) {
   return `₹ ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -184,7 +185,8 @@ export function FundEntry() {
   const [receipt, setReceipt] = useState<ReceiptView | null>(null)
 
   const header = getInvoiceHeader()
-  const funds = data.funds
+  // Hallmarking Fund Entry never lists Other Services vouchers.
+  const funds = data.funds.filter((f) => !isOtherServiceFund(f))
   const editingFund = editingId ? funds.find((f) => f.id === editingId) : null
 
   const balance = useMemo(() => {

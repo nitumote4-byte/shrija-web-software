@@ -11,7 +11,10 @@ import {
   sessionCentre,
 } from '../middleware/auth.js'
 import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
-import { sanitizeOtherServicesStorePayload } from '../../../src/data/otherServices.ts'
+import {
+  enforceOtherServiceFundIdentity,
+  sanitizeOtherServicesStorePayload,
+} from '../../../src/data/otherServices.ts'
 import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeStoreWrite } from '../tenantIsolation.js'
 import {
   filterKvForRole,
@@ -22,6 +25,7 @@ import {
   requireAdminRole,
   requireKnownRole,
 } from '../rbac.js'
+import { resolveStoreWriteBaseRev } from '../storeWritePolicy.js'
 import { letterheadRouter } from './letterhead.js'
 
 export const dataRouter = Router()
@@ -103,9 +107,6 @@ dataRouter.put('/store', async (req, res) => {
   const incoming = pickStoreForRole(req.body.data as Record<string, unknown>, req.user!.role)
   sanitizeXrfStorePayload(incoming)
   sanitizeOtherServicesStorePayload(incoming)
-  const baseRevRaw = req.body.baseRev
-  const hasBaseRev = baseRevRaw !== undefined && baseRevRaw !== null && baseRevRaw !== ''
-  const baseRev = hasBaseRev ? asRev(baseRevRaw) : null
   if (req.body.replaceAll === true) {
     if (!isAdminUser(req.user!) || centre.centreKind !== 'main') {
       res.status(403).json({ error: 'Only a centre administrator can replace the full store' })
@@ -113,6 +114,18 @@ dataRouter.put('/store', async (req, res) => {
     }
   }
   const replaceAll = req.body.replaceAll === true && centre.centreKind === 'main' && isAdminUser(req.user!)
+  const baseRevResolved = resolveStoreWriteBaseRev({
+    baseRevRaw: req.body.baseRev,
+    replaceAll,
+  })
+  if (!baseRevResolved.ok) {
+    res.status(baseRevResolved.status).json({
+      error: baseRevResolved.error,
+      code: baseRevResolved.code,
+    })
+    return
+  }
+  const baseRev = baseRevResolved.baseRev
 
   const updatedAt = nowIso()
   const written = await withTransaction(async (client) => {
@@ -140,6 +153,22 @@ dataRouter.put('/store', async (req, res) => {
       sanitizeOtherServicesStorePayload(payload)
     }
 
+    // OS fund identity is tenant-scoped: currentPayload is loaded by tenant_id above.
+    const identity = enforceOtherServiceFundIdentity({
+      currentStore: currentPayload,
+      nextStore: payload,
+      replaceAll,
+    })
+    if (!identity.ok) {
+      return {
+        stale: false as const,
+        identityError: identity,
+        rev: currentRev,
+        updatedAt: row ? toIso(row.updated_at) : updatedAt,
+        payload: currentPayload,
+      }
+    }
+
     const nextRev = row ? currentRev + 1 : 1
     await client.query(
       `INSERT INTO store_docs (tenant_id, payload, updated_at, rev) VALUES ($1, $2::jsonb, $3, $4)
@@ -148,6 +177,14 @@ dataRouter.put('/store', async (req, res) => {
     )
     return { stale: false as const, rev: nextRev, updatedAt, payload }
   })
+
+  if ('identityError' in written && written.identityError) {
+    res.status(written.identityError.status).json({
+      error: written.identityError.error,
+      code: written.identityError.code,
+    })
+    return
+  }
 
   if (written.stale) {
     res.status(409).json({

@@ -75,8 +75,28 @@ export const ACCOUNTANT_STORE_KEYS = [
   'otherServiceAudit',
 ] as const
 
-/** KV keys that only centre admin / QM may read or write. */
-export const ADMIN_ONLY_KV_KEYS = ['manak_credentials', 'shrija-staff'] as const
+/**
+ * KV keys that only centre admin / QM may read or write.
+ * Include both normalized storage keys and legacy `shrija-` aliases —
+ * the client strips the `shrija-` prefix before calling the API.
+ */
+export const ADMIN_ONLY_KV_KEYS = [
+  'manak_credentials',
+  'staff',
+  'shrija-staff',
+  'reception-creds',
+  'shrija-reception-creds',
+] as const
+
+/** Strip `shrija-` prefix so ACL matches client-normalized KV keys. */
+export function normalizeKvKeyForAcl(key: string): string {
+  const k = String(key || '').trim()
+  return k.startsWith('shrija-') ? k.slice('shrija-'.length) : k
+}
+
+const ADMIN_ONLY_KV_NORMALIZED = new Set(
+  (ADMIN_ONLY_KV_KEYS as readonly string[]).map((k) => normalizeKvKeyForAcl(k)),
+)
 
 export function normalizeRole(role?: string | null): string {
   return String(role || '')
@@ -128,7 +148,7 @@ export function pickStoreForRole(payload: unknown, role?: string | null): Record
 }
 
 export function isAdminOnlyKvKey(key: string): boolean {
-  return (ADMIN_ONLY_KV_KEYS as readonly string[]).includes(String(key))
+  return ADMIN_ONLY_KV_NORMALIZED.has(normalizeKvKeyForAcl(key))
 }
 
 export function filterKvForRole(

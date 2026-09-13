@@ -30,7 +30,7 @@ import {
   validateOtherServiceInput,
   type OtherService,
 } from '../src/data/otherServices.ts'
-import { computeInvoicePaymentStatuses, type FundEntry, type Invoice } from '../src/data/store.ts'
+import { calcPartyBalance, computeInvoicePaymentStatuses, type FundEntry, type Invoice } from '../src/data/store.ts'
 import { CENTRE_SCOPED_STORE_KEYS } from '../src/data/storeMerge.ts'
 import {
   buildOtherServiceReceiptSlip,
@@ -212,6 +212,135 @@ const funds: FundEntry[] = [
 const statuses = computeInvoicePaymentStatuses(invoices, funds, 'Rajesh Jewellers')
 assertEq(statuses.get('i1'), 'Unpaid', 'OS fund without matching partyName does not pay HM invoices')
 
+// Contaminated OS fund (partyName set) must NEVER allocate to Hallmarking invoices.
+const contaminatedOsFunds: FundEntry[] = [
+  {
+    id: 'f-os-party',
+    date: '2026-09-12',
+    source: OTHER_SERVICE_FUND_SOURCE,
+    partyName: 'Rajesh Jewellers',
+    amount: 1000,
+    mode: 'Cash',
+    remarks: 'OS payment mis-tagged with party',
+    voucherNo: 'RC-OS-000099',
+  },
+]
+const contaminatedStatuses = computeInvoicePaymentStatuses(invoices, contaminatedOsFunds, 'Rajesh Jewellers')
+assertEq(
+  contaminatedStatuses.get('i1'),
+  'Unpaid',
+  'OS fund with partyName must not mark HM invoice Paid',
+)
+assertEq(
+  calcPartyBalance(invoices, contaminatedOsFunds, 'Rajesh Jewellers'),
+  1000,
+  'OS fund must not reduce HM outstanding',
+)
+
+const hmFund: FundEntry = {
+  id: 'f-hm-pay',
+  date: '2026-09-12',
+  source: 'Rajesh Jewellers',
+  partyName: 'Rajesh Jewellers',
+  amount: 1000,
+  mode: 'Cash',
+  remarks: 'HM collection',
+  voucherNo: '1',
+}
+const hmPaid = computeInvoicePaymentStatuses(invoices, [hmFund], 'Rajesh Jewellers')
+assertEq(hmPaid.get('i1'), 'Paid', 'Hallmarking fund continues to pay HM invoices')
+assertEq(calcPartyBalance(invoices, [hmFund], 'Rajesh Jewellers'), 0, 'HM fund reduces outstanding')
+
+const mixedAlloc = computeInvoicePaymentStatuses(
+  invoices,
+  [hmFund, ...contaminatedOsFunds],
+  'Rajesh Jewellers',
+)
+assertEq(mixedAlloc.get('i1'), 'Paid', 'mixed list still uses only HM fund once')
+assertEq(
+  calcPartyBalance(invoices, [hmFund, ...contaminatedOsFunds], 'Rajesh Jewellers'),
+  0,
+  'OS amount is ignored in HM balance when HM fund covers bill',
+)
+
+// Unlinked RC-OS markers must NOT be promoted to OS by sanitize alone.
+const contaminatedPayload = {
+  otherServices: [],
+  funds: [
+    {
+      id: 'f-os-orphan',
+      source: 'Rajesh Jewellers',
+      partyName: 'Rajesh Jewellers',
+      partyId: 'p1',
+      voucherNo: 'RC-OS-000050',
+      amount: 250,
+    },
+  ],
+} as Record<string, unknown>
+sanitizeOtherServicesStorePayload(contaminatedPayload)
+const scrubbed = (contaminatedPayload.funds as Array<Record<string, unknown>>)[0]
+assertEq(scrubbed.source, 'Rajesh Jewellers', 'sanitize does not force OS source without fundId linkage')
+assertEq(scrubbed.partyName, 'Rajesh Jewellers', 'sanitize leaves unlinked fund partyName alone')
+assertEq(scrubbed.amount, 250, 'orphan amount preserved when unlinked')
+
+// Linked OS fund sync still strips party fields and forces OTHER_SERVICE.
+const linkedPayload = {
+  otherServiceTypes: [
+    {
+      id: 'manual',
+      name: 'Chain Cleaning',
+      kind: 'manual',
+      slipPrefix: 'MN',
+      builtIn: true,
+      active: true,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    },
+  ],
+  otherServices: [
+    {
+      id: 'os-1',
+      typeId: 'manual',
+      typeName: 'Chain Cleaning',
+      kind: 'manual',
+      unit: 'Fixed',
+      rateBasis: 'Fixed',
+      quantity: 1,
+      rate: 250,
+      amountReceived: 250,
+      paymentMode: 'Cash',
+      customerName: 'Walk-in',
+      contactNo: '9999999999',
+      date: '2026-09-12',
+      item: 'Clean',
+      productDescription: '',
+      remark: '',
+      address: '',
+      slipNo: 'MN-000001',
+      receiptNo: 'RC-OS-000001',
+      fundId: 'f-os-linked',
+      status: 'Open',
+    },
+  ],
+  funds: [
+    {
+      id: 'f-os-linked',
+      source: 'Rajesh Jewellers',
+      partyName: 'Rajesh Jewellers',
+      partyId: 'p1',
+      voucherNo: 'RC-OS-000001',
+      amount: 1,
+      mode: 'Cash',
+    },
+  ],
+} as Record<string, unknown>
+sanitizeOtherServicesStorePayload(linkedPayload)
+const linkedFund = (linkedPayload.funds as Array<Record<string, unknown>>)[0]
+assertEq(linkedFund.source, OTHER_SERVICE_FUND_SOURCE, 'linked sanitize forces OTHER_SERVICE source')
+assert.equal('partyName' in linkedFund, false, 'linked sanitize strips partyName')
+assert.equal('partyId' in linkedFund, false, 'linked sanitize strips partyId')
+assertEq(linkedFund.amount, 250, 'linked sanitize amount comes from Other Service row')
+
 assertEq(reportBucketForService({ typeName: 'Vibrator', kind: 'weight' }), 'Silver Polish / Vibrating', 'vibrator maps to unified bucket')
 assertEq(reportBucketForService({ typeName: 'Silver Polish', kind: 'weight' }), 'Silver Polish / Vibrating', 'polish maps to unified bucket')
 assertEq(reportBucketForService({ typeName: 'Silver Polish / Vibrating', kind: 'weight' }), 'Silver Polish / Vibrating', 'unified bucket')
@@ -225,15 +354,43 @@ const root = path.dirname(fileURLToPath(import.meta.url))
 const storeSrc = readFileSync(path.join(root, '../src/data/store.ts'), 'utf8')
 assert.match(storeSrc, /!isOtherServiceFund\(f\)/, 'addFund ignores OTHER_SERVICE when numbering HM vouchers')
 assert.match(storeSrc, /source: OTHER_SERVICE_FUND_SOURCE/, 'OS funds are tagged OTHER_SERVICE')
+assert.match(
+  storeSrc,
+  /updateFund\([\s\S]*?if \(isOtherServiceFund\(row\)\) return null/,
+  'Hallmarking updateFund rejects OTHER_SERVICE funds',
+)
+assert.match(
+  storeSrc,
+  /deleteFund\([\s\S]*?if \(isOtherServiceFund\(row\)\) return false/,
+  'Hallmarking deleteFund rejects OTHER_SERVICE funds',
+)
+assert.match(
+  storeSrc,
+  /if \(isOtherServiceFund\(f\)\) return false/,
+  'fundBelongsToParty excludes OTHER_SERVICE funds',
+)
 const insertFn = storeSrc.slice(
   storeSrc.indexOf('function insertOtherServiceFund'),
   storeSrc.indexOf('function syncOtherServiceFund'),
 )
 assert.equal(insertFn.includes('applyInvoicePaymentStatuses'), false, 'OS fund insert does not touch HM invoice status')
+assert.match(storeSrc, /function syncOtherServiceFund/, 'OS fund sync path present')
+assert.match(storeSrc, /cancelOtherService\(/, 'OS cancellation path present')
 
 const dataRoute = readFileSync(path.join(root, '../server/src/routes/data.ts'), 'utf8')
 assert.match(dataRoute, /sanitizeOtherServicesStorePayload/, 'PUT /store sanitizes Other Services totals on the server')
-
+assert.match(dataRoute, /resolveStoreWriteBaseRev/, 'PUT /store requires baseRev via store write policy')
+assert.match(dataRoute, /enforceOtherServiceFundIdentity/, 'PUT /store enforces OS fund identity')
+assert.match(
+  readFileSync(path.join(root, '../src/data/otherServices.ts'), 'utf8'),
+  /enforceOtherServiceFundIdentity/,
+  'authoritative OS fund identity helper is present',
+)
+assert.match(
+  readFileSync(path.join(root, '../server/src/storeWritePolicy.ts'), 'utf8'),
+  /BASE_REV_REQUIRED/,
+  'missing baseRev is rejected for normal writes',
+)
 const laserItems = normalizeOtherServiceLineItems([
   { description: 'Hair', quantity: 2, rate: 50, amount: 999 },
   { description: 'Locket', quantity: 3, rate: 40, amount: 1 },
@@ -544,6 +701,12 @@ assertEq(legacyRow.rateBasis, 'Per Gram', 'legacy rate basis unchanged')
 
 const fundEntry = readFileSync(path.join(root, '../src/pages/FundEntry.tsx'), 'utf8')
 assert.match(fundEntry, /export function FundEntry/, 'Fund Entry UI file still present')
+assert.match(fundEntry, /isOtherServiceFund/, 'Fund Entry imports OS fund classifier')
+assert.match(
+  fundEntry,
+  /funds\.filter\(\(f\) => !isOtherServiceFund\(f\)\)/,
+  'Fund Entry filters OTHER_SERVICE funds from the list',
+)
 const billing = readFileSync(path.join(root, '../src/pages/Billing.tsx'), 'utf8')
 assert.match(billing, /export function Billing/, 'Billing page still present')
 

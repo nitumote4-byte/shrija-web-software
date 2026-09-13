@@ -816,10 +816,234 @@ function paymentModeOf(value: unknown): OtherServicePaymentMode {
   return 'Cash'
 }
 
+/** Fund ids referenced by Other Service rows in this store blob (tenant-local). */
+export function getAuthoritativeOtherServiceFundIds(store: unknown): Set<string> {
+  const data = asRecord(store)
+  if (!data) return new Set()
+  const rows = Array.isArray(data.otherServices) ? data.otherServices : []
+  const ids = new Set<string>()
+  for (const raw of rows) {
+    const row = asRecord(raw)
+    if (!row) continue
+    const fundId = String(row.fundId || '').trim()
+    if (fundId) ids.add(fundId)
+  }
+  return ids
+}
+
+export type OtherServiceFundIdentityResult =
+  | { ok: true }
+  | {
+      ok: false
+      status: 400
+      error: string
+      code: 'OS_FUND_IDENTITY_VIOLATION'
+    }
+
+function indexFundsById(rawFunds: unknown): Map<string, Record<string, unknown>> {
+  const map = new Map<string, Record<string, unknown>>()
+  if (!Array.isArray(rawFunds)) return map
+  for (const raw of rawFunds) {
+    const fund = asRecord(raw)
+    if (!fund) continue
+    const id = String(fund.id || '').trim()
+    if (!id) continue
+    map.set(id, fund)
+  }
+  return map
+}
+
+function indexOtherServicesByFundId(rawServices: unknown): Map<string, OtherService> {
+  const map = new Map<string, OtherService>()
+  if (!Array.isArray(rawServices)) return map
+  for (const raw of rawServices) {
+    const row = asRecord(raw)
+    if (!row) continue
+    const fundId = String(row.fundId || '').trim()
+    if (!fundId) continue
+    map.set(fundId, row as unknown as OtherService)
+  }
+  return map
+}
+
+function claimsClientOsMarkers(fund: Record<string, unknown>): boolean {
+  return isOtherServiceFund({
+    source: String(fund.source || ''),
+    voucherNo: String(fund.voucherNo || ''),
+  })
+}
+
+function applyLinkedOtherServiceFund(
+  fund: Record<string, unknown>,
+  linked: OtherService,
+  previous: Record<string, unknown> | null,
+) {
+  fund.source = OTHER_SERVICE_FUND_SOURCE
+  if ('partyName' in fund) delete fund.partyName
+  if ('partyId' in fund) delete fund.partyId
+  fund.amount = linked.amountReceived
+  if (linked.receiptNo) fund.voucherNo = linked.receiptNo
+  else if (previous && previous.voucherNo != null) fund.voucherNo = previous.voucherNo
+  fund.remarks = otherServiceFundRemarks(linked)
+  fund.mode = fundModeOf(linked.paymentMode)
+}
+
+/** Keep an unlinked-but-still-present former OS fund out of Hallmarking allocation. */
+function forceOtherServiceIsolation(fund: Record<string, unknown>, previous: Record<string, unknown>) {
+  fund.source = OTHER_SERVICE_FUND_SOURCE
+  if ('partyName' in fund) delete fund.partyName
+  if ('partyId' in fund) delete fund.partyId
+  if (previous.voucherNo != null) fund.voucherNo = previous.voucherNo
+  if (previous.amount != null) fund.amount = previous.amount
+  if (previous.mode != null) fund.mode = previous.mode
+  if (previous.remarks != null) fund.remarks = previous.remarks
+}
+
+/**
+ * Server-authoritative Other Service fund identity for PUT /api/data/store.
+ * Classification comes from otherServices[].fundId linkage (plus already-isolated
+ * server funds), never from client-supplied source / RC-OS-* markers alone.
+ */
+export function enforceOtherServiceFundIdentity(opts: {
+  currentStore: Record<string, unknown>
+  nextStore: Record<string, unknown>
+  replaceAll: boolean
+}): OtherServiceFundIdentityResult {
+  const { currentStore, nextStore, replaceAll } = opts
+  const nextFundsRaw = Array.isArray(nextStore.funds) ? nextStore.funds : []
+  const nextFunds = nextFundsRaw
+    .map((raw) => asRecord(raw))
+    .filter((f): f is Record<string, unknown> => Boolean(f))
+  nextStore.funds = nextFunds
+
+  const nextLinked = getAuthoritativeOtherServiceFundIds(nextStore)
+  const nextOsByFundId = indexOtherServicesByFundId(nextStore.otherServices)
+  const nextById = indexFundsById(nextFunds)
+
+  if (replaceAll) {
+    for (const fund of nextFunds) {
+      const id = String(fund.id || '').trim()
+      if (!id) continue
+      const linked = nextOsByFundId.get(id)
+      if (linked) {
+        applyLinkedOtherServiceFund(fund, linked, null)
+        continue
+      }
+      // Unlinked funds cannot establish OS identity from client markers alone.
+      if (claimsClientOsMarkers(fund)) {
+        fund.source = OTHER_SERVICE_FUND_SOURCE
+        if ('partyName' in fund) delete fund.partyName
+        if ('partyId' in fund) delete fund.partyId
+      }
+    }
+    return { ok: true }
+  }
+
+  const serverFunds = indexFundsById(currentStore.funds)
+  const serverLinked = getAuthoritativeOtherServiceFundIds(currentStore)
+  const serverProtected = new Set<string>(serverLinked)
+  for (const [id, fund] of serverFunds) {
+    if (isOtherServiceFund({ source: String(fund.source || ''), voucherNo: String(fund.voucherNo || '') })) {
+      serverProtected.add(id)
+    }
+  }
+
+  for (const fundId of serverProtected) {
+    const previous = serverFunds.get(fundId)
+    if (!previous) continue
+    const stillLinked = nextLinked.has(fundId)
+    const incoming = nextById.get(fundId)
+
+    if (stillLinked) {
+      if (!incoming) {
+        return {
+          ok: false,
+          status: 400,
+          error: 'Other Service fund cannot be deleted while linked to an Other Service record',
+          code: 'OS_FUND_IDENTITY_VIOLATION',
+        }
+      }
+      const linked = nextOsByFundId.get(fundId)
+      if (!linked) {
+        return {
+          ok: false,
+          status: 400,
+          error: 'Other Service fund linkage is invalid',
+          code: 'OS_FUND_IDENTITY_VIOLATION',
+        }
+      }
+      applyLinkedOtherServiceFund(incoming, linked, previous)
+      continue
+    }
+
+    // Cancel / zero-payment unlinks fundId and removes the fund — allowed.
+    if (!incoming) continue
+    // Fund still present after unlink: keep it isolated from Hallmarking cash.
+    forceOtherServiceIsolation(incoming, previous)
+  }
+
+  for (const fund of nextFunds) {
+    const id = String(fund.id || '').trim()
+    if (!id) continue
+    if (serverProtected.has(id)) continue
+
+    const onServer = serverFunds.has(id)
+    const linked = nextLinked.has(id)
+
+    if (!onServer && linked) {
+      const linkedRow = nextOsByFundId.get(id)
+      if (!linkedRow) {
+        return {
+          ok: false,
+          status: 400,
+          error: 'Other Service fund linkage is invalid',
+          code: 'OS_FUND_IDENTITY_VIOLATION',
+        }
+      }
+      applyLinkedOtherServiceFund(fund, linkedRow, null)
+      continue
+    }
+
+    if (!onServer && !linked) {
+      if (claimsClientOsMarkers(fund)) {
+        return {
+          ok: false,
+          status: 400,
+          error: 'Other Service fund requires a linked Other Service record',
+          code: 'OS_FUND_IDENTITY_VIOLATION',
+        }
+      }
+      continue
+    }
+
+    // Existing non-OS server fund.
+    if (linked) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Cannot attach an existing Hallmarking fund to an Other Service record',
+        code: 'OS_FUND_IDENTITY_VIOLATION',
+      }
+    }
+    if (claimsClientOsMarkers(fund)) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Cannot relabel an existing Hallmarking fund as Other Service',
+        code: 'OS_FUND_IDENTITY_VIOLATION',
+      }
+    }
+  }
+
+  return { ok: true }
+}
+
 /**
  * Recalculate Other Services totals on the server store blob.
  * Does not trust client-provided totalAmount / line amounts.
  * Does not convert stored gram quantities into kilograms.
+ * Fund OS classification is applied only for rows linked via otherServices[].fundId;
+ * client source / RC-OS-* markers alone are not authoritative (see enforceOtherServiceFundIdentity).
  */
 export function sanitizeOtherServicesStorePayload(data: Record<string, unknown>): void {
   if (!data || typeof data !== 'object') return
@@ -913,20 +1137,15 @@ export function sanitizeOtherServicesStorePayload(data: Record<string, unknown>)
   }
   data.otherServices = next
 
+  // Only funds linked through otherServices[].fundId are OS-synced here.
   const funds = Array.isArray(data.funds) ? data.funds : []
   for (const fundRaw of funds) {
     const fund = asRecord(fundRaw)
     if (!fund) continue
-    if (!isOtherServiceFund({ source: String(fund.source || ''), voucherNo: String(fund.voucherNo || '') })) {
-      continue
-    }
-    const fundId = String(fund.id || '')
+    const fundId = String(fund.id || '').trim()
+    if (!fundId) continue
     const linked = next.find((row) => row.fundId && row.fundId === fundId)
     if (!linked) continue
-    fund.source = OTHER_SERVICE_FUND_SOURCE
-    fund.amount = linked.amountReceived
-    if (linked.receiptNo) fund.voucherNo = linked.receiptNo
-    fund.remarks = otherServiceFundRemarks(linked)
-    fund.mode = fundModeOf(linked.paymentMode)
+    applyLinkedOtherServiceFund(fund, linked, null)
   }
 }

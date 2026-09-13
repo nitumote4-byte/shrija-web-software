@@ -1312,6 +1312,7 @@ function normPartyName(name: string | undefined | null) {
 }
 
 function fundBelongsToParty(f: FundEntry, partyName: string) {
+  if (isOtherServiceFund(f)) return false
   const key = normPartyName(partyName)
   if (!key) return false
   return normPartyName(f.partyName) === key || normPartyName(f.source) === key
@@ -1340,7 +1341,7 @@ export function computeInvoicePaymentStatuses(
 
   for (const [k, invs] of byParty) {
     let pool = funds
-      .filter((f) => fundBelongsToParty(f, k))
+      .filter((f) => !isOtherServiceFund(f) && fundBelongsToParty(f, k))
       .reduce((s, f) => s + (Number(f.amount) || 0), 0)
 
     const sorted = [...invs].sort((a, b) => {
@@ -1485,7 +1486,7 @@ export function calcPartyBalance(
     .filter((i) => normPartyName(i.partyName) === normPartyName(partyName))
     .reduce((s, i) => s + (Number(i.total) || 0), 0)
   const paid = funds
-    .filter((f) => fundBelongsToParty(f, partyName))
+    .filter((f) => !isOtherServiceFund(f) && fundBelongsToParty(f, partyName))
     .filter((f) => !excludeVoucherNo || String(f.voucherNo) !== String(excludeVoucherNo))
     .reduce((s, f) => s + (Number(f.amount) || 0), 0)
   return Number((billed - paid).toFixed(2))
@@ -2230,6 +2231,8 @@ export const store = {
     const data = load()
     const row = data.funds.find((f) => f.id === id)
     if (!row) return null
+    // Hallmarking Fund Entry must never mutate Other Services cash vouchers.
+    if (isOtherServiceFund(row)) return null
     const oldParty = row.partyName || row.source
     Object.assign(row, patch)
     if (patch.partyName !== undefined) {
@@ -2250,6 +2253,8 @@ export const store = {
     const data = load()
     const row = data.funds.find((f) => f.id === id)
     if (!row) return false
+    // Hallmarking Fund Entry must never delete Other Services cash vouchers.
+    if (isOtherServiceFund(row)) return false
     const party = row.partyName || row.source
     data.funds = data.funds.filter((f) => f.id !== id)
     if (party) applyInvoicePaymentStatuses(data, party)

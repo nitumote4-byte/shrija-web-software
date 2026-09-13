@@ -71,19 +71,54 @@ describe('RBAC store scoping', () => {
 })
 
 describe('RBAC secrets', () => {
-  it('treats staff HR and Manak creds as admin-only KV', () => {
+  it('treats staff HR, reception creds, and Manak creds as admin-only KV (normalized + legacy)', () => {
+    assert.equal(isAdminOnlyKvKey('staff'), true)
     assert.equal(isAdminOnlyKvKey('shrija-staff'), true)
+    assert.equal(isAdminOnlyKvKey('reception-creds'), true)
+    assert.equal(isAdminOnlyKvKey('shrija-reception-creds'), true)
     assert.equal(isAdminOnlyKvKey('manak_credentials'), true)
+    assert.equal(isAdminOnlyKvKey('shrija-manak_credentials'), true)
     assert.equal(isAdminOnlyKvKey('shrija-invoice-settings'), false)
+    assert.equal(isAdminOnlyKvKey('invoice-settings'), false)
   })
 
-  it('strips admin KV for reception', () => {
-    const filtered = filterKvForRole(
-      { 'shrija-staff': [{ name: 'X' }], 'shrija-invoice-settings': '{}' },
-      { role: 'reception', isAdmin: false },
-    )
-    assert.equal('shrija-staff' in filtered, false)
-    assert.ok(filtered['shrija-invoice-settings'])
+  it('strips staff and reception-creds for lab, reception, and accountant', () => {
+    const docs = {
+      staff: [{ name: 'X', bank: 'hidden' }],
+      'shrija-staff': [{ name: 'Legacy' }],
+      'reception-creds': { username: 'desk', password: 'redacted-in-test' },
+      'shrija-reception-creds': { username: 'legacy-desk' },
+      'invoice-settings': '{}',
+    }
+    for (const role of ['assay_lab', 'in_lab', 'reception', 'accountant'] as const) {
+      const filtered = filterKvForRole(docs, { role, isAdmin: false })
+      assert.equal('staff' in filtered, false, `${role} must not see staff`)
+      assert.equal('shrija-staff' in filtered, false, `${role} must not see shrija-staff`)
+      assert.equal('reception-creds' in filtered, false, `${role} must not see reception-creds`)
+      assert.equal(
+        'shrija-reception-creds' in filtered,
+        false,
+        `${role} must not see shrija-reception-creds`,
+      )
+      assert.ok(filtered['invoice-settings'], `${role} keeps non-secret KV`)
+    }
+  })
+
+  it('lets centre admin and quality_manager retain admin-only KV', () => {
+    const docs = {
+      staff: [{ name: 'X' }],
+      'reception-creds': { username: 'desk' },
+      manak_credentials: { username: 'm' },
+    }
+    for (const user of [
+      { role: 'admin', isAdmin: true },
+      { role: 'quality_manager', isAdmin: false },
+    ]) {
+      const filtered = filterKvForRole(docs, user)
+      assert.ok(filtered.staff, `${user.role} keeps staff`)
+      assert.ok(filtered['reception-creds'], `${user.role} keeps reception-creds`)
+      assert.ok(filtered.manak_credentials, `${user.role} keeps manak_credentials`)
+    }
   })
 
   it('redacts bank fields from lab firm profile', () => {
