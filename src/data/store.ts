@@ -85,6 +85,12 @@ import {
   type OtherServiceType,
   type OtherServiceUnit,
 } from './otherServices'
+import {
+  calcPartyBalance,
+  computeInvoicePaymentStatuses,
+} from '../../server/src/invoicePaymentStatus.ts'
+
+export { calcPartyBalance, computeInvoicePaymentStatuses }
 
 export type {
   XrfCheckSaveResult,
@@ -1311,61 +1317,6 @@ function normPartyName(name: string | undefined | null) {
     .replace(/\s+/g, ' ')
 }
 
-function fundBelongsToParty(f: FundEntry, partyName: string) {
-  if (isOtherServiceFund(f)) return false
-  const key = normPartyName(partyName)
-  if (!key) return false
-  return normPartyName(f.partyName) === key || normPartyName(f.source) === key
-}
-
-/**
- * Allocate party funds FIFO (oldest invoice first) → Paid / Partial / Unpaid.
- * Returns a map of invoiceId → status (does not mutate).
- */
-export function computeInvoicePaymentStatuses(
-  invoices: Invoice[],
-  funds: FundEntry[],
-  partyName?: string,
-): Map<string, Invoice['status']> {
-  const result = new Map<string, Invoice['status']>()
-  const partyKey = partyName ? normPartyName(partyName) : null
-
-  const byParty = new Map<string, Invoice[]>()
-  for (const inv of invoices) {
-    const k = normPartyName(inv.partyName)
-    if (!k) continue
-    if (partyKey && k !== partyKey) continue
-    if (!byParty.has(k)) byParty.set(k, [])
-    byParty.get(k)!.push(inv)
-  }
-
-  for (const [k, invs] of byParty) {
-    let pool = funds
-      .filter((f) => !isOtherServiceFund(f) && fundBelongsToParty(f, k))
-      .reduce((s, f) => s + (Number(f.amount) || 0), 0)
-
-    const sorted = [...invs].sort((a, b) => {
-      const d = String(a.date || '').localeCompare(String(b.date || ''))
-      if (d !== 0) return d
-      return String(a.invoiceNo || '').localeCompare(String(b.invoiceNo || ''))
-    })
-
-    for (const inv of sorted) {
-      const total = Number(inv.total) || 0
-      if (pool <= 0.009) {
-        result.set(inv.id, 'Unpaid')
-      } else if (pool + 0.009 >= total) {
-        result.set(inv.id, 'Paid')
-        pool = Number((pool - total).toFixed(2))
-      } else {
-        result.set(inv.id, 'Partial')
-        pool = 0
-      }
-    }
-  }
-  return result
-}
-
 function pushOtherServiceAudit(
   data: StoreShape,
   input: Omit<OtherServiceAudit, 'id' | 'at' | 'centreId' | 'centreKind'> & {
@@ -1473,23 +1424,6 @@ function applyInvoicePaymentStatuses(data: StoreShape, partyName?: string) {
     changed = true
   }
   return changed
-}
-
-/** Party outstanding: billed − paid (negative = advance / credit). */
-export function calcPartyBalance(
-  invoices: Invoice[],
-  funds: FundEntry[],
-  partyName: string,
-  excludeVoucherNo?: string,
-) {
-  const billed = invoices
-    .filter((i) => normPartyName(i.partyName) === normPartyName(partyName))
-    .reduce((s, i) => s + (Number(i.total) || 0), 0)
-  const paid = funds
-    .filter((f) => !isOtherServiceFund(f) && fundBelongsToParty(f, partyName))
-    .filter((f) => !excludeVoucherNo || String(f.voucherNo) !== String(excludeVoucherNo))
-    .reduce((s, f) => s + (Number(f.amount) || 0), 0)
-  return Number((billed - paid).toFixed(2))
 }
 
 let scopedCache: StoreShape | null = null

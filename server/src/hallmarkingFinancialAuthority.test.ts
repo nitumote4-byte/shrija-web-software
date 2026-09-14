@@ -6,12 +6,12 @@ import { describe, it } from 'node:test'
 import {
   enforceHallmarkingFinancialAuthority,
   parseInvoiceMinBillSettings,
-} from '../../src/data/hallmarkingFinancialAuthority.ts'
+} from './hallmarkingFinancialAuthority.js'
 import {
   OTHER_SERVICE_FUND_SOURCE,
   enforceOtherServiceFundIdentity,
   sanitizeOtherServicesStorePayload,
-} from '../../src/data/otherServices.ts'
+} from './otherServices.js'
 import { isAdminUser } from './rbac.js'
 import { filterStoreForSession, mergeMainStoreWrite, mergeOscStoreWrite } from './tenantIsolation.js'
 

@@ -14,11 +14,11 @@ import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
 import {
   enforceOtherServiceFundIdentity,
   sanitizeOtherServicesStorePayload,
-} from '../../../src/data/otherServices.ts'
+} from '../otherServices.js'
 import {
   enforceHallmarkingFinancialAuthority,
   parseInvoiceMinBillSettings,
-} from '../../../src/data/hallmarkingFinancialAuthority.ts'
+} from '../hallmarkingFinancialAuthority.js'
 import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeStoreWrite } from '../tenantIsolation.js'
 import {
   filterKvForRole,

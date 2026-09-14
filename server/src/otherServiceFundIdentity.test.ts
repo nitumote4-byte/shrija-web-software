@@ -6,17 +6,19 @@ import {
   getAuthoritativeOtherServiceFundIds,
   isOtherServiceFund,
   sanitizeOtherServicesStorePayload,
-} from '../../src/data/otherServices.ts'
-import { calcPartyBalance, computeInvoicePaymentStatuses, type FundEntry, type Invoice } from '../../src/data/store.ts'
+} from './otherServices.js'
+import {
+  calcPartyBalance,
+  computeInvoicePaymentStatuses,
+  type PaymentStatusFund,
+  type PaymentStatusInvoice,
+} from './invoicePaymentStatus.js'
 
-function hmInvoice(): Invoice {
+function hmInvoice(): PaymentStatusInvoice {
   return {
     id: 'i1',
     invoiceNo: 'INV-1',
     partyName: 'Rajesh Jewellers',
-    requestNo: 'R-1',
-    amount: 1000,
-    tax: 0,
     total: 1000,
     status: 'Unpaid',
     date: '2026-09-12',
@@ -72,7 +74,7 @@ describe('Other Service fund identity (P1-5)', () => {
     if (!result.ok) assert.equal(result.code, 'OS_FUND_IDENTITY_VIOLATION')
 
     // Original HM identity must remain usable for calculations (server state unchanged on reject).
-    const funds = current.funds as FundEntry[]
+    const funds = current.funds as PaymentStatusFund[]
     assert.equal(isOtherServiceFund(funds[0]), false)
     assert.equal(calcPartyBalance([hmInvoice()], funds, 'Rajesh Jewellers'), 0)
     assert.equal(computeInvoicePaymentStatuses([hmInvoice()], funds, 'Rajesh Jewellers').get('i1'), 'Paid')
@@ -182,9 +184,9 @@ describe('Other Service fund identity (P1-5)', () => {
     assert.equal(preserved.amount, 250)
     assert.equal('partyName' in preserved, false)
     assert.equal('partyId' in preserved, false)
-    assert.equal(isOtherServiceFund(preserved as FundEntry), true)
+    assert.equal(isOtherServiceFund(preserved as PaymentStatusFund), true)
     assert.equal(
-      calcPartyBalance([hmInvoice()], nextStore.funds as FundEntry[], 'Rajesh Jewellers'),
+      calcPartyBalance([hmInvoice()], nextStore.funds as PaymentStatusFund[], 'Rajesh Jewellers'),
       1000,
     )
   })
@@ -432,7 +434,7 @@ describe('Other Service fund identity (P1-5)', () => {
   })
 
   it('TEST 8 — genuine HM fund still participates in balance and payment status', () => {
-    const funds: FundEntry[] = [
+    const funds: PaymentStatusFund[] = [
       {
         id: 'HM-FUND-8',
         date: '2026-09-12',
@@ -452,8 +454,8 @@ describe('Other Service fund identity (P1-5)', () => {
     const next = { otherServices: [], funds: deepClone(funds) }
     const { result, nextStore } = applyWrite(current, next)
     assert.equal(result.ok, true)
-    assert.equal(isOtherServiceFund((nextStore.funds as FundEntry[])[0]), false)
-    assert.equal(calcPartyBalance([hmInvoice()], nextStore.funds as FundEntry[], 'Rajesh Jewellers'), 0)
+    assert.equal(isOtherServiceFund((nextStore.funds as PaymentStatusFund[])[0]), false)
+    assert.equal(calcPartyBalance([hmInvoice()], nextStore.funds as PaymentStatusFund[], 'Rajesh Jewellers'), 0)
   })
 
   it('does not let another payload’s fundId classify an unrelated HM fund (tenant-local set)', () => {

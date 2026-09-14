@@ -366,6 +366,11 @@ assert.match(
 )
 assert.match(
   storeSrc,
+  /computeInvoicePaymentStatuses/,
+  'store re-exports FIFO invoice payment allocation',
+)
+assert.match(
+  readFileSync(path.join(root, '../server/src/invoicePaymentStatus.ts'), 'utf8'),
   /if \(isOtherServiceFund\(f\)\) return false/,
   'fundBelongsToParty excludes OTHER_SERVICE funds',
 )
@@ -383,14 +388,39 @@ assert.match(dataRoute, /resolveStoreWriteBaseRev/, 'PUT /store requires baseRev
 assert.match(dataRoute, /enforceOtherServiceFundIdentity/, 'PUT /store enforces OS fund identity')
 assert.match(dataRoute, /enforceHallmarkingFinancialAuthority/, 'PUT /store enforces Hallmarking financial authority')
 assert.match(
+  dataRoute,
+  /from '\.\.\/otherServices\.js'/,
+  'data router imports Other Services helpers from the server package',
+)
+assert.match(
+  dataRoute,
+  /from '\.\.\/hallmarkingFinancialAuthority\.js'/,
+  'data router imports financial authority from the server package',
+)
+assert.equal(
+  /from ['"](?:\.\.\/){2,}src\//.test(dataRoute),
+  false,
+  'data router must not import monorepo frontend src at runtime',
+)
+assert.match(
   readFileSync(path.join(root, '../src/data/otherServices.ts'), 'utf8'),
-  /enforceOtherServiceFundIdentity/,
-  'authoritative OS fund identity helper is present',
+  /server\/src\/otherServices\.ts/,
+  'SPA otherServices module re-exports the server package implementation',
+)
+assert.match(
+  readFileSync(path.join(root, '../server/src/otherServices.ts'), 'utf8'),
+  /export function enforceOtherServiceFundIdentity/,
+  'OS fund identity implementation lives in the server package',
 )
 assert.match(
   readFileSync(path.join(root, '../src/data/hallmarkingFinancialAuthority.ts'), 'utf8'),
-  /enforceHallmarkingFinancialAuthority/,
-  'Hallmarking financial authority helper is present',
+  /server\/src\/hallmarkingFinancialAuthority\.ts/,
+  'SPA financial authority module re-exports the server package implementation',
+)
+assert.match(
+  readFileSync(path.join(root, '../server/src/hallmarkingFinancialAuthority.ts'), 'utf8'),
+  /export function enforceHallmarkingFinancialAuthority/,
+  'Hallmarking financial authority implementation lives in the server package',
 )
 assert.match(
   readFileSync(path.join(root, '../server/src/storeWritePolicy.ts'), 'utf8'),
