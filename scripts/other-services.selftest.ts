@@ -381,10 +381,16 @@ const dataRoute = readFileSync(path.join(root, '../server/src/routes/data.ts'), 
 assert.match(dataRoute, /sanitizeOtherServicesStorePayload/, 'PUT /store sanitizes Other Services totals on the server')
 assert.match(dataRoute, /resolveStoreWriteBaseRev/, 'PUT /store requires baseRev via store write policy')
 assert.match(dataRoute, /enforceOtherServiceFundIdentity/, 'PUT /store enforces OS fund identity')
+assert.match(dataRoute, /enforceHallmarkingFinancialAuthority/, 'PUT /store enforces Hallmarking financial authority')
 assert.match(
   readFileSync(path.join(root, '../src/data/otherServices.ts'), 'utf8'),
   /enforceOtherServiceFundIdentity/,
   'authoritative OS fund identity helper is present',
+)
+assert.match(
+  readFileSync(path.join(root, '../src/data/hallmarkingFinancialAuthority.ts'), 'utf8'),
+  /enforceHallmarkingFinancialAuthority/,
+  'Hallmarking financial authority helper is present',
 )
 assert.match(
   readFileSync(path.join(root, '../server/src/storeWritePolicy.ts'), 'utf8'),

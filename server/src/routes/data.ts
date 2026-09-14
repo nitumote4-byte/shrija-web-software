@@ -15,6 +15,10 @@ import {
   enforceOtherServiceFundIdentity,
   sanitizeOtherServicesStorePayload,
 } from '../../../src/data/otherServices.ts'
+import {
+  enforceHallmarkingFinancialAuthority,
+  parseInvoiceMinBillSettings,
+} from '../../../src/data/hallmarkingFinancialAuthority.ts'
 import { filterFirmCentres, filterKvForSession, filterStoreForSession, isOscRestrictedKvKey, listFirmOutlets, mergeStoreWrite } from '../tenantIsolation.js'
 import {
   filterKvForRole,
@@ -50,6 +54,14 @@ function asJson(value: unknown): unknown {
     }
   }
   return value
+}
+
+async function loadInvoiceMinBillSettings(tenantId: string) {
+  const { rows } = await pool.query(
+    `SELECT value FROM kv_docs WHERE tenant_id = $1 AND key = $2`,
+    [tenantId, 'invoice-settings'],
+  )
+  return parseInvoiceMinBillSettings(asJson(rows[0]?.value))
 }
 
 function asRev(value: unknown): number {
@@ -126,6 +138,7 @@ dataRouter.put('/store', async (req, res) => {
     return
   }
   const baseRev = baseRevResolved.baseRev
+  const invoiceSettings = await loadInvoiceMinBillSettings(tenantId)
 
   const updatedAt = nowIso()
   const written = await withTransaction(async (client) => {
@@ -151,6 +164,9 @@ dataRouter.put('/store', async (req, res) => {
       payload = mergeStoreWrite(currentPayload, incoming, centre)
       sanitizeXrfStorePayload(payload)
       sanitizeOtherServicesStorePayload(payload)
+    } else {
+      sanitizeXrfStorePayload(payload)
+      sanitizeOtherServicesStorePayload(payload)
     }
 
     // OS fund identity is tenant-scoped: currentPayload is loaded by tenant_id above.
@@ -163,6 +179,22 @@ dataRouter.put('/store', async (req, res) => {
       return {
         stale: false as const,
         identityError: identity,
+        rev: currentRev,
+        updatedAt: row ? toIso(row.updated_at) : updatedAt,
+        payload: currentPayload,
+      }
+    }
+
+    const financial = enforceHallmarkingFinancialAuthority({
+      currentStore: currentPayload,
+      nextStore: payload,
+      replaceAll,
+      invoiceSettings,
+    })
+    if (!financial.ok) {
+      return {
+        stale: false as const,
+        financialError: financial,
         rev: currentRev,
         updatedAt: row ? toIso(row.updated_at) : updatedAt,
         payload: currentPayload,
@@ -182,6 +214,14 @@ dataRouter.put('/store', async (req, res) => {
     res.status(written.identityError.status).json({
       error: written.identityError.error,
       code: written.identityError.code,
+    })
+    return
+  }
+
+  if ('financialError' in written && written.financialError) {
+    res.status(written.financialError.status).json({
+      error: written.financialError.error,
+      code: written.financialError.code,
     })
     return
   }
