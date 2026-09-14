@@ -59,6 +59,20 @@ describe('RBAC store scoping', () => {
     assert.equal('deletedInvoices' in pickStoreForRole(withTombs, 'assay_lab'), false)
   })
 
+  it('lets reception and accountant persist financial tombstones; lab cannot', () => {
+    const withTombs = {
+      ...full,
+      deletedFunds: [{ id: 'f1' }],
+      deletedExpenses: [{ id: 'e1' }],
+      deletedMonthlyInvoices: [{ id: 'm1' }],
+    }
+    assert.ok(pickStoreForRole(withTombs, 'reception').deletedFunds)
+    assert.ok(pickStoreForRole(withTombs, 'accountant').deletedExpenses)
+    assert.ok(pickStoreForRole(withTombs, 'reception').deletedMonthlyInvoices)
+    assert.equal('deletedFunds' in pickStoreForRole(withTombs, 'assay_lab'), false)
+    assert.equal('deletedExpenses' in pickStoreForRole(withTombs, 'in_lab'), false)
+  })
+
   it('gives quality_manager the full blob', () => {
     assert.equal(storeKeysForRole('quality_manager'), '*')
     assert.deepEqual(pickStoreForRole(full, 'quality_manager'), full)

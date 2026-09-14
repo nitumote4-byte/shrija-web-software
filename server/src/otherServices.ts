@@ -900,6 +900,44 @@ function forceOtherServiceIsolation(fund: Record<string, unknown>, previous: Rec
 }
 
 /**
+ * Server-authoritative Other Service cancel immutability for normal PUTs.
+ * Once a service is Cancelled on the server, a stale Open payload must not reopen it.
+ * replaceAll (admin backup restore) remains authoritative and skips this guard.
+ */
+export function enforceOtherServiceCancelImmutability(opts: {
+  currentStore: Record<string, unknown>
+  nextStore: Record<string, unknown>
+  replaceAll: boolean
+}): void {
+  if (opts.replaceAll) return
+  if (!Array.isArray(opts.nextStore.otherServices)) return
+  const currentById = new Map<string, Record<string, unknown>>()
+  if (Array.isArray(opts.currentStore.otherServices)) {
+    for (const raw of opts.currentStore.otherServices) {
+      const row = asRecord(raw)
+      if (!row) continue
+      const id = String(row.id || '').trim()
+      if (id) currentById.set(id, row)
+    }
+  }
+  for (const raw of opts.nextStore.otherServices) {
+    const row = asRecord(raw)
+    if (!row) continue
+    const id = String(row.id || '').trim()
+    if (!id) continue
+    const prev = currentById.get(id)
+    if (!prev) continue
+    if (String(prev.status || '') !== 'Cancelled') continue
+    if (String(row.status || '') === 'Cancelled') continue
+    row.status = 'Cancelled'
+    if (prev.cancelledAt != null) row.cancelledAt = prev.cancelledAt
+    if (prev.cancelledBy != null) row.cancelledBy = prev.cancelledBy
+    // Cancel unlinks the fund; do not let a stale Open payload reattach fundId.
+    if ('fundId' in row) delete row.fundId
+  }
+}
+
+/**
  * Server-authoritative Other Service fund identity for PUT /api/data/store.
  * Classification comes from otherServices[].fundId linkage (plus already-isolated
  * server funds), never from client-supplied source / RC-OS-* markers alone.

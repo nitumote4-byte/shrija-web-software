@@ -4,6 +4,16 @@
  * never from client-supplied tenantId / centreId / tenant_id fields.
  */
 
+import {
+  FINANCIAL_ARRAY_TO_TOMBSTONE_KEY,
+  acceptMainFinancialTombstones,
+  acceptOscFinancialTombstones,
+  applyFinancialTombstonesToMergedStore,
+  filterFinancialArraysByTombstones,
+  filterOscFinancialTombstones,
+  unionFinancialTombstones,
+} from './financialTombstones.js'
+
 export const GENERIC_LOGIN_ERROR = 'Invalid username or password'
 
 /** Identifiers that must match the JWT tenant when present. */
@@ -173,11 +183,19 @@ export function filterStoreForSession(
   const data = asObjectRecord(payload)
   const tombstones = unionInvoiceTombstones(data[INVOICE_TOMBSTONES_KEY], [])
   if (opts.centreKind !== 'osc') {
-    return {
+    const mainOut: Record<string, unknown> = {
       ...data,
-      invoices: Array.isArray(data.invoices) ? applyInvoiceTombstones(data.invoices as unknown[], tombstones) : data.invoices,
+      invoices: Array.isArray(data.invoices)
+        ? applyInvoiceTombstones(data.invoices as unknown[], tombstones)
+        : data.invoices,
       [INVOICE_TOMBSTONES_KEY]: tombstones,
     }
+    for (const arrayKey of ['funds', 'expenses', 'monthlyInvoices'] as const) {
+      const tombKey = FINANCIAL_ARRAY_TO_TOMBSTONE_KEY[arrayKey]
+      mainOut[tombKey] = unionFinancialTombstones(data[tombKey], [])
+    }
+    filterFinancialArraysByTombstones(mainOut)
+    return mainOut
   }
 
   const requests = Array.isArray(data.requests) ? data.requests : []
@@ -203,6 +221,12 @@ export function filterStoreForSession(
     out.invoices = applyInvoiceTombstones(out.invoices as unknown[], tombstones)
   }
   out[INVOICE_TOMBSTONES_KEY] = tombstones.filter((row) => row.centreId === opts.centreId)
+  for (const arrayKey of ['funds', 'expenses', 'monthlyInvoices'] as const) {
+    const tombKey = FINANCIAL_ARRAY_TO_TOMBSTONE_KEY[arrayKey]
+    out[tombKey] = unionFinancialTombstones(data[tombKey], [])
+  }
+  filterFinancialArraysByTombstones(out)
+  filterOscFinancialTombstones(out, opts.centreId)
   return out
 }
 
@@ -389,6 +413,47 @@ function applyTombstonesToMergedStore(
   merged.invoices = after
 }
 
+function applyFinancialTombstonesForOscMerge(
+  merged: Record<string, unknown>,
+  current: Record<string, unknown>,
+  next: Record<string, unknown>,
+  centreId: string,
+) {
+  for (const arrayKey of ['funds', 'expenses', 'monthlyInvoices'] as const) {
+    const tombKey = FINANCIAL_ARRAY_TO_TOMBSTONE_KEY[arrayKey]
+    const existingRows = Array.isArray(current[arrayKey]) ? (current[arrayKey] as unknown[]) : []
+    applyFinancialTombstonesToMergedStore(
+      merged,
+      arrayKey,
+      acceptOscFinancialTombstones(
+        existingRows,
+        current[tombKey],
+        next[tombKey],
+        centreId,
+        arrayKey,
+      ),
+      'mergeOscStoreWrite',
+    )
+  }
+}
+
+function applyFinancialTombstonesForMainMerge(
+  merged: Record<string, unknown>,
+  current: Record<string, unknown>,
+  next: Record<string, unknown>,
+) {
+  for (const arrayKey of ['funds', 'expenses', 'monthlyInvoices'] as const) {
+    const tombKey = FINANCIAL_ARRAY_TO_TOMBSTONE_KEY[arrayKey]
+    const existingRows = Array.isArray(current[arrayKey]) ? (current[arrayKey] as unknown[]) : []
+    applyFinancialTombstonesToMergedStore(
+      merged,
+      arrayKey,
+      acceptMainFinancialTombstones(existingRows, current[tombKey], next[tombKey], arrayKey),
+      'mergeMainStoreWrite',
+    )
+  }
+}
+
 /**
  * OSC writes must not replace other outlets' rows in the tenant JSON store.
  * Incoming rows tagged with a different centreId are dropped.
@@ -426,6 +491,7 @@ export function mergeOscStoreWrite(
     ),
     'mergeOscStoreWrite',
   )
+  applyFinancialTombstonesForOscMerge(merged, current, next, centreId)
 
   return merged
 }
@@ -460,6 +526,7 @@ export function mergeMainStoreWrite(existing: unknown, incoming: unknown): Recor
     acceptMainInvoiceTombstones(current[INVOICE_TOMBSTONES_KEY], next[INVOICE_TOMBSTONES_KEY]),
     'mergeMainStoreWrite',
   )
+  applyFinancialTombstonesForMainMerge(merged, current, next)
 
   return merged
 }

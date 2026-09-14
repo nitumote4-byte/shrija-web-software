@@ -11,6 +11,12 @@ import {
   clearPendingInvoiceTombstones,
   type PendingTombstoneScope,
 } from './pendingInvoiceTombstones'
+import {
+  applyPendingFinancialTombstonesToStore,
+  clearAllPendingFinancialTombstones,
+  clearConfirmedPendingFinancialTombstones,
+  type PendingFinancialTombstoneScope,
+} from './pendingFinancialTombstones'
 import { unionCentreScopedStore } from './storeMerge'
 
 type StoreShape = Record<string, unknown>
@@ -60,7 +66,7 @@ function emitPersist(ok: boolean, message?: string) {
   window.dispatchEvent(new CustomEvent(STORE_PERSIST_EVENT, { detail: { ok, message } }))
 }
 
-function currentStoreScope(): PendingTombstoneScope | null {
+function currentStoreScope(): (PendingTombstoneScope & PendingFinancialTombstoneScope) | null {
   const session = readStoredSession()
   if (!session?.tenantId) return null
   const centreId = session.centreId || 'main'
@@ -73,9 +79,11 @@ function clearPendingForSuccessfulSnapshot(snapshot: StoreShape, replaceAll: boo
   if (!scope) return
   if (replaceAll) {
     clearAllPendingInvoiceTombstones(scope)
+    clearAllPendingFinancialTombstones(scope)
     return
   }
   clearPendingInvoiceTombstones(scope, tombstoneIds(snapshot[INVOICE_TOMBSTONES_KEY]))
+  clearConfirmedPendingFinancialTombstones(scope, snapshot)
 }
 
 export function resetTenantCache() {
@@ -120,12 +128,23 @@ export async function hydrateTenantData() {
     const scope = currentStoreScope()
     let outstandingPending = false
     if (scope) {
-      const recovered = applyPendingInvoiceTombstonesToStore(data, scope)
-      data = recovered.store
+      const recoveredInvoices = applyPendingInvoiceTombstonesToStore(data, scope)
+      data = recoveredInvoices.store
       const serverTombIds = tombstoneIds(storeRes.data[INVOICE_TOMBSTONES_KEY])
-      const confirmed = recovered.applied.filter((row) => serverTombIds.has(row.id)).map((row) => row.id)
+      const confirmed = recoveredInvoices.applied
+        .filter((row) => serverTombIds.has(row.id))
+        .map((row) => row.id)
       if (confirmed.length) clearPendingInvoiceTombstones(scope, confirmed)
-      outstandingPending = recovered.applied.some((row) => !serverTombIds.has(row.id))
+      outstandingPending = recoveredInvoices.applied.some((row) => !serverTombIds.has(row.id))
+
+      const recoveredFinancial = applyPendingFinancialTombstonesToStore(data, scope)
+      data = recoveredFinancial.store
+      clearConfirmedPendingFinancialTombstones(scope, storeRes.data)
+      if (
+        recoveredFinancial.applied.some((row) => !confirmedFinancialOnServer(storeRes.data, row))
+      ) {
+        outstandingPending = true
+      }
     }
     storeCache = data
     storeRev = Number.isFinite(Number(storeRes.rev)) ? Number(storeRes.rev) : 0
@@ -146,6 +165,20 @@ export async function hydrateTenantData() {
     throw e
   }
   return
+}
+
+function confirmedFinancialOnServer(
+  server: StoreShape,
+  row: { entity: string; id: string },
+): boolean {
+  const key =
+    row.entity === 'funds'
+      ? 'deletedFunds'
+      : row.entity === 'expenses'
+        ? 'deletedExpenses'
+        : 'deletedMonthlyInvoices'
+  const list = Array.isArray(server[key]) ? (server[key] as { id?: string }[]) : []
+  return list.some((t) => t.id === row.id)
 }
 
 export function getStoreCache<T extends StoreShape>(): T | null {

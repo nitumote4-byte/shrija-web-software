@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts",
-    "test": "tsx --test src/tenantIsolation.test.ts src/middleware/auth.test.ts src/letterhead.test.ts src/rbac.test.ts src/storeWritePolicy.test.ts src/otherServiceFundIdentity.test.ts src/hallmarkingFinancialAuthority.test.ts src/productionImportBoundary.test.ts"
+    "test": "tsx --test src/tenantIsolation.test.ts src/middleware/auth.test.ts src/letterhead.test.ts src/rbac.test.ts src/storeWritePolicy.test.ts src/otherServiceFundIdentity.test.ts src/hallmarkingFinancialAuthority.test.ts src/productionImportBoundary.test.ts src/financialTombstones.test.ts"
   },
   "engines": {
     "node": ">=20"

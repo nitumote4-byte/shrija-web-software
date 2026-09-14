@@ -1,13 +1,21 @@
 /**
  * Client-side union used when a store PUT hits STALE_STORE (409).
  * Local rows win on the same id so in-progress OSC/Main work is not dropped.
- * Invoice tombstones win over remote-only rows so OSC deletes are not resurrected.
+ * Invoice and financial tombstones win over remote-only rows so deletes are
+ * not resurrected.
  */
 import {
   INVOICE_TOMBSTONES_KEY,
   applyInvoiceTombstones,
   unionInvoiceTombstones,
 } from './invoiceTombstones'
+import {
+  EXPENSE_TOMBSTONES_KEY,
+  FUND_TOMBSTONES_KEY,
+  MONTHLY_INVOICE_TOMBSTONES_KEY,
+  applyFinancialTombstones,
+  unionFinancialTombstones,
+} from './financialTombstones'
 
 export const CENTRE_SCOPED_STORE_KEYS = [
   'parties',
@@ -56,11 +64,12 @@ export function unionCentreScopedStore(remote: StoreShape, local: StoreShape): S
     }
     out[key] = [...byId.values(), ...extras]
   }
-  const tombstones = unionInvoiceTombstones(remote[INVOICE_TOMBSTONES_KEY], local[INVOICE_TOMBSTONES_KEY])
-  out[INVOICE_TOMBSTONES_KEY] = tombstones
+
+  const invoiceTombs = unionInvoiceTombstones(remote[INVOICE_TOMBSTONES_KEY], local[INVOICE_TOMBSTONES_KEY])
+  out[INVOICE_TOMBSTONES_KEY] = invoiceTombs
   if (Array.isArray(out.invoices)) {
     const before = out.invoices as unknown[]
-    const after = applyInvoiceTombstones(before, tombstones)
+    const after = applyInvoiceTombstones(before, invoiceTombs)
     if (after.length !== before.length) {
       console.info('[invoice-tombstone] resurrection-prevented', {
         centreId: 'stale-store-union',
@@ -75,5 +84,30 @@ export function unionCentreScopedStore(remote: StoreShape, local: StoreShape): S
     }
     out.invoices = after
   }
+
+  const fundTombs = unionFinancialTombstones(remote[FUND_TOMBSTONES_KEY], local[FUND_TOMBSTONES_KEY])
+  out[FUND_TOMBSTONES_KEY] = fundTombs
+  if (Array.isArray(out.funds)) {
+    out.funds = applyFinancialTombstones(out.funds as unknown[], fundTombs)
+  }
+
+  const expenseTombs = unionFinancialTombstones(
+    remote[EXPENSE_TOMBSTONES_KEY],
+    local[EXPENSE_TOMBSTONES_KEY],
+  )
+  out[EXPENSE_TOMBSTONES_KEY] = expenseTombs
+  if (Array.isArray(out.expenses)) {
+    out.expenses = applyFinancialTombstones(out.expenses as unknown[], expenseTombs)
+  }
+
+  const monthlyTombs = unionFinancialTombstones(
+    remote[MONTHLY_INVOICE_TOMBSTONES_KEY],
+    local[MONTHLY_INVOICE_TOMBSTONES_KEY],
+  )
+  out[MONTHLY_INVOICE_TOMBSTONES_KEY] = monthlyTombs
+  if (Array.isArray(out.monthlyInvoices)) {
+    out.monthlyInvoices = applyFinancialTombstones(out.monthlyInvoices as unknown[], monthlyTombs)
+  }
+
   return out
 }

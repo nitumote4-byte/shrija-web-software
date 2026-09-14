@@ -12,6 +12,7 @@ import {
 } from '../middleware/auth.js'
 import { sanitizeXrfStorePayload } from '../xrfStandardSanitize.js'
 import {
+  enforceOtherServiceCancelImmutability,
   enforceOtherServiceFundIdentity,
   sanitizeOtherServicesStorePayload,
 } from '../otherServices.js'
@@ -30,6 +31,7 @@ import {
   requireKnownRole,
 } from '../rbac.js'
 import { resolveStoreWriteBaseRev } from '../storeWritePolicy.js'
+import { reconcileFinancialTombstonesForReplaceAll } from '../financialTombstones.js'
 import { letterheadRouter } from './letterhead.js'
 
 export const dataRouter = Router()
@@ -165,9 +167,19 @@ dataRouter.put('/store', async (req, res) => {
       sanitizeXrfStorePayload(payload)
       sanitizeOtherServicesStorePayload(payload)
     } else {
+      // replaceAll: restored snapshot is authoritative. Live tombstones are NOT
+      // unioned. Reconcile so a stale live-only tombstone cannot delete a row
+      // present in the backup (backup tombstone arrays win when present).
       sanitizeXrfStorePayload(payload)
       sanitizeOtherServicesStorePayload(payload)
+      reconcileFinancialTombstonesForReplaceAll(payload)
     }
+
+    enforceOtherServiceCancelImmutability({
+      currentStore: currentPayload as Record<string, unknown>,
+      nextStore: payload,
+      replaceAll,
+    })
 
     // OS fund identity is tenant-scoped: currentPayload is loaded by tenant_id above.
     const identity = enforceOtherServiceFundIdentity({

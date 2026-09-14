@@ -26,6 +26,14 @@ import {
 } from './invoiceTombstones'
 import { rememberPendingInvoiceTombstone } from './pendingInvoiceTombstones'
 import {
+  applyFinancialTombstones,
+  canDeleteFinancialRowForCentre,
+  makeFinancialTombstone,
+  unionFinancialTombstones,
+  type FinancialTombstone,
+} from './financialTombstones'
+import { rememberPendingFinancialTombstone } from './pendingFinancialTombstones'
+import {
   ensureVoucherItemMasterName,
   matchItemMasterName,
   type EnsureItemMasterResult,
@@ -444,6 +452,10 @@ type StoreShape = {
   monthlyInvoices: MonthlyInvoice[]
   /** Explicit deletions so OSC invoice removes survive Main writes and 409 unions. */
   deletedInvoices: InvoiceTombstone[]
+  /** Explicit deletions so fund/expense/monthly removes survive stale PUTs and 409 unions. */
+  deletedFunds: FinancialTombstone[]
+  deletedExpenses: FinancialTombstone[]
+  deletedMonthlyInvoices: FinancialTombstone[]
   funds: FundEntry[]
   expenses: ExpenseEntry[]
   purchaseParties: PurchaseParty[]
@@ -471,6 +483,9 @@ function emptyStore(): StoreShape {
     invoices: [],
     monthlyInvoices: [],
     deletedInvoices: [],
+    deletedFunds: [],
+    deletedExpenses: [],
+    deletedMonthlyInvoices: [],
     funds: [],
     expenses: [],
     purchaseParties: [],
@@ -1066,6 +1081,9 @@ function seed(): StoreShape {
     ],
     monthlyInvoices: [],
     deletedInvoices: [],
+    deletedFunds: [],
+    deletedExpenses: [],
+    deletedMonthlyInvoices: [],
     funds: [
       {
         id: 'f1',
@@ -1212,8 +1230,20 @@ function normalizeLoaded(parsed: StoreShape): StoreShape {
   if (!parsed.pendingRough) parsed.pendingRough = []
   if (!parsed.monthlyInvoices) parsed.monthlyInvoices = []
   if (!parsed.deletedInvoices) parsed.deletedInvoices = []
+  if (!parsed.deletedFunds) parsed.deletedFunds = []
+  if (!parsed.deletedExpenses) parsed.deletedExpenses = []
+  if (!parsed.deletedMonthlyInvoices) parsed.deletedMonthlyInvoices = []
   parsed.deletedInvoices = unionInvoiceTombstones(parsed.deletedInvoices, [])
   parsed.invoices = applyInvoiceTombstones(parsed.invoices ?? [], parsed.deletedInvoices)
+  parsed.deletedFunds = unionFinancialTombstones(parsed.deletedFunds, [])
+  parsed.funds = applyFinancialTombstones(parsed.funds ?? [], parsed.deletedFunds)
+  parsed.deletedExpenses = unionFinancialTombstones(parsed.deletedExpenses, [])
+  parsed.expenses = applyFinancialTombstones(parsed.expenses ?? [], parsed.deletedExpenses)
+  parsed.deletedMonthlyInvoices = unionFinancialTombstones(parsed.deletedMonthlyInvoices, [])
+  parsed.monthlyInvoices = applyFinancialTombstones(
+    parsed.monthlyInvoices ?? [],
+    parsed.deletedMonthlyInvoices,
+  )
   if (!parsed.jewelleryCategories) parsed.jewelleryCategories = []
   if (!parsed.purchaseParties) parsed.purchaseParties = []
   if (!parsed.xrfStandardChecks) parsed.xrfStandardChecks = []
@@ -1393,7 +1423,29 @@ function syncOtherServiceFund(
 ) {
   const existing = row.fundId ? data.funds.find((f) => f.id === row.fundId) : undefined
   if (row.amountReceived <= 0) {
-    if (existing) data.funds = data.funds.filter((f) => f.id !== existing.id)
+    if (existing) {
+      const session = getSession()
+      const centreActor = {
+        centreId: stamp.centreId,
+        centreKind: stamp.centreKind,
+      }
+      if (canDeleteFinancialRowForCentre(existing, centreActor)) {
+        const tombstone = makeFinancialTombstone(existing, centreActor)
+        if (session?.tenantId) {
+          rememberPendingFinancialTombstone(
+            {
+              tenantId: session.tenantId,
+              centreId: centreActor.centreId,
+              centreKind: centreActor.centreKind,
+            },
+            'funds',
+            tombstone,
+          )
+        }
+        data.deletedFunds = unionFinancialTombstones(data.deletedFunds, [tombstone])
+      }
+      data.funds = data.funds.filter((f) => f.id !== existing.id)
+    }
     row.fundId = undefined
     return
   }
@@ -2122,9 +2174,24 @@ export const store = {
 
   deleteMonthlyInvoice(id: string) {
     const data = load()
-    const before = (data.monthlyInvoices || []).length
+    const row = (data.monthlyInvoices || []).find((i) => i.id === id)
+    if (!row) return false
+    const session = getSession()
+    const actor = {
+      centreId: session?.centreId || 'main',
+      centreKind: (session?.centreKind === 'osc' ? 'osc' : 'main') as 'main' | 'osc',
+    }
+    if (!canDeleteFinancialRowForCentre(row, actor)) return false
+    const tombstone = makeFinancialTombstone(row, actor)
+    if (session?.tenantId) {
+      rememberPendingFinancialTombstone(
+        { tenantId: session.tenantId, centreId: actor.centreId, centreKind: actor.centreKind },
+        'monthlyInvoices',
+        tombstone,
+      )
+    }
+    data.deletedMonthlyInvoices = unionFinancialTombstones(data.deletedMonthlyInvoices, [tombstone])
     data.monthlyInvoices = (data.monthlyInvoices || []).filter((i) => i.id !== id)
-    if (data.monthlyInvoices.length === before) return false
     save(data)
     return true
   },
@@ -2189,6 +2256,21 @@ export const store = {
     if (!row) return false
     // Hallmarking Fund Entry must never delete Other Services cash vouchers.
     if (isOtherServiceFund(row)) return false
+    const session = getSession()
+    const actor = {
+      centreId: session?.centreId || 'main',
+      centreKind: (session?.centreKind === 'osc' ? 'osc' : 'main') as 'main' | 'osc',
+    }
+    if (!canDeleteFinancialRowForCentre(row, actor)) return false
+    const tombstone = makeFinancialTombstone(row, actor)
+    if (session?.tenantId) {
+      rememberPendingFinancialTombstone(
+        { tenantId: session.tenantId, centreId: actor.centreId, centreKind: actor.centreKind },
+        'funds',
+        tombstone,
+      )
+    }
+    data.deletedFunds = unionFinancialTombstones(data.deletedFunds, [tombstone])
     const party = row.partyName || row.source
     data.funds = data.funds.filter((f) => f.id !== id)
     if (party) applyInvoicePaymentStatuses(data, party)
@@ -2276,9 +2358,24 @@ export const store = {
 
   deleteExpense(id: string) {
     const data = load()
-    const before = data.expenses.length
+    const row = data.expenses.find((e) => e.id === id)
+    if (!row) return false
+    const session = getSession()
+    const actor = {
+      centreId: session?.centreId || 'main',
+      centreKind: (session?.centreKind === 'osc' ? 'osc' : 'main') as 'main' | 'osc',
+    }
+    if (!canDeleteFinancialRowForCentre(row, actor)) return false
+    const tombstone = makeFinancialTombstone(row, actor)
+    if (session?.tenantId) {
+      rememberPendingFinancialTombstone(
+        { tenantId: session.tenantId, centreId: actor.centreId, centreKind: actor.centreKind },
+        'expenses',
+        tombstone,
+      )
+    }
+    data.deletedExpenses = unionFinancialTombstones(data.deletedExpenses, [tombstone])
     data.expenses = data.expenses.filter((e) => e.id !== id)
-    if (data.expenses.length === before) return false
     save(data)
     return true
   },
@@ -3680,7 +3777,28 @@ export const store = {
     if (!row) return { ok: false as const, error: 'Service not found' }
     if (row.status === 'Cancelled') return { ok: false as const, error: 'Service is already cancelled' }
     const actor = getSession()?.username || 'user'
+    const session = getSession()
+    const centreActor = {
+      centreId: session?.centreId || 'main',
+      centreKind: (session?.centreKind === 'osc' ? 'osc' : 'main') as 'main' | 'osc',
+    }
     if (row.fundId) {
+      const fund = data.funds.find((f) => f.id === row.fundId)
+      if (fund && canDeleteFinancialRowForCentre(fund, centreActor)) {
+        const tombstone = makeFinancialTombstone(fund, centreActor)
+        if (session?.tenantId) {
+          rememberPendingFinancialTombstone(
+            {
+              tenantId: session.tenantId,
+              centreId: centreActor.centreId,
+              centreKind: centreActor.centreKind,
+            },
+            'funds',
+            tombstone,
+          )
+        }
+        data.deletedFunds = unionFinancialTombstones(data.deletedFunds, [tombstone])
+      }
       data.funds = data.funds.filter((f) => f.id !== row.fundId)
       row.fundId = undefined
     }
