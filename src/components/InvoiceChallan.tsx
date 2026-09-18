@@ -5,6 +5,7 @@ import { tenantGet } from '../data/tenant'
 import { unusedSampleForRelatedRows } from '../data/fireAssaySampleWeight'
 import type { ManakFireAssaySheet } from '../data/manakFireAssayBridge'
 import { amountInIndianWords, jurisdictionFooter } from '../utils/amountInWords'
+import { hallmarkingFeePerArticle, metalFromPurity } from '../utils/hallmarkingRates'
 
 export type ChallanView = {
   invoiceNo: string
@@ -125,7 +126,7 @@ export function invoiceToChallan(
       jobCardNo?: string
     }[]
     fireAssaySheets?: ManakFireAssaySheet[]
-    categories?: { id: string; rate: number }[]
+    categories?: { id: string; rate: number; metal?: string }[]
     parties?: {
       id: string
       address?: string
@@ -170,7 +171,10 @@ export function invoiceToChallan(
       data.parties?.find((p) => p.id === req?.partyId) ||
       data.parties?.find((p) => p.name === inv.partyName)
     const cat = data.categories?.find((c) => c.id === req?.categoryId)
-    const rate = cat?.rate ?? (lines[0]?.rate || 45)
+    const rate =
+      cat?.rate ??
+      (lines[0]?.rate ||
+        hallmarkingFeePerArticle(cat?.metal ?? metalFromPurity(lines[0]?.purity ?? req?.purity)))
 
     if (!lines.length) {
       if (related.length > 0) {

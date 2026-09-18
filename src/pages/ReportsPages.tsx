@@ -43,6 +43,7 @@ import {
 } from '../utils/partyStatementPdf'
 import { nextCreditNoteNo } from '../utils/documentNumbers'
 import { getWorkingPeriodName } from '../data/operationalPeriod'
+import { bisLevyForConsignment, metalFromPurity } from '../utils/hallmarkingRates'
 
 /** Local calendar YYYY-MM-DD (avoids UTC day shift in IST late night / early morning). */
 function localYmd(d = new Date()) {
@@ -168,12 +169,16 @@ export function RoyaltyReport() {
       const pic = Number(r.pic) || 0
       const cut = Number(r.sampleQty) || 0
       const hm = Math.max(0, pic - rej)
+      const metal =
+        data.categories.find((c) => c.purity && String(r.purity || '').includes(c.purity))
+          ?.metal || metalFromPurity(r.purity)
       cur.grossWeight += Number(r.weight) || 0
       cur.recPic += pic
       cur.hm += hm
       cur.cut += cut
       cur.rej += rej
       cur.rejWeight += rej > 0 && pic > 0 ? (Number(r.weight) || 0) * (rej / pic) : 0
+      cur.bisRoyalty += bisLevyForConsignment(hm, metal)
       byParty.set(key, cur)
     }
 
@@ -194,16 +199,19 @@ export function RoyaltyReport() {
           bisRoyalty: 0,
           gst: 0,
         }
+        const metal =
+          data.categories.find((c) => c.id === req.categoryId)?.metal ||
+          metalFromPurity(req.purity)
         cur.grossWeight += req.weight
         cur.recPic += req.pieces
         cur.hm += req.pieces
+        cur.bisRoyalty += bisLevyForConsignment(req.pieces, metal)
         byParty.set(key, cur)
       }
     }
 
-    const ROYALTY_PER_HM = 4.5
     return [...byParty.values()].map((r) => {
-      const bisRoyalty = Number((r.hm * ROYALTY_PER_HM).toFixed(2))
+      const bisRoyalty = Number(r.bisRoyalty.toFixed(2))
       const gst = Number((bisRoyalty * 0.18).toFixed(2))
       return {
         ...r,

@@ -28,6 +28,10 @@ import {
   invoiceTotalsFromActual,
   parseMinBillAmount,
 } from '../utils/minBillCharge'
+import {
+  hallmarkingFeePerArticle,
+  resolveHallmarkMinConsignmentFee,
+} from '../utils/hallmarkingRates'
 import { hasCompletedFireAssayForBillingJobs } from '../data/fireAssaySampleWeight'
 
 type InvoiceSettings = {
@@ -243,13 +247,16 @@ export function Billing() {
 
       const party = data.parties.find((p) => p.id === request.partyId)
       const category = data.categories.find((c) => c.id === request.categoryId)
-      const rate = category?.rate ?? 40
+      const rate = category?.rate ?? hallmarkingFeePerArticle(category?.metal)
       const lines = buildLines(request, data.roughSheets, rate)
       const actual = actualFromLines(lines)
       const { minChargeAdjustment, taxable, cgst, sgst, igst, tax, grandTotal } =
         invoiceTotalsFromActual(actual, {
           enabled: settings.minBillCharges,
-          minAmount: settings.minBillAmount,
+          minAmount: resolveHallmarkMinConsignmentFee(
+            category?.metal,
+            settings.minBillAmount,
+          ),
           skipMinBill: Boolean(party?.skipMinBill),
           useIgst: Boolean(party?.igstApplicable),
         })

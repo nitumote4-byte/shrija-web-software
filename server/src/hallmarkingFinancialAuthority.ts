@@ -20,6 +20,11 @@ import {
   parseMinBillAmount,
   type MinBillApplyOpts,
 } from './minBillCharge.js'
+import {
+  metalFromPurity,
+  normalizeHallmarkMetal,
+  resolveHallmarkMinConsignmentFee,
+} from './hallmarkingRates.js'
 import { isOtherServiceFund } from './otherServices.js'
 import {
   computeInvoicePaymentStatuses,
@@ -109,6 +114,37 @@ function resolveParty(
   }).__byName
   if (name && byName?.has(name)) return byName.get(name)!
   return null
+}
+
+/** Resolve Gold/Silver for Schedule IV min consignment from invoice context. */
+function invoiceMetal(
+  inv: Record<string, unknown>,
+  store: Record<string, unknown>,
+): string {
+  if (Array.isArray(inv.lines)) {
+    for (const raw of inv.lines) {
+      const line = asRecord(raw)
+      if (!line) continue
+      const purity = String(line.purity || '')
+      if (purity) return metalFromPurity(purity)
+    }
+  }
+  const requestNo = String(inv.requestNo || '').trim()
+  if (requestNo && Array.isArray(store.requests) && Array.isArray(store.categories)) {
+    const req = store.requests
+      .map((r) => asRecord(r))
+      .find((r) => r && String(r.requestNo || '').trim() === requestNo)
+    if (req) {
+      const catId = String(req.categoryId || '').trim()
+      const cat = store.categories
+        .map((c) => asRecord(c))
+        .find((c) => c && String(c.id || '').trim() === catId)
+      const metal = normalizeHallmarkMetal(cat ? String(cat.metal || '') : '')
+      if (metal) return metal
+      if (req.purity) return metalFromPurity(String(req.purity))
+    }
+  }
+  return 'Gold'
 }
 
 /** Finite number, optionally allowing zero. Rejects NaN / ±Infinity. */
@@ -259,9 +295,10 @@ function authorizeInvoices(
       ? Boolean(party.igstApplicable)
       : Boolean(inv.useIgst ?? (!replaceAll ? prev?.useIgst : undefined))
     const skipMinBill = party ? Boolean(party.skipMinBill) : false
+    const metal = invoiceMetal(inv, nextStore)
     const minOpts: MinBillApplyOpts & { useIgst: boolean } = {
       enabled: minBillSettings.enabled,
-      minAmount: minBillSettings.minAmount,
+      minAmount: resolveHallmarkMinConsignmentFee(metal, minBillSettings.minAmount),
       skipMinBill,
       useIgst,
     }

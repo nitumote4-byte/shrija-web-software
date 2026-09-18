@@ -2,7 +2,9 @@
  * Minimum hallmarking charge per request / job card / consignment.
  *
  * The rupee floor lives in Invoice Settings (`minBillAmount`), not in billing.
- * Billing only reads that stored value. Default for the setting is ₹200.
+ * Billing only reads that stored value. Default for the setting is ₹200
+ * (BIS Schedule IV Gold minimum consignment fee, 2026).
+ * Silver consignments use the notified ₹150 floor via hallmarkingRates helpers.
  */
 
 export const DEFAULT_MIN_BILL_AMOUNT = 200

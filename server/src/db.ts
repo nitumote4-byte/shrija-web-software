@@ -325,9 +325,9 @@ export function emptyStorePayload() {
 
 function defaultCategories() {
   return [
-    { id: 'c1', name: 'Gold Jewellery', purity: '916', metal: 'Gold', rate: 45 },
-    { id: 'c2', name: 'Gold Coin', purity: '999', metal: 'Gold', rate: 40 },
-    { id: 'c3', name: 'Silver Jewellery', purity: '925', metal: 'Silver', rate: 25 },
+    { id: 'c1', name: 'Gold Jewellery', purity: '916', metal: 'Gold', rate: 75 },
+    { id: 'c2', name: 'Gold Coin', purity: '999', metal: 'Gold', rate: 75 },
+    { id: 'c3', name: 'Silver Jewellery', purity: '925', metal: 'Silver', rate: 35 },
   ]
 }
 

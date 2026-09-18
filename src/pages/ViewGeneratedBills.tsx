@@ -24,6 +24,10 @@ import {
   type InvoicePaperSize,
 } from '../utils/invoicePaper'
 import { invoiceTotalsFromActual, parseMinBillAmount } from '../utils/minBillCharge'
+import {
+  metalFromPurity,
+  resolveHallmarkMinConsignmentFee,
+} from '../utils/hallmarkingRates'
 
 function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -45,6 +49,13 @@ function loadMinBillSettings() {
   }
 }
 
+function metalFromLines(lines: InvoiceLine[]): string {
+  for (const line of lines) {
+    if (line.purity) return metalFromPurity(line.purity)
+  }
+  return 'Gold'
+}
+
 function recalc(
   lines: InvoiceLine[],
   useIgst: boolean,
@@ -54,7 +65,7 @@ function recalc(
   const actual = Number(lines.reduce((s, l) => s + l.amount, 0).toFixed(2))
   return invoiceTotalsFromActual(actual, {
     enabled: settings.enabled,
-    minAmount: settings.minAmount,
+    minAmount: resolveHallmarkMinConsignmentFee(metalFromLines(lines), settings.minAmount),
     skipMinBill,
     useIgst,
   })

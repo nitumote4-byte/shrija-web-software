@@ -39,6 +39,7 @@ import {
   type EnsureItemMasterResult,
 } from '../utils/itemCategoryMatch'
 import { nextInvoiceNo, nextKeyedDocumentNo, nextMonthlyInvoiceNo } from '../utils/documentNumbers'
+import { applyNotifiedHallmarkingRate } from '../utils/hallmarkingRates'
 import { getWorkingPeriodName, recordBelongsToPeriod, workingPeriodStamp } from './operationalPeriod'
 import {
   calcXrfAverage,
@@ -867,10 +868,10 @@ function seed(): StoreShape {
   ]
 
   const categories: Category[] = [
-    { id: 'c1', name: '22K Jewellery', purity: '916', metal: 'Gold', rate: 45 },
-    { id: 'c2', name: '18K Jewellery', purity: '750', metal: 'Gold', rate: 40 },
-    { id: 'c3', name: 'Silver Articles', purity: '925', metal: 'Silver', rate: 15 },
-    { id: 'c4', name: '14K Jewellery', purity: '585', metal: 'Gold', rate: 35 },
+    { id: 'c1', name: '22K Jewellery', purity: '916', metal: 'Gold', rate: 75 },
+    { id: 'c2', name: '18K Jewellery', purity: '750', metal: 'Gold', rate: 75 },
+    { id: 'c3', name: 'Silver Articles', purity: '925', metal: 'Silver', rate: 35 },
+    { id: 'c4', name: '14K Jewellery', purity: '585', metal: 'Gold', rate: 75 },
   ]
 
   const requests: HallmarkRequest[] = [
@@ -1317,6 +1318,9 @@ function normalizeLoaded(parsed: StoreShape): StoreShape {
   parsed.roughSheets = looksLegacy ? [] : rawRough.map((r) => normalizeRough(r))
   if (!parsed.categories?.length) {
     parsed.categories = seed().categories
+  } else {
+    // Keep live billing on Schedule IV 2026 rates (no Category rate UI).
+    parsed.categories = parsed.categories.map((c) => applyNotifiedHallmarkingRate(c))
   }
   return parsed
 }

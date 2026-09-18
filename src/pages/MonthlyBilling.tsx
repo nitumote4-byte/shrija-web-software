@@ -9,6 +9,7 @@ import { useToast } from '../components/ui'
 import { store, type MonthlyInvoiceLine } from '../data/store'
 import { tenantGet } from '../data/tenant'
 import { nextMonthlyInvoiceNo } from '../utils/documentNumbers'
+import { hallmarkingFeePerArticle } from '../utils/hallmarkingRates'
 import { getWorkingPeriodName } from '../data/operationalPeriod'
 import {
   applyInvoicePaperForPrint,
@@ -90,12 +91,13 @@ export function MonthlyBilling() {
       const inv = data.invoices.find((i) => i.requestNo === reqNo)
       const req = data.requests.find((r) => r.requestNo === reqNo)
       const articlesHm = inv?.lines?.reduce((s, l) => s + l.hm, 0) ?? req?.pieces ?? 0
+      const category = data.categories.find((c) => c.id === req?.categoryId)
       const amount =
         inv?.amount ??
         Number(
           (
             articlesHm *
-            (data.categories.find((c) => c.id === req?.categoryId)?.rate || 45)
+            (category?.rate || hallmarkingFeePerArticle(category?.metal))
           ).toFixed(2),
         )
       return {
