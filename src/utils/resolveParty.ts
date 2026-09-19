@@ -3,7 +3,7 @@ import { normalizePartyName } from './voucherPartyMatch'
 /** Minimal party shape needed for id / name lookup. */
 export type PartyRef = {
   id: string
-  name: string
+  name?: string | null
 }
 
 /**
@@ -22,7 +22,7 @@ export function resolveParty<T extends PartyRef>(
   }
   const nameKey = normalizePartyName(opts.partyName ?? '')
   if (!nameKey) return undefined
-  return list.find((p) => normalizePartyName(p.name) === nameKey)
+  return list.find((p) => normalizePartyName(p.name ?? '') === nameKey)
 }
 
 /** True when partyId is set but no longer present in the party list. */

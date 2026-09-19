@@ -108,6 +108,7 @@ export function invoiceToChallan(
       date?: string
       weight?: number
       partyId?: string
+      partyName?: string
       categoryId?: string
     }[]
     roughSheets?: {
@@ -159,9 +160,13 @@ export function invoiceToChallan(
   let requestDate = inv.requestDate || inv.date
 
   const req = data?.requests?.find((r) => r.requestNo === inv.requestNo)
+  type ChallanParty = NonNullable<NonNullable<typeof data>['parties']>[number]
   const party =
-    resolveParty(data?.parties, { partyId: inv.partyId, partyName: inv.partyName }) ||
-    resolveParty(data?.parties, {
+    resolveParty<ChallanParty>(data?.parties, {
+      partyId: inv.partyId,
+      partyName: inv.partyName,
+    }) ||
+    resolveParty<ChallanParty>(data?.parties, {
       partyId: req?.partyId,
       partyName: req?.partyName || inv.partyName,
     })
