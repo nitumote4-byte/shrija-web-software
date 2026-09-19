@@ -29,7 +29,7 @@ import {
   listFireAssaySheetNos,
   nextAvailableSheetNo,
   parseFireAssaySheetNumber,
-  publishManakFireAssaySheet,
+  publishManakFireAssaySheetAndFlush,
   sheetNumberForNewSheetGeneration,
   todayFireAssayDate,
   type ManakFireAssaySheet,
@@ -934,7 +934,11 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
         })),
     )
 
-    publishManakFireAssaySheet(sheet)
+    void publishManakFireAssaySheetAndFlush(sheet).then((res) => {
+      if (!res.ok) {
+        toast(res.message || 'Sheet saved locally — sync pending. Keep this tab open until synced.')
+      }
+    })
     applyFireAssayStockConsumption(sheet)
     try {
       void navigator.clipboard.writeText(JSON.stringify(sheet))

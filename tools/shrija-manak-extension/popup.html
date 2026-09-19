@@ -1,114 +1,412 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>Shrija CG &amp; Cornet</title>
     <style>
+      :root {
+        --ink: #0b1c2e;
+        --navy: #0f2744;
+        --navy-2: #163556;
+        --slate: #475569;
+        --muted: #64748b;
+        --line: #dbe3ee;
+        --paper: #f5f7fb;
+        --card: #ffffff;
+        --ok: #15803d;
+        --ok-bg: #ecfdf3;
+        --warn: #b45309;
+        --warn-bg: #fff7ed;
+        --err: #b91c1c;
+        --err-bg: #fef2f2;
+        --accent: #c9a227;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
-        width: 280px;
-        font: 600 13px/1.4 system-ui, sans-serif;
-        color: #0f172a;
-        background: #fff;
+        width: 340px;
+        color: var(--ink);
+        background:
+          radial-gradient(120% 80% at 100% -10%, rgba(201, 162, 39, 0.18), transparent 55%),
+          linear-gradient(165deg, #e8eef6 0%, var(--paper) 42%, #eef2f7 100%);
+        font: 500 13px/1.45 "Segoe UI", "Helvetica Neue", ui-sans-serif, sans-serif;
       }
-      .head {
-        padding: 12px 14px 8px;
-        background: #0f2744;
+
+      .shell {
+        padding: 12px;
+      }
+
+      .brand {
+        position: relative;
+        overflow: hidden;
+        padding: 14px 14px 12px;
+        border-radius: 14px;
+        background:
+          linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 58%, #1a4064 100%);
         color: #fff;
+        box-shadow: 0 10px 24px rgba(15, 39, 68, 0.28);
       }
-      .head strong {
+
+      .brand::after {
+        content: "";
+        position: absolute;
+        right: -28px;
+        top: -36px;
+        width: 110px;
+        height: 110px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(201, 162, 39, 0.35), transparent 68%);
+        pointer-events: none;
+      }
+
+      .brand-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .brand-mark {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .logo {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font: 800 12px/1 "Segoe UI", sans-serif;
+        letter-spacing: 0.04em;
+        color: var(--accent);
+      }
+
+      .brand strong {
         display: block;
-        font-size: 13px;
+        font-size: 14px;
+        font-weight: 750;
+        letter-spacing: 0.01em;
       }
-      .head span {
+
+      .brand span {
         display: block;
         margin-top: 2px;
         font-size: 11px;
         font-weight: 500;
-        opacity: 0.85;
+        opacity: 0.82;
       }
-      form {
-        padding: 12px 14px 14px;
+
+      .ver {
+        flex-shrink: 0;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        opacity: 0.9;
       }
+
+      .panel {
+        margin-top: 10px;
+        padding: 12px;
+        border-radius: 12px;
+        background: var(--card);
+        border: 1px solid rgba(15, 39, 68, 0.08);
+        box-shadow: 0 4px 14px rgba(15, 39, 68, 0.06);
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 750;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--slate);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .badge::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .badge.ok {
+        color: var(--ok);
+        background: var(--ok-bg);
+      }
+
+      .badge.warn {
+        color: var(--warn);
+        background: var(--warn-bg);
+      }
+
+      .badge.err {
+        color: var(--err);
+        background: var(--err-bg);
+      }
+
+      .meta {
+        margin: 0 0 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .meta strong {
+        color: var(--ink);
+        font-weight: 700;
+      }
+
       label {
         display: block;
         margin: 0 0 4px;
         font-size: 11px;
-        color: #475569;
+        font-weight: 650;
+        color: var(--slate);
       }
+
       input {
         width: 100%;
-        box-sizing: border-box;
         margin-bottom: 10px;
-        padding: 8px 10px;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        font: 600 13px/1.3 system-ui, sans-serif;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: #fbfcfe;
+        color: var(--ink);
+        font: 600 13px/1.3 "Segoe UI", "Helvetica Neue", ui-sans-serif, sans-serif;
+        outline: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
+
+      input:focus {
+        border-color: #7aa0c8;
+        box-shadow: 0 0 0 3px rgba(15, 39, 68, 0.1);
+        background: #fff;
+      }
+
+      input:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+
+      .btn-row {
+        display: flex;
+        gap: 8px;
+      }
+
       button {
-        width: 100%;
+        flex: 1;
         padding: 9px 10px;
         border: 0;
-        border-radius: 8px;
-        background: #b91c1c;
-        color: #fff;
-        font: 700 13px/1.2 system-ui, sans-serif;
+        border-radius: 9px;
+        font: 700 12.5px/1.2 "Segoe UI", "Helvetica Neue", ui-sans-serif, sans-serif;
         cursor: pointer;
+        transition: transform 0.12s ease, opacity 0.12s ease, background 0.12s ease;
       }
+
+      button:active:not(:disabled) {
+        transform: translateY(1px);
+      }
+
       button:disabled {
         opacity: 0.55;
         cursor: default;
       }
-      #status {
+
+      .btn-primary {
+        background: linear-gradient(180deg, #1a4064, var(--navy));
+        color: #fff;
+      }
+
+      .btn-ghost {
+        background: #eef2f7;
+        color: var(--navy);
+        border: 1px solid var(--line);
+      }
+
+      .btn-danger {
+        width: 100%;
+        background: linear-gradient(180deg, #dc2626, var(--err));
+        color: #fff;
+        box-shadow: 0 6px 14px rgba(185, 28, 28, 0.22);
+      }
+
+      #status,
+      #lic-status {
         min-height: 18px;
         margin: 8px 0 0;
         font-size: 12px;
+        font-weight: 650;
+        color: var(--slate);
+      }
+
+      #status.err,
+      #lic-status.err {
+        color: var(--err);
+      }
+
+      #status.ok,
+      #lic-status.ok {
+        color: var(--ok);
+      }
+
+      #status.warn,
+      #lic-status.warn {
+        color: var(--warn);
+      }
+
+      .lock-note {
+        display: none;
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: var(--warn-bg);
+        color: var(--warn);
+        font-size: 11.5px;
         font-weight: 600;
-        color: #334155;
       }
-      #status.err {
-        color: #b91c1c;
+
+      .lock-note.show {
+        display: block;
       }
-      #status.ok {
-        color: #15803d;
+
+      #form.locked input,
+      #form.locked button {
+        pointer-events: none;
       }
+
       #help {
         display: none;
-        padding: 12px 14px 14px;
+        margin-top: 10px;
+        padding: 12px;
+        border-radius: 12px;
+        background: var(--card);
+        border: 1px solid rgba(15, 39, 68, 0.08);
         font-size: 12px;
         font-weight: 500;
-        color: #334155;
+        color: var(--slate);
       }
+
       #help ol {
         margin: 8px 0 0;
         padding-left: 18px;
       }
+
       #help li {
         margin: 0 0 6px;
+      }
+
+      .foot {
+        margin-top: 8px;
+        padding: 0 2px;
+        font-size: 10px;
+        color: var(--muted);
+        text-align: center;
       }
     </style>
   </head>
   <body>
-    <div class="head">
-      <strong>Shrija CG &amp; Cornet</strong>
-      <span>Job + Lot se portal fill delete</span>
+    <div class="shell">
+      <header class="brand">
+        <div class="brand-row">
+          <div class="brand-mark">
+            <div class="logo" aria-hidden="true">SJ</div>
+            <div>
+              <strong>Shrija CG &amp; Cornet</strong>
+              <span>Manak Fill · License &amp; Delete</span>
+            </div>
+          </div>
+          <div class="ver" id="ext-ver">v—</div>
+        </div>
+      </header>
+
+      <section class="panel" id="license-panel" aria-label="License">
+        <div class="panel-head">
+          <h2 class="panel-title">License</h2>
+          <span class="badge err" id="lic-badge">Inactive</span>
+        </div>
+        <p class="meta" id="lic-meta">Activate karke Delete tools unlock karo.</p>
+        <div id="lic-activate">
+          <label for="lic-key">License key</label>
+          <input
+            id="lic-key"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="SHRIJA-XXXX-XXXX-XXXX-XXXX"
+          />
+          <div class="btn-row">
+            <button type="button" class="btn-primary" id="lic-activate-btn">Activate</button>
+          </div>
+        </div>
+        <div id="lic-active" hidden>
+          <div class="btn-row">
+            <button type="button" class="btn-ghost" id="lic-deactivate-btn">Deactivate</button>
+          </div>
+        </div>
+        <div id="lic-status"></div>
+      </section>
+
+      <section class="panel" id="delete-panel" aria-label="Delete fill">
+        <div class="panel-head">
+          <h2 class="panel-title">Delete fill</h2>
+        </div>
+        <p class="meta">Job + Lot se portal pe bhari fields empty karo.</p>
+        <form id="form">
+          <label for="job">Job card number</label>
+          <input id="job" type="text" autocomplete="off" placeholder="104736831" />
+          <label for="lot">Lot number</label>
+          <input id="lot" type="text" autocomplete="off" placeholder="1" />
+          <button id="del" class="btn-danger" type="submit">Delete portal fill</button>
+          <div id="status"></div>
+          <div class="lock-note" id="lock-note">License active hone ke baad Delete chalega.</div>
+        </form>
+      </section>
+
+      <div id="help">
+        Toggle stuck ho to Reload mat dabaao. Extension hata ke dubara load karo.
+        <ol>
+          <li>Upar right <strong>Developer mode</strong> ON karo.</li>
+          <li>Card par <strong>Remove</strong> dabao.</li>
+          <li><strong>Load unpacked</strong> → folder <code>tools/shrija-manak-extension</code> select karo.</li>
+        </ol>
+      </div>
+
+      <p class="foot">Automation fill alag rehta hai · sirf popup tools</p>
     </div>
-    <form id="form">
-      <label for="job">Job card number</label>
-      <input id="job" type="text" autocomplete="off" placeholder="104736831" />
-      <label for="lot">Lot number</label>
-      <input id="lot" type="text" autocomplete="off" placeholder="1" />
-      <button id="del" type="submit">Delete</button>
-      <div id="status"></div>
-    </form>
-    <div id="help">
-      Toggle stuck ho to Reload mat dabaao. Extension hata ke dubara load karo.
-      <ol>
-        <li>Upar right <strong>Developer mode</strong> ON karo.</li>
-        <li>Card par <strong>Remove</strong> dabao.</li>
-        <li><strong>Load unpacked</strong> → folder <code>tools/shrija-manak-extension</code> select karo.</li>
-      </ol>
-    </div>
+    <script src="license.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

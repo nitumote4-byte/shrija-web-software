@@ -1,3 +1,5 @@
+import { toSafeApiErrorMessage } from '../errors/safeErrorMessage'
+
 const TOKEN_KEY = 'shrija-auth-token'
 const SESSION_KEY = 'shrija-auth-session'
 
@@ -95,18 +97,11 @@ export async function api<T>(
   }
 
   if (!res.ok) {
-    let msg = (body as ApiError)?.error
-    if (!msg) {
-      if (res.status === 502) {
-        msg =
-          'Request failed (502): local API is not reachable. Use npm run dev to start backend and database.'
-      } else if (res.status === 503) {
-        msg = 'Request failed (503): database is not ready. Check GET /api/health.'
-      } else {
-        msg = `Request failed (${res.status})`
-      }
-    }
+    const raw = (body as ApiError)?.error
     const code = (body as ApiError)?.code
+    // User-facing message only — never surface stack/SQL/paths/tokens.
+    // Callers still receive status + code (e.g. STALE_STORE 409) unchanged.
+    const msg = toSafeApiErrorMessage(res.status, raw)
     throw new ApiRequestError(msg, res.status, code, body)
   }
   return body as T

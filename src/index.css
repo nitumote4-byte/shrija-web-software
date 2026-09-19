@@ -1249,6 +1249,164 @@ button {
   }
 }
 
+/* --- Centralized HTTP / render error screens ----------------------------- */
+
+.error-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.25rem;
+  background:
+    radial-gradient(ellipse 55% 45% at 12% 18%, rgba(184, 146, 58, 0.14), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 88% 82%, rgba(26, 54, 93, 0.1), transparent 50%),
+    linear-gradient(165deg, #eef1f5 0%, #e4eaf2 45%, #f7f8fa 100%);
+  color: var(--text);
+}
+
+.error-screen-card {
+  width: min(440px, 100%);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-hover);
+  padding: 2rem 1.75rem 1.75rem;
+  animation: error-screen-in 0.45s ease both;
+}
+
+@keyframes error-screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .error-screen-card {
+    animation: none;
+  }
+}
+
+.error-screen-brand {
+  display: grid;
+  justify-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.35rem;
+}
+
+.error-screen-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 20px rgba(15, 39, 68, 0.18);
+}
+
+.error-screen-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.error-screen-product {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold-deep);
+}
+
+.error-screen-code {
+  margin: 0.85rem 0 0.35rem;
+  font-family: 'Libre Baskerville', Georgia, serif;
+  font-size: clamp(3.25rem, 10vw, 4.25rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--navy);
+  letter-spacing: 0.02em;
+}
+
+.error-screen-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0.35rem auto 0.85rem;
+  border-radius: 50%;
+  color: var(--navy);
+  background:
+    radial-gradient(circle at 30% 25%, rgba(184, 146, 58, 0.22), transparent 55%),
+    #eef2f7;
+  border: 1px solid var(--border);
+}
+
+.error-screen-title {
+  margin: 0;
+  font-size: clamp(1.35rem, 3.5vw, 1.65rem);
+  font-weight: 800;
+  color: var(--navy);
+  line-height: 1.25;
+}
+
+.error-screen-desc {
+  margin: 0.55rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.error-screen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.error-screen-btn {
+  min-width: 9.5rem;
+  min-height: 2.75rem;
+  padding: 0.7rem 1.15rem;
+  font-weight: 700;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.error-screen-btn-secondary {
+  background: transparent;
+  color: var(--navy);
+  border: 1px solid var(--border);
+}
+
+.error-screen-btn-secondary:hover {
+  border-color: var(--gold);
+  color: var(--gold-deep);
+}
+
+@media (max-width: 520px) {
+  .error-screen {
+    padding: 1.25rem 1rem;
+  }
+
+  .error-screen-card {
+    padding: 1.5rem 1.15rem 1.35rem;
+  }
+
+  .error-screen-actions {
+    flex-direction: column;
+  }
+
+  .error-screen-btn {
+    width: 100%;
+  }
+}
+
 /* Main — fill remaining width beside the sidebar (do not cap/center at 1440px) */
 .app-main,
 .main-content {

@@ -1,4 +1,17 @@
-# Shrija → Manak AUTO Fill v2.2.2
+# Shrija → Manak AUTO Fill v2.9.0
+
+## Extension popup (License + Delete)
+
+Popup UI only — **does not change** Manak fill automation.
+
+1. Click the extension icon → professional popup opens.
+2. **License**: enter a valid key (`SHRIJA-XXXX-XXXX-XXXX-XXXX`) → **Activate**.
+3. After license is active, **Delete fill** unlocks (same Job + Lot delete as before).
+4. Delete still calls `__shrijaDeleteFilledAssay` on the Manak tab — automation code untouched.
+
+Ops: mint a key with \`npm run mint:manak-license -- CLIENT01 365\`.
+
+Client delivery: \`npm run pack:manak-ext\` → ZIP in \`dist/manak-extension-client/\`.
 
 ## User flow (Phase 1 then Phase 2)
 
@@ -13,7 +26,7 @@
 
 ## Install / update
 
-1. `chrome://extensions` → **Reload** (must show **2.2.2**)
+1. `chrome://extensions` → **Reload** (must show **2.9.0**)
 2. Site access: `*.vercel.app` + `huid.manakonline.in`
 
 ## Weight fields and the serial-port popup

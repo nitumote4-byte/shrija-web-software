@@ -6,6 +6,7 @@ import { unusedSampleForRelatedRows } from '../data/fireAssaySampleWeight'
 import type { ManakFireAssaySheet } from '../data/manakFireAssayBridge'
 import { amountInIndianWords, jurisdictionFooter } from '../utils/amountInWords'
 import { hallmarkingFeePerArticle, metalFromPurity } from '../utils/hallmarkingRates'
+import { resolveParty } from '../utils/resolveParty'
 
 export type ChallanView = {
   invoiceNo: string
@@ -157,8 +158,24 @@ export function invoiceToChallan(
   let stateCode = inv.stateCode || ''
   let requestDate = inv.requestDate || inv.date
 
+  const req = data?.requests?.find((r) => r.requestNo === inv.requestNo)
+  const party =
+    resolveParty(data?.parties, { partyId: inv.partyId, partyName: inv.partyName }) ||
+    resolveParty(data?.parties, {
+      partyId: req?.partyId,
+      partyName: req?.partyName || inv.partyName,
+    })
+  // Always backfill party master fields (orphan partyId after delete+recreate).
+  if (party) {
+    if (!partyAddress) partyAddress = party.address || ''
+    if (!partyGstin) partyGstin = party.gstin || ''
+    if (!partyCml) partyCml = party.licenseNo || ''
+    if (!placeOfSupply) placeOfSupply = party.state || ''
+    if (!stateCode) stateCode = party.stateCode || ''
+  }
+  if (req?.date && !inv.requestDate) requestDate = req.date
+
   if (data && (!lines.length || !(wr > 0) || !(firebox > 0) || (!(unused > 0) && !inv.unusedSampleEdited))) {
-    const req = data.requests?.find((r) => r.requestNo === inv.requestNo)
     const related =
       data.roughSheets?.filter(
         (r) =>
@@ -166,10 +183,6 @@ export function invoiceToChallan(
           // Legacy day-sheet lines saved before Request No was stamped on them
           (!r.requestNo && req && r.partyId === req.partyId && r.date === req.date),
       ) || []
-    const party =
-      data.parties?.find((p) => p.id === inv.partyId) ||
-      data.parties?.find((p) => p.id === req?.partyId) ||
-      data.parties?.find((p) => p.name === inv.partyName)
     const cat = data.categories?.find((c) => c.id === req?.categoryId)
     const rate =
       cat?.rate ??
@@ -241,11 +254,6 @@ export function invoiceToChallan(
       })
     }
     if (!careOf) careOf = related.map((r) => r.co).find((c) => c && String(c).trim()) || ''
-    if (!partyAddress && party) partyAddress = party.address || ''
-    if (!partyGstin && party) partyGstin = party.gstin || ''
-    if (!partyCml && party) partyCml = party.licenseNo || ''
-    if (!placeOfSupply && party) placeOfSupply = party.state || ''
-    if (!stateCode && party) stateCode = party.stateCode || ''
     if (req?.date) requestDate = req.date
   }
 

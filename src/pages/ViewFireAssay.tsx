@@ -10,7 +10,7 @@ import {
   listFireAssaySheetNos,
   loadFireAssaySheetArchive,
   nextSheetNoAfter,
-  publishManakFireAssaySheet,
+  publishManakFireAssaySheetAndFlush,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
 import { FireAssayReportSheet } from '../components/FireAssayReportSheet'
@@ -392,7 +392,9 @@ export function ViewFireAssay() {
       viewRows,
       rows: viewRows.filter((r) => r.jobCardNo.trim()),
     }
-    publishManakFireAssaySheet(next)
+    void publishManakFireAssaySheetAndFlush(next).then((res) => {
+      if (!res.ok) toast(res.message || 'Sheet saved locally — sync pending. Keep this tab open.')
+    })
     applyFireAssayStockConsumption(next)
     // Assay finished here → carry each job card's cornet (WOTGCAA, mg) onto its
     // day-sheet row, so QM Request List and Billing read it without re-entry

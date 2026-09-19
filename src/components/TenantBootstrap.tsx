@@ -2,7 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { ApiRequestError, getToken, readStoredSession } from '../api/client'
 import { clearSession, isAuthenticated, refreshSessionFromServer } from '../data/auth'
 import { fetchLicenseStatus, getCachedLicense, setCachedLicense, type LicenseStatus } from '../data/license'
-import { hydrateTenantData, isTenantHydrated } from '../data/tenantCache'
+import { hydrateTenantData, isTenantHydrated, flushPendingKv } from '../data/tenantCache'
+import { recoverFireAssaySheetFromBrowserCache } from '../data/manakFireAssayBridge'
 
 function goToLicensePage() {
   if (!window.location.pathname.includes('license')) {
@@ -95,6 +96,9 @@ export function TenantBootstrap({ children }: { children: ReactNode }) {
         }
 
         await hydrateTenantData()
+        if (recoverFireAssaySheetFromBrowserCache()) {
+          void flushPendingKv()
+        }
         if (!cancelled) setReady(true)
       } catch (e) {
         if (!cancelled) {

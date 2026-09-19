@@ -1,5 +1,5 @@
 import { tenantGet, tenantSet } from './tenant'
-import { bumpFireAssayArchiveVersion } from './tenantCache'
+import { bumpFireAssayArchiveVersion, flushPendingKv } from './tenantCache'
 
 export const MANAK_FIRE_ASSAY_KEY = 'shrija-manak-fire-assay-sheet'
 export const MANAK_FIRE_ASSAY_EVENT = 'shrija:manak-fire-assay-sheet'
@@ -296,6 +296,12 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
   return sheet
 }
 
+/** Publish sheet and flush durable KV so deploy/refresh cannot drop the archive write. */
+export async function publishManakFireAssaySheetAndFlush(sheet: ManakFireAssaySheet) {
+  publishManakFireAssaySheet(sheet)
+  return flushPendingKv()
+}
+
 export function readManakFireAssaySheet(): ManakFireAssaySheet | null {
   try {
     const raw =
@@ -307,6 +313,21 @@ export function readManakFireAssaySheet(): ManakFireAssaySheet | null {
   } catch {
     return null
   }
+}
+
+/**
+ * If the last published sheet still sits in browser storage but is missing from the
+ * server archive (common after a failed KV PUT during deploy/refresh), re-queue it.
+ */
+export function recoverFireAssaySheetFromBrowserCache(): boolean {
+  const sheet = readManakFireAssaySheet()
+  if (!sheet?.sheetNo || !sheet.purity) return false
+  const date = fireAssaySheetDate(sheet)
+  const existing = getFireAssaySheet(sheet.purity, sheet.shift || 'Day', sheet.sheetNo, date || undefined)
+  if (existing) return false
+  saveFireAssaySheetArchive(sheet)
+  bumpFireAssayArchiveVersion()
+  return true
 }
 
 export const MANAK_FIRE_ASSAY_URL =

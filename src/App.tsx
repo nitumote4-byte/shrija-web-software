@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { NotFoundPage } from './components/ErrorPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { PwaInstallBanner } from './components/PwaInstallBanner'
 import { Login } from './pages/Login'
@@ -180,6 +181,9 @@ const OtherServicesReports = lazy(() =>
 const ServiceMaster = lazy(() =>
   import('./pages/other-services/ServiceMaster').then((m) => ({ default: m.ServiceMaster })),
 )
+const HttpErrorRoute = lazy(() =>
+  import('./pages/HttpErrorRoute').then((m) => ({ default: m.HttpErrorRoute })),
+)
 
 function PageFallback() {
   return (
@@ -198,6 +202,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/operator" element={<PlatformOperator />} />
+          <Route path="/error/:status" element={<HttpErrorRoute />} />
 
           <Route element={<ProtectedRoute />}>
             <Route path="change-password" element={<ChangePasswordPage />} />
@@ -275,8 +280,8 @@ export default function App() {
               <Route path="other-services/receipts" element={<ServiceReceipts />} />
               <Route path="other-services/reports" element={<OtherServicesReports />} />
               <Route path="other-services/settings" element={<ServiceMaster />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
       </Suspense>

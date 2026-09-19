@@ -38,6 +38,8 @@ import {
   matchItemMasterName,
   type EnsureItemMasterResult,
 } from '../utils/itemCategoryMatch'
+import { isOrphanPartyId } from '../utils/resolveParty'
+import { normalizePartyName } from '../utils/voucherPartyMatch'
 import { nextInvoiceNo, nextKeyedDocumentNo, nextMonthlyInvoiceNo } from '../utils/documentNumbers'
 import { applyNotifiedHallmarkingRate } from '../utils/hallmarkingRates'
 import { getWorkingPeriodName, recordBelongsToPeriod, workingPeriodStamp } from './operationalPeriod'
@@ -1351,6 +1353,43 @@ function normPartyName(name: string | undefined | null) {
     .replace(/\s+/g, ' ')
 }
 
+/**
+ * Relink requests / day-sheet rows / invoices whose partyId points at a deleted
+ * party, when the stored partyName matches the recreated party.
+ */
+function healOrphanPartyRefs(data: StoreShape, party: Party) {
+  const key = normalizePartyName(party.name)
+  if (!key) return
+
+  for (const r of data.requests || []) {
+    if (!isOrphanPartyId(data.parties, r.partyId)) continue
+    if (normalizePartyName(r.partyName) !== key) continue
+    r.partyId = party.id
+    r.partyName = party.name
+  }
+
+  for (const row of data.roughSheets || []) {
+    if (!isOrphanPartyId(data.parties, row.partyId)) continue
+    if (normalizePartyName(row.partyName) !== key) continue
+    row.partyId = party.id
+    row.partyName = party.name
+  }
+
+  for (const inv of data.invoices || []) {
+    if (!isOrphanPartyId(data.parties, inv.partyId)) continue
+    if (normalizePartyName(inv.partyName) !== key) continue
+    inv.partyId = party.id
+    inv.partyName = party.name
+  }
+
+  for (const inv of data.monthlyInvoices || []) {
+    if (!isOrphanPartyId(data.parties, inv.partyId)) continue
+    if (normalizePartyName(inv.partyName) !== key) continue
+    inv.partyId = party.id
+    inv.partyName = party.name
+  }
+}
+
 function pushOtherServiceAudit(
   data: StoreShape,
   input: Omit<OtherServiceAudit, 'id' | 'at' | 'centreId' | 'centreKind'> & {
@@ -1546,8 +1585,28 @@ export const store = {
       centreKind: stamp.centreKind,
     }
     data.parties.unshift(party)
+    // After delete+recreate, old requests/invoices still hold the deleted partyId.
+    // Relink by exact normalized name so Billing picks up CML / Place of Supply.
+    healOrphanPartyRefs(data, party)
     save(data)
     return party
+  },
+
+  /**
+   * Point an orphaned request at a live party (same name after recreate).
+   * No-op when the current partyId still exists.
+   */
+  healRequestParty(requestId: string, partyId: string) {
+    const data = load()
+    const req = data.requests.find((r) => r.id === requestId)
+    const party = data.parties.find((p) => p.id === partyId)
+    if (!req || !party) return null
+    if (!isOrphanPartyId(data.parties, req.partyId)) return req
+    req.partyId = party.id
+    req.partyName = party.name
+    healOrphanPartyRefs(data, party)
+    save(data)
+    return req
   },
 
   updateParty(id: string, patch: Partial<Omit<Party, 'id' | 'createdAt'>>) {

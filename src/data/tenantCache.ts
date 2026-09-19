@@ -18,12 +18,20 @@ import {
   type PendingFinancialTombstoneScope,
 } from './pendingFinancialTombstones'
 import { unionCentreScopedStore } from './storeMerge'
+import {
+  applyPendingKvToDocs,
+  clearPendingKvKeys,
+  rememberPendingKvRemove,
+  rememberPendingKvSet,
+  type PendingKvScope,
+} from './pendingKv'
 
 type StoreShape = Record<string, unknown>
 
 type StoreWriteResult = { ok: true; rev: number; updatedAt?: string }
 
 export const STORE_PERSIST_EVENT = 'shrija:store-persist'
+export const KV_PERSIST_EVENT = 'shrija:kv-persist'
 
 let storeCache: StoreShape | null = null
 const kvCache = new Map<string, string>()
@@ -38,9 +46,14 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null
 let flushInFlight: Promise<{ ok: boolean; message?: string }> | null = null
 let flushQueued = false
 let retryTimer: ReturnType<typeof setTimeout> | null = null
+let kvFlushTimer: ReturnType<typeof setTimeout> | null = null
+let kvFlushInFlight: Promise<{ ok: boolean; message?: string }> | null = null
+let kvFlushQueued = false
+let kvRetryTimer: ReturnType<typeof setTimeout> | null = null
 const FLUSH_DEBOUNCE_MS = 450
 const FLUSH_RETRY_MS = 2000
 const STALE_RETRY_LIMIT = 5
+const KV_FLUSH_DEBOUNCE_MS = 350
 
 export function getStoreVersion() {
   return storeVersion
@@ -74,6 +87,17 @@ function currentStoreScope(): (PendingTombstoneScope & PendingFinancialTombstone
   return { tenantId: session.tenantId, centreId, centreKind }
 }
 
+function currentKvScope(): PendingKvScope | null {
+  const session = readStoredSession()
+  if (!session?.tenantId) return null
+  return { tenantId: session.tenantId }
+}
+
+function emitKvPersist(ok: boolean, message?: string) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(KV_PERSIST_EVENT, { detail: { ok, message } }))
+}
+
 function clearPendingForSuccessfulSnapshot(snapshot: StoreShape, replaceAll: boolean) {
   const scope = currentStoreScope()
   if (!scope) return
@@ -95,7 +119,16 @@ export function resetTenantCache() {
     clearTimeout(retryTimer)
     retryTimer = null
   }
+  if (kvFlushTimer) {
+    clearTimeout(kvFlushTimer)
+    kvFlushTimer = null
+  }
+  if (kvRetryTimer) {
+    clearTimeout(kvRetryTimer)
+    kvRetryTimer = null
+  }
   flushQueued = false
+  kvFlushQueued = false
   storeCache = null
   storeRev = 0
   kvCache.clear()
@@ -149,13 +182,22 @@ export async function hydrateTenantData() {
     storeCache = data
     storeRev = Number.isFinite(Number(storeRes.rev)) ? Number(storeRes.rev) : 0
     storeVersion += 1
-    kvCache.clear()
+    const serverKv: Record<string, string> = {}
     for (const [key, value] of Object.entries(kvRes.docs || {})) {
-      kvCache.set(key, typeof value === 'string' ? value : JSON.stringify(value))
+      serverKv[key] = typeof value === 'string' ? value : JSON.stringify(value)
+    }
+    const kvScope = currentKvScope()
+    const mergedKv = kvScope
+      ? applyPendingKvToDocs(serverKv, kvScope)
+      : { docs: serverKv, dirtyKeys: [] as string[] }
+    kvCache.clear()
+    for (const [key, value] of Object.entries(mergedKv.docs)) {
+      kvCache.set(key, value)
     }
     firmCache = firmRes.profile || null
     hydrated = true
     if (outstandingPending) void flushStore()
+    if (mergedKv.dirtyKeys.length) void flushPendingKv()
   })()
 
   try {
@@ -222,7 +264,102 @@ export async function flushStoreNow(opts: FlushOpts = {}): Promise<FlushResult> 
     clearTimeout(flushTimer)
     flushTimer = null
   }
-  return flushStore(opts)
+  if (kvFlushTimer) {
+    clearTimeout(kvFlushTimer)
+    kvFlushTimer = null
+  }
+  const storeResult = await flushStore(opts)
+  const kvResult = await flushPendingKv()
+  if (!storeResult.ok) return storeResult
+  if (!kvResult.ok) return kvResult
+  return { ok: true }
+}
+
+function scheduleKvFlush() {
+  if (!getToken()) return
+  if (kvFlushTimer) clearTimeout(kvFlushTimer)
+  kvFlushTimer = setTimeout(() => {
+    kvFlushTimer = null
+    void flushPendingKv()
+  }, KV_FLUSH_DEBOUNCE_MS)
+}
+
+function scheduleKvRetry() {
+  if (kvRetryTimer || !getToken()) return
+  kvRetryTimer = setTimeout(() => {
+    kvRetryTimer = null
+    void flushPendingKv()
+  }, FLUSH_RETRY_MS)
+}
+
+/** Push durable pending KV docs to the server (CG weights, Fire Assay archive, …). */
+export async function flushPendingKv(): Promise<FlushResult> {
+  if (kvFlushInFlight) {
+    kvFlushQueued = true
+    const inFlight = await kvFlushInFlight
+    if (kvFlushInFlight) return kvFlushInFlight
+    return inFlight
+  }
+
+  const run = (async (): Promise<FlushResult> => {
+    const scope = currentKvScope()
+    const token = getToken()
+    if (!scope || !token) return { ok: true }
+
+    const pending = applyPendingKvToDocs(
+      Object.fromEntries(kvCache.entries()),
+      scope,
+    )
+    // Re-apply so cache matches merged pending before PUT.
+    for (const key of pending.dirtyKeys) {
+      const value = pending.docs[key]
+      if (value == null) kvCache.delete(key)
+      else kvCache.set(key, value)
+    }
+
+    if (!pending.dirtyKeys.length) return { ok: true }
+
+    const confirmed: string[] = []
+    let lastError = ''
+    for (const key of pending.dirtyKeys) {
+      try {
+        if (!(key in pending.docs)) {
+          await api(`/api/data/kv/${encodeURIComponent(key)}`, { method: 'DELETE' })
+        } else {
+          const raw = pending.docs[key]
+          await api(`/api/data/kv/${encodeURIComponent(key)}`, {
+            method: 'PUT',
+            json: { value: tryParse(raw) },
+          })
+        }
+        confirmed.push(key)
+      } catch (e) {
+        console.error('Failed to persist kv', key, e)
+        lastError = e instanceof Error ? e.message : 'Failed to save lab data'
+      }
+    }
+
+    if (confirmed.length) clearPendingKvKeys(scope, confirmed)
+
+    if (confirmed.length === pending.dirtyKeys.length) {
+      emitKvPersist(true)
+      return { ok: true }
+    }
+    emitKvPersist(false, lastError || 'Failed to save lab data')
+    scheduleKvRetry()
+    return { ok: false, message: lastError || 'Failed to save lab data' }
+  })()
+
+  kvFlushInFlight = run
+  try {
+    return await run
+  } finally {
+    kvFlushInFlight = null
+    if (kvFlushQueued) {
+      kvFlushQueued = false
+      void flushPendingKv()
+    }
+  }
 }
 
 async function flushStore(opts: FlushOpts = {}): Promise<FlushResult> {
@@ -305,9 +442,16 @@ if (typeof window !== 'undefined') {
       clearTimeout(flushTimer)
       flushTimer = null
       void flushStore()
-      return
+    } else if (flushQueued || flushInFlight) {
+      void flushStore()
     }
-    if (flushQueued || flushInFlight) void flushStore()
+    if (kvFlushTimer) {
+      clearTimeout(kvFlushTimer)
+      kvFlushTimer = null
+      void flushPendingKv()
+    } else if (kvFlushQueued || kvFlushInFlight) {
+      void flushPendingKv()
+    }
   }
   window.addEventListener('pagehide', flushIfPending)
   document.addEventListener('visibilitychange', () => {
@@ -327,16 +471,17 @@ export function tenantGet(key: string): string | null {
 export function tenantSet(key: string, value: string) {
   const k = normalizeKvKey(key)
   kvCache.set(k, value)
-  void api(`/api/data/kv/${encodeURIComponent(k)}`, {
-    method: 'PUT',
-    json: { value: tryParse(value) },
-  }).catch((e) => console.error('Failed to persist kv', k, e))
+  const scope = currentKvScope()
+  if (scope) rememberPendingKvSet(scope, k, value)
+  scheduleKvFlush()
 }
 
 export function tenantRemove(key: string) {
   const k = normalizeKvKey(key)
   kvCache.delete(k)
-  void api(`/api/data/kv/${encodeURIComponent(k)}`, { method: 'DELETE' }).catch(() => {})
+  const scope = currentKvScope()
+  if (scope) rememberPendingKvRemove(scope, k)
+  scheduleKvFlush()
 }
 
 function tryParse(value: string): unknown {

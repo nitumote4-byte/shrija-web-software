@@ -4,6 +4,7 @@ import { Pencil, Trash2 } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { isValidCgWeightValue } from '../data/cgWeightAvailability'
 import { tenantGet, tenantSet } from '../data/tenant'
+import { flushPendingKv } from '../data/tenantCache'
 import { store } from '../data/store'
 
 /**
@@ -40,6 +41,12 @@ export function saveCgWeights(rows: CgWeightRow[]) {
   tenantSet(CG_WEIGHT_KEY, JSON.stringify(rows))
   const unused = rows.filter((r) => !r.used).reduce((s, r) => s + r.weight, 0)
   store.upsertStockByName('QM cg weight unused', 'QM', Number(unused.toFixed(6)), 'g')
+}
+
+/** Persist CG weights and wait for the server KV write (or durable pending retry). */
+export async function saveCgWeightsAndFlush(rows: CgWeightRow[]) {
+  saveCgWeights(rows)
+  return flushPendingKv()
 }
 
 /** Mark CG stock rows used after they are consumed on a fire assay sheet. */
@@ -132,8 +139,10 @@ export function QMCGWeightPage({ hubPath = '/qm-stock' }: { hubPath?: string }) 
   const usedTotal = used.reduce((s, r) => s + r.weight, 0)
 
   const persist = (next: CgWeightRow[]) => {
-    saveCgWeights(next)
     setTick((t) => t + 1)
+    void saveCgWeightsAndFlush(next).then((res) => {
+      if (!res.ok) toast(res.message || 'CG weight saved locally — sync pending. Keep this tab open.')
+    })
   }
 
   const addCgWeights = () => {

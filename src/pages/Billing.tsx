@@ -28,6 +28,7 @@ import {
   invoiceTotalsFromActual,
   parseMinBillAmount,
 } from '../utils/minBillCharge'
+import { resolveParty } from '../utils/resolveParty'
 import {
   hallmarkingFeePerArticle,
   resolveHallmarkMinConsignmentFee,
@@ -245,7 +246,14 @@ export function Billing() {
         }
       }
 
-      const party = data.parties.find((p) => p.id === request.partyId)
+      // After a party delete+recreate, request.partyId is orphaned — fall back by name.
+      const party = resolveParty(data.parties, {
+        partyId: request.partyId,
+        partyName: request.partyName,
+      })
+      if (party && party.id !== request.partyId) {
+        store.healRequestParty(request.id, party.id)
+      }
       const category = data.categories.find((c) => c.id === request.categoryId)
       const rate = category?.rate ?? hallmarkingFeePerArticle(category?.metal)
       const lines = buildLines(request, data.roughSheets, rate)

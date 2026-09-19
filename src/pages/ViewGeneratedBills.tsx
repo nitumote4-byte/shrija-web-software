@@ -28,6 +28,7 @@ import {
   metalFromPurity,
   resolveHallmarkMinConsignmentFee,
 } from '../utils/hallmarkingRates'
+import { resolveParty } from '../utils/resolveParty'
 
 function money(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -112,9 +113,10 @@ export function ViewGeneratedBills() {
 
   const skipMinBillForActive = () => {
     const inv = activeId ? store.getInvoiceById(activeId) : null
-    const party =
-      data.parties.find((p) => p.id === inv?.partyId) ||
-      data.parties.find((p) => p.name === (inv?.partyName || preview?.partyName))
+    const party = resolveParty(data.parties, {
+      partyId: inv?.partyId,
+      partyName: inv?.partyName || preview?.partyName,
+    })
     return Boolean(party?.skipMinBill)
   }
 
