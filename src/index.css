@@ -1944,6 +1944,30 @@ button {
   gap: 0.55rem;
 }
 
+.fundreg-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.fundreg-mode-btn {
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: var(--navy);
+  border-radius: 999px;
+  padding: 0.42rem 0.95rem;
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.fundreg-mode-btn.active {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+
 .fundreg-clear {
   position: absolute;
   right: 0.55rem;

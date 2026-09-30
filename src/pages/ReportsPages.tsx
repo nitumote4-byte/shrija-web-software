@@ -1222,6 +1222,9 @@ export function BulkStatementDownload() {
   )
 }
 
+const FUND_MODE_FILTERS = ['All', 'Cash', 'UPI', 'Bank'] as const
+type FundModeFilter = (typeof FUND_MODE_FILTERS)[number]
+
 export function FundReceiptRegister() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
@@ -1231,6 +1234,7 @@ export function FundReceiptRegister() {
   const [partyQuery, setPartyQuery] = useState('')
   const [partyOpen, setPartyOpen] = useState(false)
   const [partyId, setPartyId] = useState('')
+  const [modeFilter, setModeFilter] = useState<FundModeFilter>('All')
   const [fetched, setFetched] = useState(false)
 
   const party = data.parties.find((p) => p.id === partyId)
@@ -1250,13 +1254,14 @@ export function FundReceiptRegister() {
     if (!fetched) return []
     return data.funds.filter((f) => {
       if (f.date < startDate || f.date > endDate) return false
+      if (modeFilter !== 'All' && f.mode !== modeFilter) return false
       if (party) {
         const name = (f.partyName || f.source || '').toLowerCase()
         if (name !== party.name.toLowerCase()) return false
       }
       return true
     })
-  }, [fetched, data.funds, startDate, endDate, party])
+  }, [fetched, data.funds, startDate, endDate, party, modeFilter])
 
   const doFetch = () => {
     setFetched(true)
@@ -1363,6 +1368,23 @@ export function FundReceiptRegister() {
           </div>
         </div>
 
+        <div className="field">
+          <label>TRANSACTION TYPE</label>
+          <div className="fundreg-mode-row" role="group" aria-label="Transaction type">
+            {FUND_MODE_FILTERS.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`fundreg-mode-btn${modeFilter === mode ? ' active' : ''}`}
+                aria-pressed={modeFilter === mode}
+                onClick={() => setModeFilter(mode)}
+              >
+                {mode === 'All' ? 'All' : mode}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="fundreg-actions">
           <button type="button" className="btn btn-navy" onClick={doFetch}>
             <Search size={16} /> Fetch Data
@@ -1384,6 +1406,7 @@ export function FundReceiptRegister() {
           {fetched && (
             <p>
               {formatDate(startDate)} -- {formatDate(endDate)}
+              {modeFilter !== 'All' ? ` · ${modeFilter}` : ''}
             </p>
           )}
         </header>
