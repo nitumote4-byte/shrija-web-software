@@ -1,9 +1,10 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { NotFoundPage } from './components/ErrorPage'
+import { ErrorPage, NotFoundPage } from './components/ErrorPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { PwaInstallBanner } from './components/PwaInstallBanner'
+import { readMaintenanceMode } from './maintenanceGate'
 import { Login } from './pages/Login'
 
 /** Eager login only — all modules load on demand for faster first paint. */
@@ -194,8 +195,30 @@ function PageFallback() {
 }
 
 export default function App() {
+  const [maintenance, setMaintenance] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 5000)
+    let cancelled = false
+    readMaintenanceMode(controller.signal).then((on) => {
+      if (!cancelled) setMaintenance(on)
+    })
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [])
+
   return (
     <BrowserRouter>
+      {maintenance === null ? (
+        <PageFallback />
+      ) : maintenance ? (
+        <ErrorPage status={503} />
+      ) : (
+      <>
       <PwaInstallBanner />
       <Suspense fallback={<PageFallback />}>
         <Routes>
@@ -285,6 +308,8 @@ export default function App() {
           </Route>
         </Routes>
       </Suspense>
+      </>
+      )}
     </BrowserRouter>
   )
 }

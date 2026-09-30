@@ -28,6 +28,7 @@ import {
 } from '../src/errors/safeErrorMessage.ts'
 import { canAccessPath } from '../src/data/roles.ts'
 import { setAuth, type ApiSession } from '../src/api/client.ts'
+import { isMaintenanceResponse, readMaintenanceMode } from '../src/maintenanceGate.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = join(__dirname, '..')
@@ -589,6 +590,62 @@ const tenantCacheSrc = readFileSync(join(rootDir, 'src/data/tenantCache.ts'), 'u
 assertMsg(
   tenantCacheSrc.includes("e.status === 409 && e.code === 'STALE_STORE'"),
   '409 STALE_STORE handler unchanged',
+)
+
+/* --- Maintenance gate: existing 503 screen, runtime flag, fail open ----- */
+
+console.log('error-screens: maintenance gate')
+
+assert.equal(isMaintenanceResponse({ maintenance: true }), true)
+assert.equal(isMaintenanceResponse({ maintenance: false }), false)
+assert.equal(isMaintenanceResponse({ maintenance: 'true' }), false)
+assert.equal(isMaintenanceResponse(null), false)
+assert.equal(isMaintenanceResponse('maintenance'), false)
+
+const originalFetch = globalThis.fetch
+try {
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ maintenance: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  assert.equal(await readMaintenanceMode(), true)
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ maintenance: false }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  assert.equal(await readMaintenanceMode(), false)
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: 'down' }), { status: 503 })
+  assert.equal(await readMaintenanceMode(), false)
+
+  globalThis.fetch = async () => {
+    throw new Error('network')
+  }
+  assert.equal(await readMaintenanceMode(), false)
+} finally {
+  globalThis.fetch = originalFetch
+}
+
+const maintenanceAt = appSrc.indexOf('readMaintenanceMode')
+const routesAt = appSrc.indexOf('<Routes>')
+assertMsg(maintenanceAt !== -1 && routesAt !== -1 && maintenanceAt < routesAt, 'gate runs before Routes')
+assertMsg(appSrc.includes('<ErrorPage status={503} />'), 'maintenance reuses 503 ErrorPage')
+assertMsg(appSrc.includes('path="/login"'), 'login route still registered')
+assertMsg(appSrc.includes('path="/operator"'), 'operator route still registered')
+assertMsg(!appSrc.includes('VITE_MAINTENANCE'), 'maintenance flag is not a Vite build variable')
+
+const serverIndex = readFileSync(join(rootDir, 'server/src/index.ts'), 'utf8')
+assertMsg(serverIndex.includes("app.get('/api/maintenance'"), 'public maintenance flag route')
+assertMsg(serverIndex.includes('isMaintenanceModeEnabled()'), 'flag read from server env at request time')
+assertMsg(serverIndex.includes("Cache-Control', 'no-store'"), 'maintenance response is not cached')
+const maintenanceRouteAt = serverIndex.indexOf("app.get('/api/maintenance'")
+const authRouteAt = serverIndex.indexOf("app.use('/api/auth'")
+assertMsg(
+  maintenanceRouteAt !== -1 && authRouteAt !== -1 && maintenanceRouteAt < authRouteAt,
+  'maintenance flag is not behind business routers',
 )
 
 console.log('error-screens: all checks passed')

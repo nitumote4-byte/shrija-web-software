@@ -7,6 +7,7 @@ import { manakRouter } from './routes/manak.js'
 import { licenseRouter } from './routes/license.js'
 import { adminRouter } from './routes/admin.js'
 import { initDb, isDbReady, getLastDbError, ensureDb, databaseUrlPreview } from './db.js'
+import { isMaintenanceModeEnabled } from './maintenanceMode.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
@@ -64,6 +65,12 @@ async function requireDb(
   }
   next()
 }
+
+/** Presentation flag only. Does not block API routes. No database. */
+app.get('/api/maintenance', (_req, res) => {
+  res.set('Cache-Control', 'no-store')
+  res.json({ maintenance: isMaintenanceModeEnabled() })
+})
 
 /** Always 200 once HTTP is up — also tries DB connect so status is fresh */
 app.get('/api/health', async (_req, res) => {
