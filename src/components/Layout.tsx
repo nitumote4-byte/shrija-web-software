@@ -10,6 +10,12 @@ import { roleLabel } from '../data/roles'
 import { getCachedLicense } from '../data/license'
 import { STORE_PERSIST_EVENT } from '../data/tenantCache'
 import { OperationalPeriodBadge } from './OperationalPeriodBadge'
+import { ScheduledMaintenanceNoticeCard } from './ScheduledMaintenanceNotice'
+import {
+  dismissMaintenanceBanner,
+  isMaintenanceBannerDismissed,
+  useScheduledMaintenanceNotice,
+} from '../useScheduledMaintenanceNotice'
 
 const MOBILE_MAX = 899
 
@@ -27,7 +33,11 @@ export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
   const [centreName, setCentreName] = useState(() => getActiveCentre().name || getFirmName())
   const [persistError, setPersistError] = useState('')
+  const [bellOpen, setBellOpen] = useState(false)
+  const [bannerHidden, setBannerHidden] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const bellRef = useRef<HTMLDivElement>(null)
+  const maintenanceNotice = useScheduledMaintenanceNotice()
   const navigate = useNavigate()
   const location = useLocation()
   const pageTitle = getPageTitle(location.pathname)
@@ -93,10 +103,32 @@ export function Layout() {
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+      if (!bellRef.current?.contains(e.target as Node)) setBellOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setBellOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [])
+
+  useEffect(() => {
+    if (!maintenanceNotice) {
+      setBannerHidden('')
+      return
+    }
+    setBannerHidden(
+      isMaintenanceBannerDismissed(maintenanceNotice.fingerprint) ? maintenanceNotice.fingerprint : '',
+    )
+  }, [maintenanceNotice])
+
+  useEffect(() => {
+    setBellOpen(false)
+  }, [location.pathname])
 
   useEffect(() => {
     if (!mobileNav) return
@@ -217,21 +249,65 @@ export function Layout() {
               )}
             </div>
 
-            <button
-              type="button"
-              className={`header-icon-btn header-bell-btn${licenseWarn ? ' has-alert' : ''}`}
-              aria-label={licenseWarn ? `Notifications: ${licenseWarn}` : 'Notifications'}
-              title={licenseWarn ? licenseWarn : 'Notifications'}
-            >
-              <Bell size={20} />
-              {licenseWarn ? <span className="header-bell-dot" aria-hidden /> : null}
-            </button>
+            <div className="header-bell" ref={bellRef}>
+              <button
+                type="button"
+                className={`header-icon-btn header-bell-btn${licenseWarn || maintenanceNotice ? ' has-alert' : ''}`}
+                aria-label={
+                  maintenanceNotice
+                    ? 'Notifications: Scheduled Maintenance / निर्धारित रखरखाव'
+                    : licenseWarn
+                      ? `Notifications: ${licenseWarn}`
+                      : 'Notifications'
+                }
+                aria-expanded={bellOpen}
+                aria-controls="header-notifications"
+                title={
+                  maintenanceNotice
+                    ? 'Scheduled Maintenance / निर्धारित रखरखाव'
+                    : licenseWarn
+                      ? licenseWarn
+                      : 'Notifications'
+                }
+                onClick={() => {
+                  setMenuOpen(false)
+                  setBellOpen((open) => !open)
+                }}
+              >
+                <Bell size={20} />
+                {licenseWarn || maintenanceNotice ? <span className="header-bell-dot" aria-hidden /> : null}
+              </button>
+              {bellOpen ? (
+                <div id="header-notifications" className="header-bell-panel" role="region" aria-label="Notifications">
+                  <p className="header-bell-panel-label">Notifications</p>
+                  {licenseWarn ? (
+                    <button
+                      type="button"
+                      className="header-bell-license"
+                      onClick={() => {
+                        setBellOpen(false)
+                        navigate('/license')
+                      }}
+                    >
+                      {licenseWarn}
+                    </button>
+                  ) : null}
+                  {maintenanceNotice ? <ScheduledMaintenanceNoticeCard notice={maintenanceNotice} /> : null}
+                  {!licenseWarn && !maintenanceNotice ? (
+                    <p className="header-bell-empty">No notifications.</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
 
             <div className="user-menu" ref={menuRef}>
               <button
                 type="button"
                 className="user-chip user-chip-btn"
-                onClick={() => setMenuOpen((v) => !v)}
+                onClick={() => {
+                  setBellOpen(false)
+                  setMenuOpen((v) => !v)
+                }}
                 aria-expanded={menuOpen}
               >
                 <div className="user-avatar">{displayName.slice(0, 2).toUpperCase()}</div>
@@ -299,6 +375,15 @@ export function Layout() {
         </header>
 
         <main className="app-main main-content">
+          {maintenanceNotice && bannerHidden === '' ? (
+            <ScheduledMaintenanceNoticeCard
+              notice={maintenanceNotice}
+              onDismiss={() => {
+                dismissMaintenanceBanner(maintenanceNotice.fingerprint)
+                setBannerHidden(maintenanceNotice.fingerprint)
+              }}
+            />
+          ) : null}
           <Outlet />
         </main>
       </div>

@@ -263,6 +263,18 @@ export async function initDb(retries = 8, delayMs = 2000) {
       await p.query(
         `CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(tenant_id, user_id)`,
       )
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS scheduled_maintenance_notice (
+          id TEXT PRIMARY KEY,
+          enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          notice_date TEXT NOT NULL DEFAULT '',
+          start_time TEXT NOT NULL DEFAULT '',
+          end_time TEXT NOT NULL DEFAULT '',
+          message_en TEXT NOT NULL DEFAULT '',
+          message_hi TEXT NOT NULL DEFAULT '',
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
 
       dbReady = true
       lastDbError = null

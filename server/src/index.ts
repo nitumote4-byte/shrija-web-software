@@ -8,6 +8,7 @@ import { licenseRouter } from './routes/license.js'
 import { adminRouter } from './routes/admin.js'
 import { initDb, isDbReady, getLastDbError, ensureDb, databaseUrlPreview } from './db.js'
 import { isMaintenanceModeEnabled } from './maintenanceMode.js'
+import { readPublicScheduledMaintenanceNotice } from './scheduledMaintenanceStore.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
@@ -70,6 +71,22 @@ async function requireDb(
 app.get('/api/maintenance', (_req, res) => {
   res.set('Cache-Control', 'no-store')
   res.json({ maintenance: isMaintenanceModeEnabled() })
+})
+
+/** Advance notice only. Does not enable Maintenance Mode or the 503 screen. */
+app.get('/api/scheduled-maintenance', async (_req, res) => {
+  res.set('Cache-Control', 'no-store')
+  if (!isDbReady()) {
+    res.json({ notice: null })
+    return
+  }
+  try {
+    const notice = await readPublicScheduledMaintenanceNotice()
+    res.json({ notice })
+  } catch (err) {
+    console.error('scheduled maintenance notice read failed', err)
+    res.json({ notice: null })
+  }
 })
 
 /** Always 200 once HTTP is up — also tries DB connect so status is fresh */

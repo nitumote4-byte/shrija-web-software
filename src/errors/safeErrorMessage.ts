@@ -53,6 +53,13 @@ export const SAFE_USER_FACING_MESSAGES: readonly string[] = [
   'Too many admin requests',
   'Invalid master secret',
   'masterSecret is required',
+  'Scheduled maintenance notice is invalid.',
+  'Enter a valid maintenance date.',
+  'Enter a valid start time.',
+  'Enter a valid end time.',
+  'End time must be later than the start time.',
+  'English notice must be 1000 characters or fewer.',
+  'Hindi notice must be 1000 characters or fewer.',
 
   // Store / conflict
   'Store was updated elsewhere',

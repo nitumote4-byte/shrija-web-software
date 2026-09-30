@@ -14306,3 +14306,170 @@ body:has(.app-shell),
   }
 }
 
+/* Scheduled maintenance notice — login, app banner, and notification bell */
+.login-form-stack {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.login-form-stack .login-form-card {
+  width: 100%;
+}
+
+.header-bell {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.header-bell-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(380px, calc(100vw - 1.5rem));
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding: 0.75rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-hover);
+  z-index: 80;
+}
+
+.header-bell-panel-label {
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.header-bell-license,
+.header-bell-empty {
+  width: 100%;
+  margin: 0 0 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.84rem;
+  text-align: left;
+}
+
+.header-bell-license {
+  border: 1px solid #f5d0a8;
+  background: #fff7ed;
+  color: #92400e;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.header-bell-empty {
+  border: 1px dashed var(--border);
+  background: #f8fafc;
+  color: var(--text-muted);
+}
+
+.sched-notice {
+  position: relative;
+  margin: 0;
+  padding: 0.85rem 0.95rem 0.8rem;
+  border: 1px solid #e7d7a8;
+  border-left: 4px solid #a67c2d;
+  border-radius: 12px;
+  background: #fffdf8;
+  color: #1a365d;
+  box-shadow: 0 8px 20px -16px rgba(26, 54, 93, 0.7);
+}
+
+.app-main > .sched-notice {
+  margin-bottom: 1rem;
+}
+
+.sched-notice-title {
+  margin: 0 0 0.55rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: #1a365d;
+}
+
+.sched-notice-title.has-dismiss {
+  padding-right: 1.6rem;
+}
+
+.sched-notice-meta {
+  display: grid;
+  gap: 0.28rem;
+  margin: 0 0 0.55rem;
+}
+
+.sched-notice-meta div {
+  display: grid;
+  grid-template-columns: 9.2rem 1fr;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+.sched-notice-meta dt,
+.sched-notice-kicker {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.sched-notice-meta dd {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.sched-notice-kicker {
+  margin-bottom: 0.25rem;
+}
+
+.sched-notice-message {
+  margin: 0 0 0.45rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sched-notice-thanks {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.sched-notice-dismiss {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #1a365d;
+  cursor: pointer;
+}
+
+.sched-notice-dismiss:hover {
+  background: rgba(26, 54, 93, 0.08);
+}
+
+.sched-notice-preview {
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .sched-notice-meta div {
+    grid-template-columns: 1fr;
+    gap: 0.05rem;
+  }
+}

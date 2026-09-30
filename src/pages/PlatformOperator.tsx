@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Building2, KeyRound, Shield } from 'lucide-react'
 import { BrandLogo } from '../components/BrandLogo'
 import { RegisteredCentresPanel } from '../components/RegisteredCentresPanel'
+import { ScheduledMaintenanceAdmin } from '../components/ScheduledMaintenanceAdmin'
 import { useToast } from '../components/ui'
 import { issueLicenseKeys, listIssuedKeys } from '../data/license'
 import { createTenant } from '../data/tenant'
@@ -198,6 +199,8 @@ export function PlatformOperator() {
         onMasterSecretChange={setMasterSecret}
         toast={toast}
       />
+
+      <ScheduledMaintenanceAdmin masterSecret={masterSecret} toast={toast} />
 
       <div className="panel">
         <h2>

@@ -12,6 +12,8 @@ import {
 } from 'lucide-react'
 import { isAuthenticated, login, requestPasswordReset } from '../data/auth'
 import { BrandLogo } from '../components/BrandLogo'
+import { ScheduledMaintenanceNoticeCard } from '../components/ScheduledMaintenanceNotice'
+import { useScheduledMaintenanceNotice } from '../useScheduledMaintenanceNotice'
 import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_VERSION } from '../data/modules'
 
 export function Login() {
@@ -27,6 +29,7 @@ export function Login() {
   const [forgotBusy, setForgotBusy] = useState(false)
   const [forgotError, setForgotError] = useState('')
   const [forgotDone, setForgotDone] = useState(false)
+  const maintenanceNotice = useScheduledMaintenanceNotice()
 
   useEffect(() => {
     if (!forgotOpen) return
@@ -121,6 +124,8 @@ export function Login() {
       </aside>
 
       <main className="login-form-side">
+        <div className="login-form-stack">
+          {maintenanceNotice ? <ScheduledMaintenanceNoticeCard notice={maintenanceNotice} /> : null}
         <div className="login-form-card">
           <p className="login-eyebrow">{PRODUCT_NAME}</p>
           <h2>Sign in</h2>
@@ -193,6 +198,7 @@ export function Login() {
           <p className="login-hint">
             {PRODUCT_NAME} · v{PRODUCT_VERSION}
           </p>
+        </div>
         </div>
       </main>
 

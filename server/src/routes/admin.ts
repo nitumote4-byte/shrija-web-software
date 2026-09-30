@@ -4,6 +4,11 @@ import { z } from 'zod'
 import { pool } from '../db.js'
 import { assertMaster, daysLeftFrom } from '../license.js'
 import { invalidateTenantStatus } from '../tenantStatus.js'
+import {
+  readScheduledMaintenanceDraft,
+  writeScheduledMaintenanceDraft,
+} from '../scheduledMaintenanceStore.js'
+import { sanitizeScheduledMaintenanceDraft } from '../scheduledMaintenanceNotice.js'
 
 export const adminRouter = Router()
 
@@ -167,6 +172,36 @@ async function reactivateTenant(req: import('express').Request, res: import('exp
     message: 'Centre access restored',
   })
 }
+
+/** Current scheduled-maintenance notice, including hidden drafts. Master secret only. */
+adminRouter.post('/scheduled-maintenance/current', masterLimiter, async (req, res) => {
+  const auth = requireMaster(req.body)
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error })
+    return
+  }
+  const notice = await readScheduledMaintenanceDraft()
+  res.json({ notice })
+})
+
+/** Replace the single current notice. Does not change Maintenance Mode. */
+adminRouter.post('/scheduled-maintenance', masterLimiter, async (req, res) => {
+  const auth = requireMaster(req.body)
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error })
+    return
+  }
+  const parsed = sanitizeScheduledMaintenanceDraft(req.body)
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error })
+    return
+  }
+  await writeScheduledMaintenanceDraft(parsed.draft)
+  console.info(
+    `[admin] save_scheduled_maintenance enabled=${parsed.draft.enabled} date=${parsed.draft.date || '-'} at=${new Date().toISOString()}`,
+  )
+  res.json({ ok: true, notice: parsed.draft })
+})
 
 /** Reactivate one centre — sets tenants.status = 'active' only */
 adminRouter.post('/tenants/:tenantId/activate', masterLimiter, reactivateTenant)
