@@ -12893,10 +12893,13 @@ table.data-table td {
   font-size: 1.45rem;
 }
 
+.field .icon-input input,
+.field .icon-input select,
 .icon-input input,
 .icon-input select {
   min-height: 2.65rem;
   font-size: 0.95rem;
+  padding-left: 2.45rem;
 }
 
 .module-card {

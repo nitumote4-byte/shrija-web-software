@@ -145,6 +145,22 @@ const NAV_GROUPS: NavGroupDef[] = [
     ],
   },
   {
+    id: 'lab',
+    label: 'Lab & Assay',
+    entries: ['create-fire-assay', 'view-fire-assay'],
+  },
+  {
+    id: 'xrf',
+    label: 'XRF',
+    entries: ['xrf-daily-standard'],
+  },
+  {
+    id: 'inventory',
+    label: 'Inventory & Stock',
+    entries: ['qm-stock', 'lab-stock'],
+  },
+  { id: 'reports', label: 'Reports & Analytics', entries: ['reports'] },
+  {
     id: 'other-services',
     label: 'Other Services',
     entries: [
@@ -158,17 +174,6 @@ const NAV_GROUPS: NavGroupDef[] = [
       },
     ],
   },
-  {
-    id: 'lab',
-    label: 'Lab & Assay',
-    entries: ['create-fire-assay', 'view-fire-assay'],
-  },
-  {
-    id: 'inventory',
-    label: 'Inventory & Stock',
-    entries: ['qm-stock', 'lab-stock'],
-  },
-  { id: 'reports', label: 'Reports & Analytics', entries: ['reports'] },
   {
     id: 'settings',
     label: 'Settings & Others',
