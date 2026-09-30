@@ -316,12 +316,16 @@ export function InvoiceChallan({ view, printId = 'invoice-print-area', paperSize
   const actualTotal = view?.lines.reduce((s, l) => s + l.amount, 0) ?? 0
   const minCharge = view?.minChargeAdjustment || 0
   const colSpan = 9
+  const lineCount = view?.lines.length ?? 0
+  // 12+ lines need slightly tighter rows so the list stays above the weights.
+  const densityClass = lineCount >= 12 ? 'invoice-density-tight' : ''
 
   return (
     <div
-      className={`invoice-sheet paper-${paperSize.toLowerCase()} invoice-fill-page`}
+      className={`invoice-sheet paper-${paperSize.toLowerCase()} invoice-fill-page${densityClass ? ` ${densityClass}` : ''}`}
       id={printId}
       data-paper={paperSize}
+      data-line-count={lineCount}
     >
       <div className="invoice-sheet-topblock">
         <InvoiceLetterhead />

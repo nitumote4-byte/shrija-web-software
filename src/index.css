@@ -3574,8 +3574,8 @@ button {
 
 .invoice-sheet.invoice-fill-page {
   display: grid;
-  grid-template-rows: auto minmax(3.5rem, 1fr) auto;
-  overflow: visible;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .invoice-sheet-topblock {
@@ -3586,14 +3586,15 @@ button {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: auto;
-  overflow: visible;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .invoice-table-grow .invoice-items {
   flex: 1 1 auto;
   width: 100%;
-  height: 100%;
+  height: 0;
+  min-height: 0;
   margin-bottom: 0;
   border-collapse: collapse;
   table-layout: fixed;
@@ -3603,14 +3604,22 @@ button {
   height: 100%;
 }
 
+/* Content rows keep their text height. Leftover page space stays in the spacer
+   only — a 100% spacer plus many lines used to overflow into the footer. */
+.invoice-table-grow .invoice-items thead tr,
+.invoice-table-grow .invoice-data-row,
+.invoice-table-grow .invoice-total-row {
+  height: 1px;
+}
+
 .invoice-spacer-row {
-  height: 100%;
+  height: auto;
 }
 
 .invoice-spacer-row td {
   border: 1px solid #0f172a;
   vertical-align: top;
-  height: 100%;
+  height: auto;
   padding: 0.2rem;
 }
 
@@ -3701,6 +3710,91 @@ button {
 
 .invoice-sheet.paper-a5.invoice-fill-page .invoice-bottom-grid {
   margin-bottom: 0.35rem;
+}
+
+/* 12+ lines: keep item rows above the weight and tax block. */
+.invoice-fill-page.invoice-density-tight .invoice-title-bar {
+  padding: 0.22rem 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-meta-grid {
+  margin-bottom: 0.35rem;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-meta-box {
+  min-height: 0;
+  padding: 0.32rem 0.45rem;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-party div,
+.invoice-fill-page.invoice-density-tight .invoice-doc div {
+  margin-bottom: 0.08rem;
+  line-height: 1.25;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-letterhead {
+  margin-bottom: 0.25rem;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-letterhead img {
+  max-height: 28mm;
+  object-fit: contain;
+  object-position: center top;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-items th,
+.invoice-fill-page.invoice-density-tight .invoice-items td {
+  padding: 0.14rem 0.28rem;
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-sheet-foot {
+  padding-top: 0.2rem;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-bottom-grid {
+  margin-bottom: 0.35rem;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-weights,
+.invoice-fill-page.invoice-density-tight .invoice-tax {
+  padding: 0.28rem 0.45rem;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-weights div {
+  margin-bottom: 0.08rem;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-tax > div {
+  padding: 0.12rem 0;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-sign-grid {
+  margin: 0.28rem 0 0.1rem;
+  grid-template-rows: auto minmax(40px, auto) auto;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-sign-pad {
+  min-height: 40px;
+  height: 40px;
+}
+
+.invoice-fill-page.invoice-density-tight .invoice-customer-note {
+  margin: 0.08rem 0 0.28rem;
+}
+
+.invoice-sheet.paper-a5.invoice-density-tight .invoice-items th,
+.invoice-sheet.paper-a5.invoice-density-tight .invoice-items td {
+  padding: 0.02rem 0.12rem;
+  font-size: 0.55rem;
+  line-height: 1.15;
+}
+
+.invoice-sheet.paper-a5.invoice-density-tight .invoice-sign-pad {
+  min-height: 22px;
+  height: 22px;
 }
 
 .gb-search-row {
@@ -4679,7 +4773,7 @@ button {
   /* Daily challan: same paper box as on-screen preview (table spacer fills the page). */
   html[data-invoice-print='fill'] .invoice-sheet.invoice-fill-page {
     display: grid !important;
-    grid-template-rows: auto minmax(3.5rem, 1fr) auto !important;
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
     border: 2px solid #0f172a !important;
     page-break-inside: avoid;
     break-inside: avoid;
@@ -4720,7 +4814,14 @@ button {
 
   html[data-invoice-print='fill'] .invoice-table-grow .invoice-items {
     flex: 1 1 auto !important;
-    height: 100% !important;
+    height: 0 !important;
+    min-height: 0 !important;
+  }
+
+  html[data-invoice-print='fill'] .invoice-table-grow .invoice-items thead tr,
+  html[data-invoice-print='fill'] .invoice-data-row,
+  html[data-invoice-print='fill'] .invoice-total-row {
+    height: 1px !important;
   }
 
   html[data-invoice-print='fill'] .invoice-table-grow .invoice-items tbody {
@@ -4729,7 +4830,7 @@ button {
 
   html[data-invoice-print='fill'] .invoice-spacer-row,
   html[data-invoice-print='fill'] .invoice-spacer-row td {
-    height: 100% !important;
+    height: auto !important;
   }
 
   html[data-invoice-print='fill'] .invoice-sheet-foot,
@@ -4774,6 +4875,12 @@ button {
   .invoice-sheet.paper-a5 .invoice-items td {
     padding: 0.15rem 0.2rem !important;
     font-size: 0.6rem !important;
+  }
+
+  .invoice-sheet.paper-a5.invoice-density-tight .invoice-items th,
+  .invoice-sheet.paper-a5.invoice-density-tight .invoice-items td {
+    padding: 0.02rem 0.12rem !important;
+    font-size: 0.55rem !important;
   }
 
   .invoice-filler-row td {
@@ -14497,3 +14604,4 @@ body:has(.app-shell),
     gap: 0.05rem;
   }
 }
+
