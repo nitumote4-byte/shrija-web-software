@@ -89,10 +89,10 @@ app.get('/api/scheduled-maintenance', async (_req, res) => {
   }
 })
 
-/** Always 200 once HTTP is up — also tries DB connect so status is fresh */
-app.get('/api/health', async (_req, res) => {
+/** Always 200 once HTTP is up. Do not wait on Postgres — Railway marks the deploy failed if this hangs. */
+app.get('/api/health', (_req, res) => {
   if (!isDbReady()) {
-    await ensureDb()
+    void ensureDb()
   }
   const dbReady = isDbReady()
   if (process.env.NODE_ENV === 'production') {

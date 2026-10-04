@@ -58,8 +58,17 @@ export function getPool(): pg.Pool {
     )
   }
   // Do NOT append sslmode=require in the URL — newer pg treats it as verify-full and can hang.
-  // Use Pool ssl config instead.
+  // Private Railway DNS (postgres.railway.internal) is plain TCP. Forcing SSL there hangs
+  // until the healthcheck gives up. SSL is only for the public proxy.
+  let host = ''
+  try {
+    host = new URL(url).hostname
+  } catch {
+    host = ''
+  }
+  const privateRailway = host.endsWith('.railway.internal')
   const needsSsl =
+    !privateRailway &&
     process.env.PGSSL !== 'false' &&
     (process.env.NODE_ENV === 'production' ||
       /railway|amazonaws|render|neon|supabase|rlwy/i.test(url))
