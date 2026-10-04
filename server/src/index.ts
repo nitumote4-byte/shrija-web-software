@@ -174,9 +174,9 @@ async function main() {
   }
 
   // Listen first so Railway healthcheck passes while DB connects.
-  // Bind IPv4 explicitly — the proxy cannot reach an IPv6-only socket.
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Shrija API listening on 0.0.0.0:${PORT}`)
+  // Railway's healthcheck connects over IPv6. 0.0.0.0 does not accept it.
+  const server = app.listen(PORT, '::', () => {
+    console.log(`Shrija API listening on [::]:${PORT}`)
   })
   server.on('error', (err) => {
     console.error('Failed to bind HTTP port', err)
