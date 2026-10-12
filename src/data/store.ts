@@ -1229,7 +1229,22 @@ function normalizeParty(p: Partial<Party> & { id: string; name: string }): Party
   }
 }
 
+/**
+ * Role-scoped store reads omit keys the desk cannot see (lab has no invoices,
+ * touches, or x-ray). Fill those holes with empty collections so dashboard
+ * scoping can filter without throwing. This mutates the hydrated cache in
+ * memory only — the server still drops keys the role is not allowed to write.
+ */
+function fillMissingStoreFields(parsed: StoreShape) {
+  const defaults = emptyStore() as unknown as Record<string, unknown>
+  const target = parsed as unknown as Record<string, unknown>
+  for (const key of Object.keys(defaults)) {
+    if (target[key] == null) target[key] = defaults[key]
+  }
+}
+
 function normalizeLoaded(parsed: StoreShape): StoreShape {
+  fillMissingStoreFields(parsed)
   if (!parsed.pendingRough) parsed.pendingRough = []
   if (!parsed.monthlyInvoices) parsed.monthlyInvoices = []
   if (!parsed.deletedInvoices) parsed.deletedInvoices = []
