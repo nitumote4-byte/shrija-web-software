@@ -18,7 +18,7 @@ import { loadAccessUsers, saveAccessUsers, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getCentres, type CentreOutlet } from '../data/firmProfile'
 import { api } from '../api/client'
 import { replaceKvCacheLocal } from '../data/tenantCache'
-import { tenantGet, tenantSet } from '../data/tenant'
+import { tenantGet } from '../data/tenant'
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '../utils/passwordPolicy'
 
 type AppUser = {

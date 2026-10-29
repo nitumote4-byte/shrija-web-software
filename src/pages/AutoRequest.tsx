@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, ApiRequestError } from '../api/client'
+import { api } from '../api/client'
 import { useToast } from '../components/ui'
 import { getSession } from '../data/auth'
 import { store, type PendingRoughRequest } from '../data/store'
