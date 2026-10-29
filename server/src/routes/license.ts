@@ -1,5 +1,4 @@
 import { Router } from 'express'
-import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { nowIso, pool, withTransaction } from '../db.js'
 import { enforceTenantBody, requireAuth, requireActiveTenant, requireLiveUser } from '../middleware/auth.js'
@@ -12,16 +11,10 @@ import {
   normalizeLicenseKey,
   type LicensePlan,
 } from '../license.js'
+import { activateLimiter, issuedLimiter, issueLimiter } from '../rateLimit.js'
 
 export const licenseRouter = Router()
-
-const issueLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 40,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many licence requests' },
-})
+export { issuedLimiter }
 
 async function ready() {
   await ensureLicenseSchema()
@@ -54,7 +47,7 @@ const activateSchema = z.object({
 })
 
 /** Activate / renew licence for the logged-in centre (admin only) */
-licenseRouter.post('/activate', requireAuth, requireActiveTenant, enforceTenantBody, requireLiveUser, issueLimiter, async (req, res) => {
+licenseRouter.post('/activate', requireAuth, requireActiveTenant, enforceTenantBody, requireLiveUser, activateLimiter, async (req, res) => {
   await ready()
   if (!req.user!.isAdmin) {
     res.status(403).json({ error: 'Only centre admin can activate a licence' })
@@ -205,7 +198,7 @@ const listSchema = z.object({
   masterSecret: z.string().min(1),
 })
 
-licenseRouter.post('/issued', async (req, res) => {
+licenseRouter.post('/issued', issuedLimiter, async (req, res) => {
   await ready()
   const parsed = listSchema.safeParse(req.body)
   if (!parsed.success || !assertMaster(parsed.data.masterSecret)) {

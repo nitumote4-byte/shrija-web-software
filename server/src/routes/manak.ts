@@ -1,7 +1,6 @@
 import { Router } from 'express'
-import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
-import { decryptSecret, encryptSecret } from '../crypto.js'
+import { encryptSecret, openManakSecret } from '../crypto.js'
 import { assertTenantId, nowIso, pool } from '../db.js'
 import {
   enforceTenantBody,
@@ -37,14 +36,6 @@ manakRouter.use(requireKnownRole)
 
 const KV_KEY = 'manak_credentials'
 
-const scrapBundleLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 40,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many scrap-bundle requests. Try again later.' },
-})
-
 async function loadCreds(tenantId: string): Promise<ManakCredentialsStored | null> {
   const { rows } = await pool.query(
     `SELECT value FROM kv_docs WHERE tenant_id = $1 AND key = $2`,
@@ -54,6 +45,14 @@ async function loadCreds(tenantId: string): Promise<ManakCredentialsStored | nul
   if (!row?.value) return null
   const value = typeof row.value === 'string' ? JSON.parse(row.value) : row.value
   return value as ManakCredentialsStored
+}
+
+async function passwordForServer(tenantId: string, creds: ManakCredentialsStored): Promise<string> {
+  const opened = openManakSecret(creds.passwordEnc)
+  if (opened.replacement) {
+    await saveCreds(tenantId, { ...creds, passwordEnc: opened.replacement, updatedAt: nowIso() })
+  }
+  return opened.plain
 }
 
 async function saveCreds(tenantId: string, creds: ManakCredentialsStored) {
@@ -141,36 +140,6 @@ manakRouter.put('/credentials', requireAdminRole, async (req, res) => {
   })
 })
 
-/**
- * Authenticated desk helper: returns decrypted Manak login for local scrap tool only.
- * Never expose this without JWT. Rate-limited.
- */
-manakRouter.post('/scrap-bundle', scrapBundleLimiter, requireAdminRole, async (req, res) => {
-  const tenantId = req.user!.tenantId
-  assertTenantId(tenantId)
-  if (sessionCentre(req.user!).centreKind === 'osc') {
-    res.status(403).json({ error: 'Off-site users cannot export Manak credentials' })
-    return
-  }
-  const creds = await loadCreds(tenantId)
-  if (!creds?.username || !creds.passwordEnc) {
-    res.status(400).json({ error: 'Save Manak credentials first.' })
-    return
-  }
-  try {
-    const password = decryptSecret(creds.passwordEnc)
-    res.json({
-      username: creds.username,
-      password,
-      baseUrl: creds.baseUrl || 'https://huid.manakonline.in',
-      allowedMacs: creds.allowedMacs || '',
-      bridgeUrl: creds.bridgeUrl || '',
-    })
-  } catch {
-    res.status(500).json({ error: 'Could not decrypt Manak password. Re-save credentials.' })
-  }
-})
-
 const fetchSchema = z.object({
   night: z.string().default('Night'),
   captchaText: z.string().optional(),
@@ -208,7 +177,7 @@ manakRouter.post('/fetch', async (req, res) => {
 
   let password: string
   try {
-    password = decryptSecret(creds.passwordEnc)
+    password = await passwordForServer(tenantId, creds)
   } catch {
     res.status(500).json({ error: 'Could not decrypt stored Manak password. Re-save credentials.' })
     return

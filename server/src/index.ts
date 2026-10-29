@@ -7,14 +7,17 @@ import { manakRouter } from './routes/manak.js'
 import { licenseRouter } from './routes/license.js'
 import { adminRouter } from './routes/admin.js'
 import { initDb, isDbReady, getLastDbError, ensureDb, databaseUrlPreview } from './db.js'
+import { validateProductionSecrets } from './productionSecrets.js'
 import { isMaintenanceModeEnabled } from './maintenanceMode.js'
 import { readPublicScheduledMaintenanceNotice } from './scheduledMaintenanceStore.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
 
-// Railway / Vercel reverse proxies — needed for correct rate-limit IP
-app.set('trust proxy', 1)
+// Forwarding headers are not a client identity. Railway peer addresses are not
+// a verified allowlist, and a shared visitor bucket would let one login streak
+// throttle every centre. Login limits are per username; see rateLimit.ts.
+app.set('trust proxy', false)
 
 const corsOrigin = process.env.CORS_ORIGIN
 if (process.env.NODE_ENV === 'production' && !corsOrigin) {
@@ -147,23 +150,18 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
 async function main() {
   if (process.env.NODE_ENV === 'production') {
-    const missing: string[] = []
-    if (!process.env.JWT_SECRET) missing.push('JWT_SECRET')
-    if (!process.env.LICENSE_MASTER_SECRET) missing.push('LICENSE_MASTER_SECRET')
-    if (!process.env.CORS_ORIGIN) missing.push('CORS_ORIGIN')
-    if (missing.length) {
-      console.error(`Missing required production env: ${missing.join(', ')}`)
+    const secretCheck = validateProductionSecrets(process.env)
+    const problems = secretCheck.ok ? [] : [...secretCheck.codes]
+    if (!process.env.CORS_ORIGIN) problems.push('CORS_ORIGIN:missing')
+    if (problems.length) {
+      console.error(`Invalid production configuration: ${problems.join(', ')}`)
       process.exit(1)
     }
   } else {
-    if (!process.env.JWT_SECRET) {
+    const secretCheck = validateProductionSecrets(process.env)
+    if (!secretCheck.ok) {
       console.warn(
-        'WARNING: JWT_SECRET is not set. Set it in Railway Variables for production.',
-      )
-    }
-    if (!process.env.LICENSE_MASTER_SECRET) {
-      console.warn(
-        'WARNING: LICENSE_MASTER_SECRET is not set. Set a separate LICENSE_MASTER_SECRET in production (do not reuse JWT_SECRET).',
+        `WARNING: production secret check would fail (${secretCheck.codes.join(', ')}). Local development can still boot.`,
       )
     }
   }

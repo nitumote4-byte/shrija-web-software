@@ -469,6 +469,13 @@ function authorizeFunds(
     if (!amountCheck.ok) return fail(amountCheck.error)
     fund.amount = amountCheck.value
 
+    // Older receipts omit TDS. Present values must be zero or a positive rupee amount.
+    if (fund.tdsAmount != null && fund.tdsAmount !== '') {
+      const tdsCheck = assertFiniteMoney(fund.tdsAmount, 'Fund TDS', { allowZero: true })
+      if (!tdsCheck.ok) return fail(tdsCheck.error)
+      fund.tdsAmount = tdsCheck.value
+    }
+
     const mode = String(fund.mode || 'Cash')
     if (!FUND_MODES.has(mode)) return fail('Fund payment mode is invalid')
     fund.mode = mode

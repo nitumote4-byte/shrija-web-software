@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shrija Sampling Import</title>
+    <style>
+      body {
+        margin: 0;
+        width: 420px;
+        color: #142033;
+        font: 13px/1.4 system-ui, sans-serif;
+      }
+      header, main {
+        padding: 12px;
+      }
+      header {
+        background: #12355b;
+        color: #fff;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      p {
+        margin: 0;
+      }
+      button {
+        margin: 0 8px 8px 0;
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 10px;
+        background: #12355b;
+        color: #fff;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:disabled {
+        background: #94a3b8;
+        cursor: default;
+      }
+      #status, #result {
+        margin-top: 8px;
+        white-space: pre-wrap;
+      }
+      .error {
+        color: #9f1239;
+      }
+      .ok {
+        color: #166534;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      th, td {
+        border-bottom: 1px solid #e2e8f0;
+        padding: 4px;
+        text-align: left;
+        vertical-align: top;
+      }
+      select, label {
+        display: block;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Sampling import</h1>
+      <p>Reads the Manak page you are viewing. Nothing is written until you confirm.</p>
+    </header>
+    <main>
+      <button id="read" type="button">Read Sampling Details</button>
+      <p id="status">Open Manak Sampling Details, then click Read.</p>
+      <div id="preview"></div>
+      <button id="import" type="button" disabled>Import confirmed rows</button>
+      <p id="result"></p>
+    </main>
+    <!-- Classic bundle: ES modules made this popup slow or blank on cold start. -->
+    <script src="dist/popup.js"></script>
+  </body>
+</html>

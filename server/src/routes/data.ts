@@ -33,6 +33,8 @@ import {
 import { resolveStoreWriteBaseRev } from '../storeWritePolicy.js'
 import { reconcileFinancialTombstonesForReplaceAll } from '../financialTombstones.js'
 import { letterheadRouter } from './letterhead.js'
+import { applyReceptionWrite, publicReception, reduceReception } from '../receptionCreds.js'
+import { isManakKvKey, isReceptionKvKey, mergeManakKvWrite, redactKvEntry } from '../secretKv.js'
 
 export const dataRouter = Router()
 
@@ -69,6 +71,41 @@ async function loadInvoiceMinBillSettings(tenantId: string) {
 function asRev(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 0
+}
+
+async function commitReception(tenantId: string, key: string, value: unknown) {
+  const first = reduceReception(value)
+  if (!first.changed) return first.record
+  return withTransaction(async (client) => {
+    const locked = await client.query(
+      `SELECT value FROM kv_docs WHERE tenant_id = $1 AND key = $2 FOR UPDATE`,
+      [tenantId, key],
+    )
+    const row = locked.rows[0] as { value: unknown } | undefined
+    const current = row ? asJson(row.value) : value
+    const again = reduceReception(current)
+    if (again.changed && again.record) {
+      await client.query(
+        `UPDATE kv_docs SET value = $3::jsonb, updated_at = $4 WHERE tenant_id = $1 AND key = $2`,
+        [tenantId, key, JSON.stringify(again.record), nowIso()],
+      )
+    }
+    return again.record
+  })
+}
+
+async function readKvMap(tenantId: string): Promise<Record<string, unknown>> {
+  const { rows } = await pool.query(`SELECT key, value FROM kv_docs WHERE tenant_id = $1`, [tenantId])
+  const docs: Record<string, unknown> = {}
+  for (const row of rows as { key: string; value: unknown }[]) {
+    let value = asJson(row.value)
+    if (isReceptionKvKey(row.key)) {
+      const stored = await commitReception(tenantId, row.key, value)
+      value = publicReception(stored ?? value)
+    }
+    docs[row.key] = redactKvEntry(row.key, value)
+  }
+  return docs
 }
 
 function toIso(value: unknown): string {
@@ -291,11 +328,7 @@ dataRouter.get('/backup', requireAdminRole, async (req, res) => {
      FROM firm_profiles WHERE tenant_id = $1`,
     [tenantId],
   )
-  const kvRows = await pool.query(`SELECT key, value FROM kv_docs WHERE tenant_id = $1`, [tenantId])
-  const kv: Record<string, unknown> = {}
-  for (const row of kvRows.rows as { key: string; value: unknown }[]) {
-    kv[row.key] = asJson(row.value)
-  }
+  const kv = await readKvMap(tenantId)
   const firm = (firmRow.rows[0] as Record<string, unknown> | undefined) || null
   if (firm) {
     firm.centres = filterFirmCentres(asJson(firm.centres), centre)
@@ -313,14 +346,7 @@ dataRouter.get('/backup', requireAdminRole, async (req, res) => {
 dataRouter.get('/kv', async (req, res) => {
   const tenantId = req.user!.tenantId
   const centre = sessionCentre(req.user!)
-  const { rows } = await pool.query(`SELECT key, value FROM kv_docs WHERE tenant_id = $1`, [
-    tenantId,
-  ])
-
-  const docs: Record<string, unknown> = {}
-  for (const row of rows as { key: string; value: unknown }[]) {
-    docs[row.key] = asJson(row.value)
-  }
+  const docs = await readKvMap(tenantId)
   res.json({ docs: filterKvForRole(filterKvForSession(docs, centre.centreKind), req.user!) })
 })
 
@@ -342,7 +368,12 @@ dataRouter.get('/kv/:key', async (req, res) => {
     res.status(404).json({ error: 'Not found' })
     return
   }
-  res.json({ key, value: asJson(row.value) })
+  let value = asJson(row.value)
+  if (isReceptionKvKey(key)) {
+    const stored = await commitReception(tenantId, key, value)
+    value = publicReception(stored ?? value)
+  }
+  res.json({ key, value: redactKvEntry(key, value) })
 })
 
 const putKvSchema = z.object({
@@ -364,6 +395,55 @@ dataRouter.put('/kv/:key', async (req, res) => {
   const parsed = putKvSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'value required' })
+    return
+  }
+
+  if (isReceptionKvKey(key)) {
+    try {
+      const record = await withTransaction(async (client) => {
+        const locked = await client.query(
+          `SELECT value FROM kv_docs WHERE tenant_id = $1 AND key = $2 FOR UPDATE`,
+          [tenantId, key],
+        )
+        const existing = locked.rows[0] ? asJson((locked.rows[0] as { value: unknown }).value) : null
+        const applied = applyReceptionWrite(existing, parsed.data.value)
+        if (!applied.ok) {
+          throw Object.assign(new Error(applied.error), { status: 400 })
+        }
+        const updatedAt = nowIso()
+        await client.query(
+          `INSERT INTO kv_docs (tenant_id, key, value, updated_at) VALUES ($1, $2, $3::jsonb, $4)
+           ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+          [tenantId, key, JSON.stringify(applied.record), updatedAt],
+        )
+        return applied.record
+      })
+      res.json({ ok: true, value: publicReception(record) })
+    } catch (e) {
+      const status = (e as { status?: number }).status || 500
+      const message = status < 500 && e instanceof Error ? e.message : 'Failed to save credentials'
+      if (status >= 500) console.error(e)
+      res.status(status).json({ error: message })
+    }
+    return
+  }
+
+  if (isManakKvKey(key)) {
+    const merged = await withTransaction(async (client) => {
+      const locked = await client.query(
+        `SELECT value FROM kv_docs WHERE tenant_id = $1 AND key = $2 FOR UPDATE`,
+        [tenantId, key],
+      )
+      const existing = locked.rows[0] ? asJson((locked.rows[0] as { value: unknown }).value) : null
+      const next = mergeManakKvWrite(existing, parsed.data.value)
+      await client.query(
+        `INSERT INTO kv_docs (tenant_id, key, value, updated_at) VALUES ($1, $2, $3::jsonb, $4)
+         ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+        [tenantId, key, JSON.stringify(next), nowIso()],
+      )
+      return next
+    })
+    res.json({ ok: true, value: redactKvEntry(key, merged) })
     return
   }
 

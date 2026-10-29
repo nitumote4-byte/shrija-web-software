@@ -1,5 +1,4 @@
 import { Router } from 'express'
-import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { pool } from '../db.js'
 import { assertMaster, daysLeftFrom } from '../license.js'
@@ -9,16 +8,9 @@ import {
   writeScheduledMaintenanceDraft,
 } from '../scheduledMaintenanceStore.js'
 import { sanitizeScheduledMaintenanceDraft } from '../scheduledMaintenanceNotice.js'
+import { adminLimiter } from '../rateLimit.js'
 
 export const adminRouter = Router()
-
-const masterLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 40,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many admin requests' },
-})
 
 const masterBodySchema = z.object({
   masterSecret: z.string().min(1),
@@ -44,7 +36,7 @@ function audit(action: string, tenantId: string, firmName: string, detail?: stri
 }
 
 /** List all registered centres (including suspended) — master secret only */
-adminRouter.post('/tenants', masterLimiter, async (req, res) => {
+adminRouter.post('/tenants', adminLimiter, async (req, res) => {
   const auth = requireMaster(req.body)
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error })
@@ -91,7 +83,7 @@ async function loadTenantBrief(tenantId: string) {
 }
 
 /** Suspend one centre — sets tenants.status = 'suspended' only */
-adminRouter.post('/tenants/:tenantId/suspend', masterLimiter, async (req, res) => {
+adminRouter.post('/tenants/:tenantId/suspend', adminLimiter, async (req, res) => {
   const auth = requireMaster(req.body)
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error })
@@ -174,7 +166,7 @@ async function reactivateTenant(req: import('express').Request, res: import('exp
 }
 
 /** Current scheduled-maintenance notice, including hidden drafts. Master secret only. */
-adminRouter.post('/scheduled-maintenance/current', masterLimiter, async (req, res) => {
+adminRouter.post('/scheduled-maintenance/current', adminLimiter, async (req, res) => {
   const auth = requireMaster(req.body)
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error })
@@ -185,7 +177,7 @@ adminRouter.post('/scheduled-maintenance/current', masterLimiter, async (req, re
 })
 
 /** Replace the single current notice. Does not change Maintenance Mode. */
-adminRouter.post('/scheduled-maintenance', masterLimiter, async (req, res) => {
+adminRouter.post('/scheduled-maintenance', adminLimiter, async (req, res) => {
   const auth = requireMaster(req.body)
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error })
@@ -204,6 +196,6 @@ adminRouter.post('/scheduled-maintenance', masterLimiter, async (req, res) => {
 })
 
 /** Reactivate one centre — sets tenants.status = 'active' only */
-adminRouter.post('/tenants/:tenantId/activate', masterLimiter, reactivateTenant)
+adminRouter.post('/tenants/:tenantId/activate', adminLimiter, reactivateTenant)
 /** Alias preferred by operators */
-adminRouter.post('/tenants/:tenantId/reactivate', masterLimiter, reactivateTenant)
+adminRouter.post('/tenants/:tenantId/reactivate', adminLimiter, reactivateTenant)

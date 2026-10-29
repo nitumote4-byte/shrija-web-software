@@ -2,7 +2,14 @@ import { useMemo, useState } from 'react'
 import { History, PackageOpen, Pencil, Plus, Printer, RefreshCw, Trash2, X } from 'lucide-react'
 import { useToast } from '../components/ui'
 import { getInvoiceHeader } from '../data/firmProfile'
-import { calcPartyBalance, store, type FundEntry, type Party } from '../data/store'
+import {
+  calcPartyBalance,
+  fundSettlementAmount,
+  fundTdsAmount,
+  store,
+  type FundEntry,
+  type Party,
+} from '../data/store'
 import { isOtherServiceFund } from '../data/otherServices'
 
 function money(n: number) {
@@ -38,7 +45,10 @@ type ReceiptView = {
   date: string
   partyName: string
   mode: string
+  /** Cash / bank actually received. */
   amount: number
+  /** TDS the client deducted. Included in the bill settlement, not in cash. */
+  tdsAmount: number
   bankName?: string
   chequeNo?: string
   remarks: string
@@ -55,6 +65,7 @@ function buildReceiptView(f: FundEntry): ReceiptView {
     partyName,
     mode: f.mode,
     amount: f.amount,
+    tdsAmount: fundTdsAmount(f),
     bankName: f.bankName,
     chequeNo: f.chequeNo,
     remarks: f.remarks,
@@ -75,7 +86,8 @@ function openFundReceiptPrint(
   receipt: ReceiptView,
   header: { centreName: string; centreAddress: string; centreGstin: string },
 ) {
-  const balanceDue = Math.max(0, receipt.currentBalance - receipt.amount)
+  const settled = fundSettlementAmount(receipt)
+  const balanceDue = Math.max(0, receipt.currentBalance - settled)
   const modeCash = receipt.mode === 'Cash'
   const modeCheque = receipt.mode === 'Cheque'
   const modeBank = receipt.mode === 'Bank' || receipt.mode === 'UPI'
@@ -135,14 +147,20 @@ function openFundReceiptPrint(
       </div>
     </div>
     <div class="row"><span class="lbl">RECEIVED FROM:</span><strong>${escapeHtml(receipt.partyName)}</strong></div>
-    <div class="row"><span class="lbl">THE AMOUNT OF:</span><strong>${money(receipt.amount)}</strong></div>
+    <div class="row"><span class="lbl">AMOUNT RECEIVED:</span><strong>${money(receipt.amount)}</strong></div>
+    ${
+      receipt.tdsAmount > 0
+        ? `<div class="row"><span class="lbl">TDS DEDUCTED:</span><strong>${money(receipt.tdsAmount)}</strong></div>
+    <div class="row"><span class="lbl">ADJUSTED AGAINST BILL:</span><strong>${money(settled)}</strong></div>`
+        : ''
+    }
     <div class="row"><span class="lbl">FOR (INVOICE / REMARKS):</span><span>${escapeHtml(receipt.remarks || '—')}</span></div>
     <div class="row"><span class="lbl">CHEQUE NO:</span><span>${escapeHtml(receipt.chequeNo || '—')}</span></div>
     <div class="row"><span class="lbl">BANK NAME:</span><span>${escapeHtml(receipt.bankName || '—')}</span></div>
     <div class="foot">
       <div class="bal">
         <div>Current Balance: <strong>${money(receipt.currentBalance)}</strong></div>
-        <div>Payment Amount: <strong>${money(receipt.amount)}</strong></div>
+        <div>Payment Amount: <strong>${money(settled)}</strong></div>
         <div>Balance Due: <strong>${money(balanceDue)}</strong></div>
       </div>
       <div class="modes">
@@ -177,6 +195,7 @@ export function FundEntry() {
   const [txnType, setTxnType] = useState<'Cash' | 'UPI' | 'Bank' | 'Cheque'>('Cash')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [amount, setAmount] = useState('')
+  const [tds, setTds] = useState('')
   const [chequeNo, setChequeNo] = useState('')
   const [bankName, setBankName] = useState('')
   const [remarks, setRemarks] = useState('')
@@ -229,6 +248,7 @@ export function FundEntry() {
     setTxnType('Cash')
     setDate(new Date().toISOString().slice(0, 10))
     setAmount('')
+    setTds('')
     setChequeNo('')
     setBankName('')
     setRemarks('')
@@ -246,6 +266,7 @@ export function FundEntry() {
     setTxnType(f.mode)
     setDate(f.date || new Date().toISOString().slice(0, 10))
     setAmount(String(f.amount ?? ''))
+    setTds(fundTdsAmount(f) > 0 ? String(fundTdsAmount(f)) : '')
     setChequeNo(f.chequeNo || '')
     setBankName(f.bankName || '')
     setRemarks(f.remarks || '')
@@ -285,6 +306,13 @@ export function FundEntry() {
       toast('Enter a valid amount')
       return
     }
+    const tdsRaw = tds.trim()
+    const tdsAmt = tdsRaw === '' ? 0 : Number(tdsRaw)
+    if (!Number.isFinite(tdsAmt) || tdsAmt < 0) {
+      toast('Enter a valid TDS amount')
+      return
+    }
+    const tdsRounded = Number(tdsAmt.toFixed(2))
 
     if (editingId) {
       const updated = store.updateFund(editingId, {
@@ -293,6 +321,7 @@ export function FundEntry() {
         partyId: party?.id || editingFund?.partyId,
         partyName,
         amount: amt,
+        tdsAmount: tdsRounded,
         mode: txnType,
         remarks,
         chequeNo,
@@ -317,6 +346,7 @@ export function FundEntry() {
       partyId: party!.id,
       partyName,
       amount: amt,
+      tdsAmount: tdsRounded,
       mode: txnType,
       remarks,
       chequeNo,
@@ -326,6 +356,7 @@ export function FundEntry() {
     setBalanceKey((k) => k + 1)
     toast(`Transaction saved · Voucher #${entry.voucherNo}`)
     setAmount('')
+    setTds('')
     setChequeNo('')
     setBankName('')
     setRemarks('')
@@ -335,6 +366,7 @@ export function FundEntry() {
       partyName,
       mode: entry.mode,
       amount: entry.amount,
+      tdsAmount: fundTdsAmount(entry),
       bankName: entry.bankName,
       chequeNo: entry.chequeNo,
       remarks: entry.remarks,
@@ -356,7 +388,14 @@ export function FundEntry() {
     openReceipt(found)
   }
 
-  const balanceDue = receipt ? Math.max(0, receipt.currentBalance - receipt.amount) : 0
+  const receiptSettled = receipt ? fundSettlementAmount(receipt) : 0
+  const balanceDue = receipt ? Math.max(0, receipt.currentBalance - receiptSettled) : 0
+  const typedReceived = Number(amount)
+  const typedTds = Number(tds)
+  const typedAdjusted = fundSettlementAmount({
+    amount: Number.isFinite(typedReceived) && typedReceived > 0 ? typedReceived : 0,
+    tdsAmount: Number.isFinite(typedTds) && typedTds > 0 ? typedTds : 0,
+  })
   const modeCash = receipt?.mode === 'Cash'
   const modeCheque = receipt?.mode === 'Cheque'
   const modeBank = receipt?.mode === 'Bank' || receipt?.mode === 'UPI'
@@ -455,12 +494,12 @@ export function FundEntry() {
 
             <div className="fund-amount-row">
               <div className="field">
-                <label>Total Amount</label>
+                <label>Amount Received</label>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  placeholder="Enter amount"
+                  placeholder="Cash / bank received"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   required
@@ -488,6 +527,33 @@ export function FundEntry() {
                 </strong>
               </div>
             </div>
+
+            <div className="fund-two-col">
+              <div className="field">
+                <label>TDS Deducted</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00 if client did not deduct TDS"
+                  value={tds}
+                  onChange={(e) => setTds(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Adjusted Against Bill</label>
+                <input
+                  readOnly
+                  className="table-input-disabled"
+                  value={typedAdjusted > 0 ? money(typedAdjusted) : ''}
+                  placeholder="Received + TDS"
+                />
+              </div>
+            </div>
+            <p className="fund-tds-hint">
+              If the client paid after deducting TDS, enter the TDS here. The bill is settled by
+              amount received plus TDS. Cash and bank stay only the amount received.
+            </p>
 
             <div className="fund-two-col">
               <div className="field">
@@ -575,7 +641,12 @@ export function FundEntry() {
                       <td>#{f.voucherNo || '—'}</td>
                       <td>{f.mode}</td>
                       <td>{f.partyName || f.source}</td>
-                      <td>{money(f.amount)}</td>
+                      <td>
+                        {money(f.amount)}
+                        {fundTdsAmount(f) > 0 ? (
+                          <span className="fund-tds-sub">TDS {money(fundTdsAmount(f))}</span>
+                        ) : null}
+                      </td>
                       <td>{f.bankName || '—'}</td>
                       <td>{f.remarks || '—'}</td>
                       <td>
@@ -687,9 +758,21 @@ export function FundEntry() {
                   <strong>{receipt.partyName}</strong>
                 </div>
                 <div className="fund-rv-row">
-                  <span>THE AMOUNT OF:</span>
+                  <span>AMOUNT RECEIVED:</span>
                   <strong>{money(receipt.amount)}</strong>
                 </div>
+                {receipt.tdsAmount > 0 ? (
+                  <>
+                    <div className="fund-rv-row">
+                      <span>TDS DEDUCTED:</span>
+                      <strong>{money(receipt.tdsAmount)}</strong>
+                    </div>
+                    <div className="fund-rv-row">
+                      <span>ADJUSTED AGAINST BILL:</span>
+                      <strong>{money(receiptSettled)}</strong>
+                    </div>
+                  </>
+                ) : null}
                 <div className="fund-rv-row">
                   <span>FOR (INVOICE / REMARKS):</span>
                   <span>{receipt.remarks || '—'}</span>
@@ -710,7 +793,7 @@ export function FundEntry() {
                     Current Balance: <strong>{money(receipt.currentBalance)}</strong>
                   </div>
                   <div>
-                    Payment Amount: <strong>{money(receipt.amount)}</strong>
+                    Payment Amount: <strong>{money(receiptSettled)}</strong>
                   </div>
                   <div>
                     Balance Due: <strong>{money(balanceDue)}</strong>

@@ -6059,6 +6059,21 @@ button {
   align-items: end;
 }
 
+.fund-tds-hint {
+  margin: -0.15rem 0 0.85rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #475569;
+}
+
+.fund-tds-sub {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
 .fund-balance-box {
   background: #fef2f2;
   border: 1px solid #fecaca;

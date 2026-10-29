@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
-import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import {
   assertTenantId,
@@ -31,25 +30,16 @@ import {
   resolveCentreFromList,
   selectPasswordMatch,
 } from '../tenantIsolation.js'
+import {
+  changePasswordLimiter,
+  forgotLimiter,
+  loginLimiter,
+  registerLimiter,
+  resetPasswordLimiter,
+  verifyPasswordLimiter,
+} from '../rateLimit.js'
 
 export const authRouter = Router()
-
-/** Brute-force protection for auth endpoints */
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many attempts. Please try again in 15 minutes.' },
-})
-
-const forgotLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 8,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many attempts. Please try again in 15 minutes.' },
-})
 
 const GENERIC_FORGOT_MESSAGE =
   'If the account exists, password reset instructions have been sent.'
@@ -152,7 +142,7 @@ const registerSchema = z.object({
 })
 
 /** Register a new centre + admin user (empty isolated dataset). Platform operator only. */
-authRouter.post('/register', authLimiter, async (req, res) => {
+authRouter.post('/register', registerLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid input' })
@@ -275,7 +265,7 @@ type LoginUserRow = {
   mustChangePassword: boolean
 }
 
-authRouter.post('/login', authLimiter, async (req, res) => {
+authRouter.post('/login', loginLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Username and password are required' })
@@ -361,7 +351,7 @@ const changePasswordSchema = z.object({
 /** Logged-in user may change only their own password (JWT user + tenant). */
 authRouter.post(
   '/change-password',
-  authLimiter,
+  changePasswordLimiter,
   requireAuth,
   requireActiveTenant,
   enforceTenantBody,
@@ -420,7 +410,7 @@ const verifyPasswordSchema = z.object({
 /** Confirm the signed-in user's own login password. Does not store or return the password. */
 authRouter.post(
   '/verify-password',
-  authLimiter,
+  verifyPasswordLimiter,
   requireAuth,
   requireActiveTenant,
   enforceTenantBody,
@@ -544,7 +534,7 @@ const resetPasswordSchema = z.object({
   password: strongPasswordSchema(),
 })
 
-authRouter.post('/reset-password', authLimiter, async (req, res) => {
+authRouter.post('/reset-password', resetPasswordLimiter, async (req, res) => {
   const parsed = resetPasswordSchema.safeParse(req.body)
   if (!parsed.success) {
     const onlyPassword = parsed.error.issues.every((issue) => issue.path[0] === 'password')

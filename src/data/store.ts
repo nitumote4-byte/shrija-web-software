@@ -99,9 +99,11 @@ import {
 import {
   calcPartyBalance,
   computeInvoicePaymentStatuses,
+  fundSettlementAmount,
+  fundTdsAmount,
 } from '../../server/src/invoicePaymentStatus.ts'
 
-export { calcPartyBalance, computeInvoicePaymentStatuses }
+export { calcPartyBalance, computeInvoicePaymentStatuses, fundSettlementAmount, fundTdsAmount }
 
 export type {
   XrfCheckSaveResult,
@@ -315,7 +317,13 @@ export type FundEntry = {
   id: string
   date: string
   source: string
+  /** Cash, bank, UPI, or cheque actually received. */
   amount: number
+  /**
+   * TDS deducted by the client. Clears the bill together with `amount`,
+   * and is not treated as cash in hand.
+   */
+  tdsAmount?: number
   mode: 'Cash' | 'UPI' | 'Bank' | 'Cheque'
   remarks: string
   voucherNo?: string
@@ -1977,6 +1985,44 @@ export const store = {
     save(data)
   },
 
+  /**
+   * Puts a request Job Card back after a sampling import is reverted.
+   * Rough-sheet rows are unchanged here. Out-of-scope requests are ignored.
+   */
+  setScopedRequestJobCardNo(requestNo: string, jobCardNo: string) {
+    const needle = requestNo.trim()
+    if (!needle) return false
+    const visible = store.getAll().requests.find((request) => request.requestNo === needle)
+    if (!visible) return false
+    const data = load()
+    const req = data.requests.find((request) => request.id === visible.id)
+    if (!req) return false
+    req.jobCardNo = jobCardNo
+    save(data)
+    return true
+  },
+
+  /**
+   * Restores individual sampling-import fields on a visible rough-sheet row.
+   * Does not change the Hallmark request job card or any other column.
+   */
+  restoreScopedRoughSheetFields(
+    id: string,
+    patch: Partial<Pick<RoughSheetEntry, 'jobCardNo' | 'jobCardSaved' | 'sampleTagId'>>,
+  ) {
+    if (!id) return false
+    const visible = store.getAll().roughSheets.find((row) => row.id === id)
+    if (!visible) return false
+    const data = load()
+    const row = data.roughSheets.find((entry) => entry.id === visible.id)
+    if (!row) return false
+    if (patch.jobCardNo !== undefined) row.jobCardNo = patch.jobCardNo
+    if (patch.jobCardSaved !== undefined) row.jobCardSaved = patch.jobCardSaved
+    if (patch.sampleTagId !== undefined) row.sampleTagId = patch.sampleTagId
+    save(data)
+    return true
+  },
+
   updateRoughSheetStatus(ids: string[], status: RoughSheetEntry['status']) {
     const data = load()
     let count = 0
@@ -2289,6 +2335,7 @@ export const store = {
     const n = centreFunds.length + 1
     const entry: FundEntry = {
       ...input,
+      tdsAmount: input.tdsAmount == null ? undefined : fundTdsAmount({ tdsAmount: input.tdsAmount }),
       ...stamp,
       centreId: stamp.centreId,
       centreKind: stamp.centreKind,
@@ -2313,7 +2360,12 @@ export const store = {
     // Hallmarking Fund Entry must never mutate Other Services cash vouchers.
     if (isOtherServiceFund(row)) return null
     const oldParty = row.partyName || row.source
-    Object.assign(row, patch)
+    const nextPatch = { ...patch }
+    if ('tdsAmount' in nextPatch) {
+      nextPatch.tdsAmount =
+        nextPatch.tdsAmount == null ? 0 : fundTdsAmount({ tdsAmount: nextPatch.tdsAmount })
+    }
+    Object.assign(row, nextPatch)
     if (patch.partyName !== undefined) {
       row.source = patch.partyName || row.source
     } else if (patch.source !== undefined && !row.partyName) {

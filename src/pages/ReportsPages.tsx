@@ -33,7 +33,12 @@ import {
 import { statusBadge, useToast } from '../components/ui'
 import { getFirmProfile, getInvoiceHeader } from '../data/firmProfile'
 import { CENTRE_NAME } from '../data/modules'
-import { computeInvoicePaymentStatuses, store } from '../data/store'
+import {
+  computeInvoicePaymentStatuses,
+  fundSettlementAmount,
+  fundTdsAmount,
+  store,
+} from '../data/store'
 import { tenantGet, tenantSet } from '../data/tenant'
 import {
   printPartyLedger,
@@ -587,7 +592,7 @@ export function PartyStatement() {
         matchPartyName(f.partyName || f.source || '', partyName) && dateKey(f.date) < startDate,
     )
     const priorDebit = priorInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)
-    const priorCredit = priorFunds.reduce((s, f) => s + (Number(f.amount) || 0), 0)
+    const priorCredit = priorFunds.reduce((s, f) => s + fundSettlementAmount(f), 0)
     const opening = Number((priorDebit - priorCredit).toFixed(2))
 
     const rows: StmtRow[] = [
@@ -639,17 +644,22 @@ export function PartyStatement() {
         })
       } else {
         const fund = funds.find((f) => f.id === ev.id)!
-        bal = Number((bal - fund.amount).toFixed(2))
+        const credit = fundSettlementAmount(fund)
+        const tds = fundTdsAmount(fund)
+        bal = Number((bal - credit).toFixed(2))
         rows.push({
           key: fund.id,
           jeweller: partyName,
           type: `Voucher No ${fund.voucherNo || '—'}`,
           date: fund.date,
           pcs: 0,
-          credit: fund.amount,
+          credit,
           debit: 0,
           balance: bal,
-          remarks: fund.remarks || fund.mode || '',
+          remarks:
+            tds > 0
+              ? [fund.remarks, `TDS ${tds.toFixed(2)}`].filter(Boolean).join(' · ')
+              : fund.remarks || fund.mode || '',
         })
       }
     }
@@ -679,7 +689,7 @@ export function PartyStatement() {
       .reduce((s, i) => s + (Number(i.total) || 0), 0)
     const priorCredit = data.funds
       .filter((f) => dateKey(f.date) < startDate)
-      .reduce((s, f) => s + (Number(f.amount) || 0), 0)
+      .reduce((s, f) => s + fundSettlementAmount(f), 0)
     const opening = Number((priorDebit - priorCredit).toFixed(2))
 
     const invoices = data.invoices.filter(
@@ -727,17 +737,22 @@ export function PartyStatement() {
         })
       } else {
         const fund = funds.find((f) => f.id === ev.id)!
-        bal = Number((bal - fund.amount).toFixed(2))
+        const credit = fundSettlementAmount(fund)
+        const tds = fundTdsAmount(fund)
+        bal = Number((bal - credit).toFixed(2))
         rows.push({
           key: fund.id,
           jeweller: fund.partyName || fund.source,
           type: `Voucher No ${fund.voucherNo || '—'}`,
           date: fund.date,
           pcs: 0,
-          credit: fund.amount,
+          credit,
           debit: 0,
           balance: bal,
-          remarks: fund.remarks || fund.mode || '',
+          remarks:
+            tds > 0
+              ? [fund.remarks, `TDS ${tds.toFixed(2)}`].filter(Boolean).join(' · ')
+              : fund.remarks || fund.mode || '',
         })
       }
     }
@@ -1274,13 +1289,24 @@ export function FundReceiptRegister() {
       return
     }
     downloadCsv('fund-receipt-register.csv', [
-      ['Date', 'Voucher No', 'Transaction Type', 'Party Name', 'Total Amount', 'Remarks'],
+      [
+        'Date',
+        'Voucher No',
+        'Transaction Type',
+        'Party Name',
+        'Amount Received',
+        'TDS Deducted',
+        'Adjusted Against Bill',
+        'Remarks',
+      ],
       ...rows.map((f) => [
         f.date,
         f.voucherNo || '',
         f.mode,
         f.partyName || f.source,
         f.amount.toFixed(2),
+        fundTdsAmount(f).toFixed(2),
+        fundSettlementAmount(f).toFixed(2),
         f.remarks || '',
       ]),
     ])
@@ -1419,20 +1445,22 @@ export function FundReceiptRegister() {
                 <th>VOUCHER NO</th>
                 <th>TRANSACTION TYPE</th>
                 <th>PARTY NAME</th>
-                <th>TOTAL AMOUNT</th>
+                <th>RECEIVED</th>
+                <th>TDS</th>
+                <th>ADJUSTED</th>
                 <th>REMARKS</th>
               </tr>
             </thead>
             <tbody>
               {!fetched ? (
                 <tr>
-                  <td colSpan={6} className="empty-state">
+                  <td colSpan={8} className="empty-state">
                     Select filters and click Fetch Data
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="empty-state">
+                  <td colSpan={8} className="empty-state">
                     No records found
                   </td>
                 </tr>
@@ -1446,6 +1474,20 @@ export function FundReceiptRegister() {
                     <td>
                       ₹{' '}
                       {f.amount.toLocaleString('en-IN', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td>
+                      ₹{' '}
+                      {fundTdsAmount(f).toLocaleString('en-IN', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td>
+                      ₹{' '}
+                      {fundSettlementAmount(f).toLocaleString('en-IN', {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}

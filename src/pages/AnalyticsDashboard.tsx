@@ -9,7 +9,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { getSession } from '../data/auth'
-import { store } from '../data/store'
+import { fundSettlementAmount, store } from '../data/store'
 import { FY_MONTH_LABELS, getFinancialYearMonthBuckets } from '../utils/financialYear'
 
 function startOfDay(d: Date) {
@@ -188,9 +188,11 @@ export function AnalyticsDashboard() {
     }
 
     const revenue = data.invoices.reduce((s, i) => s + i.total, 0)
-    // Fund Entry receipts — not invoice Paid flag (GoldShark-style)
+    // Fund Entry receipts — not invoice Paid flag (GoldShark-style).
+    // Received stays cash/bank. Due also drops the TDS the client deducted.
     const receivedAmt = data.funds.reduce((s, f) => s + (Number(f.amount) || 0), 0)
-    const due = Math.max(0, revenue - receivedAmt)
+    const settledAmt = data.funds.reduce((s, f) => s + fundSettlementAmount(f), 0)
+    const due = Math.max(0, Number((revenue - settledAmt).toFixed(2)))
 
     const huid = data.requests.filter((r) =>
       ['Hallmarked', 'Billed', 'Delivered'].includes(r.status),

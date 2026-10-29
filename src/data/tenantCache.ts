@@ -333,6 +333,9 @@ export async function flushPendingKv(): Promise<FlushResult> {
           })
         }
         confirmed.push(key)
+        if (key in pending.docs && (key === 'reception-creds' || key === 'manak_credentials')) {
+          kvCache.set(key, redactStoredSecret(key, pending.docs[key]))
+        }
       } catch (e) {
         console.error('Failed to persist kv', key, e)
         lastError = e instanceof Error ? e.message : 'Failed to save lab data'
@@ -466,6 +469,44 @@ export function normalizeKvKey(key: string) {
 
 export function tenantGet(key: string): string | null {
   return kvCache.get(normalizeKvKey(key)) ?? null
+}
+
+const SECRET_KV_KEYS = new Set(['reception-creds', 'manak_credentials'])
+
+/** Remove passwords and ciphertext before a value sits in browser memory or a download. */
+export function redactStoredSecret(key: string, raw: string): string {
+  const normalized = normalizeKvKey(key)
+  if (!SECRET_KV_KEYS.has(normalized)) return raw
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return raw
+    if (normalized === 'reception-creds') {
+      const hasPassword = Boolean(parsed.passwordHash || parsed.password || parsed.hasPassword)
+      return JSON.stringify({
+        username: typeof parsed.username === 'string' ? parsed.username : '',
+        macAddresses: typeof parsed.macAddresses === 'string' ? parsed.macAddresses : '',
+        hasPassword,
+      })
+    }
+    const next = { ...parsed }
+    const hasPassword = Boolean(next.passwordEnc || next.password || next.hasPassword)
+    delete next.password
+    delete next.passwordEnc
+    delete next.passwordHash
+    next.hasPassword = hasPassword
+    return JSON.stringify(next)
+  } catch {
+    return raw
+  }
+}
+
+/** Update the local cache without scheduling another server write. */
+export function replaceKvCacheLocal(key: string, value: string) {
+  const k = normalizeKvKey(key)
+  if (!k || k === 'tenant-id') return
+  kvCache.set(k, value)
+  const scope = currentKvScope()
+  if (scope) clearPendingKvKeys(scope, [k])
 }
 
 export function tenantSet(key: string, value: string) {

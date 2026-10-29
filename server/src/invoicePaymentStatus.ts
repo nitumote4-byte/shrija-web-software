@@ -18,7 +18,13 @@ export type PaymentStatusFund = {
   source?: string
   voucherNo?: string
   partyName?: string
+  /** Cash / bank / UPI actually received. */
   amount: number
+  /**
+   * TDS the client deducted and deposited. Settles the bill, but is not cash.
+   * Missing on older receipts.
+   */
+  tdsAmount?: number
 }
 
 export function normPartyName(name: string | undefined | null) {
@@ -26,6 +32,21 @@ export function normPartyName(name: string | undefined | null) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ')
+}
+
+/** TDS on a receipt. Missing, blank, or invalid values count as zero. */
+export function fundTdsAmount(f: { tdsAmount?: number }) {
+  const n = Number(f.tdsAmount)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Number(n.toFixed(2))
+}
+
+/**
+ * Amount that clears the party's bill: money received plus TDS deducted.
+ * Cash and bank books keep using `amount` alone.
+ */
+export function fundSettlementAmount(f: { amount: number; tdsAmount?: number }) {
+  return Number(((Number(f.amount) || 0) + fundTdsAmount(f)).toFixed(2))
 }
 
 export function fundBelongsToParty(f: PaymentStatusFund, partyName: string) {
@@ -59,7 +80,7 @@ export function computeInvoicePaymentStatuses(
   for (const [k, invs] of byParty) {
     let pool = funds
       .filter((f) => !isOtherServiceFund(f) && fundBelongsToParty(f, k))
-      .reduce((s, f) => s + (Number(f.amount) || 0), 0)
+      .reduce((s, f) => s + fundSettlementAmount(f), 0)
 
     const sorted = [...invs].sort((a, b) => {
       const d = String(a.date || '').localeCompare(String(b.date || ''))
@@ -96,6 +117,6 @@ export function calcPartyBalance(
   const paid = funds
     .filter((f) => !isOtherServiceFund(f) && fundBelongsToParty(f, partyName))
     .filter((f) => !excludeVoucherNo || String(f.voucherNo) !== String(excludeVoucherNo))
-    .reduce((s, f) => s + (Number(f.amount) || 0), 0)
+    .reduce((s, f) => s + fundSettlementAmount(f), 0)
   return Number((billed - paid).toFixed(2))
 }

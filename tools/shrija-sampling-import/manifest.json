@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Shrija Sampling Import",
+  "version": "1.0.0",
+  "description": "Reads the open Manak View Sampling Details page and, after confirmation, fills Job Number and Sample Tag ID on the Shrija QM Request List.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtyP08K4fNtrg9tyFzxz7smeYJpHu9rXLN+DIAttCkOjfJwWXMISZCSx8fDxqOYjEQoV4Atge+p/kszblNPi9n5icXC+0WMRlVUFcyGwSnZlkeM/ZdNM/emhNXpJOkfG+J+4rSeMeVk8s/8dCx3XIzOs7cPVtVDGuLIY8fG2f9fgliSmHWwoffd1/sR2rhzG31P54S+27aATO/f4MVN7/hC2UMWTPSxzXXjt2DqECxPR9iKD3X4Qe+WJKgXjh1SLLGWj+gaiILKpsRLB/GC3uPGlMKPXnNm4YVeKfZUdOCLRquKppYdWPzb/3Gl/CKuUysgW1L7EnDVqkP709W64oXwIDAQAB",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "https://huid.manakonline.in/*",
+    "https://shrija-web-software.vercel.app/*",
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://huid.manakonline.in/*"],
+      "js": ["dist/content-manak.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://shrija-web-software.vercel.app/*",
+        "http://localhost:*/*",
+        "http://127.0.0.1:*/*"
+      ],
+      "js": ["content-shrija.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "dist/background.js"
+  },
+  "externally_connectable": {
+    "matches": [
+      "https://shrija-web-software.vercel.app/*",
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*"
+    ]
+  },
+  "action": {
+    "default_title": "Read Sampling Details",
+    "default_popup": "popup.html"
+  }
+}

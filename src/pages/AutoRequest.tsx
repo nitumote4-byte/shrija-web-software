@@ -191,13 +191,13 @@ export function AutoRequest() {
   const runLocalScrapFetch = async (): Promise<ManakFetchResponse> => {
     const health = await probeScrap()
     const fast = Boolean(health?.chromeAttached)
-    setStatusMsg(
-      fast
-        ? 'FAST: scraping Manak received list via Chrome…'
-        : 'Scrap tool: prefer GO-FAST.bat (Chrome login once)…',
-    )
+    if (!fast) {
+      setStatusMsg('Chrome is not attached. Using server-side Manak fetch instead of the local password fallback.')
+      return runCloudFetch()
+    }
+    setStatusMsg('FAST: scraping Manak received list via Chrome…')
 
-    let payload: Record<string, unknown> = {
+    const payload: Record<string, unknown> = {
       night,
       preferCdp: true,
       headed: true,
@@ -205,35 +205,8 @@ export function AutoRequest() {
       postLoginWaitSec: 120,
       baseUrl: baseUrl || 'https://huid.manakonline.in',
       allowedMacs,
-    }
-
-    if (fast) {
-      // Chrome already logged in — no password needed
-      payload.username = username || 'chrome-session'
-      payload.password = ''
-    } else {
-      try {
-        const bundle = await api<{
-          username: string
-          password: string
-          baseUrl: string
-          allowedMacs: string
-        }>('/api/data/manak/scrap-bundle', { method: 'POST', json: {} })
-        payload = {
-          ...payload,
-          username: bundle.username,
-          password: bundle.password,
-          baseUrl: bundle.baseUrl,
-          allowedMacs: bundle.allowedMacs,
-        }
-      } catch (e) {
-        if (e instanceof ApiRequestError && (e.status === 403 || e.status === 401)) {
-          throw new Error(
-            'Manak password export is admin-only. Use GO-FAST.bat (Chrome already logged in) or ask a centre administrator.',
-          )
-        }
-        throw e
-      }
+      username: username || 'chrome-session',
+      password: '',
     }
 
     const res = await fetch(`${SCRAP_BASE}/fetch`, {

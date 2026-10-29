@@ -7,6 +7,7 @@ import {
   enforceHallmarkingFinancialAuthority,
   parseInvoiceMinBillSettings,
 } from './hallmarkingFinancialAuthority.js'
+import { calcPartyBalance } from './invoicePaymentStatus.js'
 import {
   OTHER_SERVICE_FUND_SOURCE,
   enforceOtherServiceFundIdentity,
@@ -724,5 +725,56 @@ describe('hallmarking financial authority', () => {
     const fund = (restored.nextStore.funds as Record<string, unknown>[])[0]
     assert.equal(fund.source, OTHER_SERVICE_FUND_SOURCE)
     assert.equal('partyName' in fund, false, 'restore isolation strips HM party linkage')
+  })
+
+  it('TEST G: client TDS deduction settles the bill without counting as cash', () => {
+    const current = {
+      parties: [baseParty()],
+      invoices: [baseInvoice()],
+      funds: [],
+    }
+    const paidNet = {
+      parties: [baseParty()],
+      invoices: [baseInvoice()],
+      funds: [baseFund({ amount: 1156.4, tdsAmount: 23.6 })],
+    }
+    const settled = applyAuthority(current, paidNet)
+    assert.equal(settled.financial?.ok, true)
+    const inv = (settled.nextStore.invoices as Record<string, unknown>[])[0]
+    assert.equal(inv.status, 'Paid')
+    assert.equal(inv.total, 1180)
+    const fund = (settled.nextStore.funds as Record<string, unknown>[])[0]
+    assert.equal(fund.amount, 1156.4)
+    assert.equal(fund.tdsAmount, 23.6)
+    assert.equal(
+      calcPartyBalance(
+        settled.nextStore.invoices as never,
+        settled.nextStore.funds as never,
+        'Rajesh Jewellers',
+      ),
+      0,
+    )
+
+    const short = applyAuthority(current, {
+      parties: [baseParty()],
+      invoices: [baseInvoice()],
+      funds: [baseFund({ amount: 1156.4 })],
+    })
+    assert.equal((short.nextStore.invoices as Record<string, unknown>[])[0].status, 'Partial')
+    assert.equal(
+      calcPartyBalance(
+        short.nextStore.invoices as never,
+        short.nextStore.funds as never,
+        'Rajesh Jewellers',
+      ),
+      23.6,
+    )
+
+    const negative = applyAuthority(current, {
+      parties: [baseParty()],
+      invoices: [baseInvoice()],
+      funds: [baseFund({ amount: 1156.4, tdsAmount: -10 })],
+    })
+    assert.equal(negative.financial?.ok, false)
   })
 })

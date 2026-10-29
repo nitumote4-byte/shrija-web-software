@@ -16,6 +16,8 @@ import { useToast } from '../components/ui'
 import { ChangePasswordForm } from '../components/ChangePasswordForm'
 import { loadAccessUsers, saveAccessUsers, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getCentres, type CentreOutlet } from '../data/firmProfile'
+import { api } from '../api/client'
+import { replaceKvCacheLocal } from '../data/tenantCache'
 import { tenantGet, tenantSet } from '../data/tenant'
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '../utils/passwordPolicy'
 
@@ -31,6 +33,7 @@ type ReceptionCreds = {
   username: string
   password: string
   macAddresses: string
+  hasPassword?: boolean
 }
 
 const RECEPTION_KEY = 'shrija-reception-creds'
@@ -88,7 +91,15 @@ async function persistUsers(users: AppUser[]) {
 function loadReception(): ReceptionCreds {
   try {
     const raw = tenantGet(RECEPTION_KEY)
-    if (raw) return JSON.parse(raw) as ReceptionCreds
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      return {
+        username: typeof parsed.username === 'string' ? parsed.username : '',
+        password: '',
+        macAddresses: typeof parsed.macAddresses === 'string' ? parsed.macAddresses : '',
+        hasPassword: Boolean(parsed.hasPassword || parsed.password || parsed.passwordHash),
+      }
+    }
   } catch {
     /* ignore */
   }
@@ -96,6 +107,7 @@ function loadReception(): ReceptionCreds {
     username: '',
     password: '',
     macAddresses: '',
+    hasPassword: false,
   }
 }
 
@@ -237,15 +249,39 @@ export function ManagePassword() {
     }
   }
 
-  const saveReception = (e: React.FormEvent) => {
+  const saveReception = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!reception.username.trim()) {
       toast('Reception username is required')
       return
     }
-    tenantSet(RECEPTION_KEY, JSON.stringify(reception))
-    setStoredReception({ ...reception })
-    toast('Reception credentials saved')
+    if (!reception.password.trim() && !reception.hasPassword) {
+      toast('Reception password is required')
+      return
+    }
+    const value = {
+      username: reception.username.trim(),
+      macAddresses: reception.macAddresses,
+      ...(reception.password.trim() ? { password: reception.password } : {}),
+    }
+    try {
+      await api(`/api/data/kv/${encodeURIComponent('reception-creds')}`, {
+        method: 'PUT',
+        json: { value },
+      })
+      const saved: ReceptionCreds = {
+        username: value.username,
+        password: '',
+        macAddresses: value.macAddresses,
+        hasPassword: true,
+      }
+      replaceKvCacheLocal(RECEPTION_KEY, JSON.stringify(saved))
+      setReception(saved)
+      setStoredReception(saved)
+      toast('Reception credentials saved')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to save reception credentials')
+    }
   }
 
   const downloadFile = (filename: string, content: string, mime: string) => {
@@ -420,7 +456,9 @@ export function ManagePassword() {
                   type="password"
                   value={reception.password}
                   onChange={(e) => setReception((p) => ({ ...p, password: e.target.value }))}
-                  required
+                  required={!reception.hasPassword}
+                  autoComplete="new-password"
+                  placeholder={reception.hasPassword ? 'Leave blank to keep the saved password' : ''}
                 />
               </div>
             </div>

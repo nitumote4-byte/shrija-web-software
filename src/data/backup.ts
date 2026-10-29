@@ -1,4 +1,4 @@
-import { flushStoreNow, getStoreCache, setStoreCache } from './tenantCache'
+import { flushStoreNow, getStoreCache, redactStoredSecret, setStoreCache } from './tenantCache'
 import { getFirmProfile, saveFirmProfile } from './firmProfile'
 import { tenantGet, tenantSet } from './tenant'
 import { getSession } from './auth'
@@ -22,7 +22,7 @@ export function buildLocalBackup(): BackupPayload {
   ]
   for (const k of keys) {
     const v = tenantGet(k)
-    if (v) kv[k] = v
+    if (v) kv[k] = redactStoredSecret(k, v)
   }
   return {
     version: 1,

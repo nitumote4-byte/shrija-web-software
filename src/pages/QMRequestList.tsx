@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CloudUpload } from 'lucide-react'
 import { useToast } from '../components/ui'
@@ -6,6 +6,11 @@ import { isOscSession } from '../data/roles'
 import { store, oscTransferLabel, type RoughSheetEntry } from '../data/store'
 import { BILL_GENERATED_DELETE_BLOCKED } from '../data/requestBillingDeletion'
 import { getFireAssayArchiveVersion } from '../data/tenantCache'
+import {
+  installSamplingImportBridge,
+  mergePersistedSamplingRows,
+  type SamplingApplyResult,
+} from '../samplingImport/applySamplingImport'
 
 const SAMPLING_METHODS = ['Cutting', 'Drill', 'Cut', 'Scrap', 'Touch'] as const
 
@@ -118,6 +123,20 @@ export function QMRequestList() {
   useEffect(() => {
     setRows(toSheetRows(store.getAll().roughSheets))
   }, [faArchiveVersion])
+
+  const onSamplingImport = useRef<(result: SamplingApplyResult) => void>(() => {})
+  onSamplingImport.current = (result) => {
+    if (result.persisted && result.written.length > 0) {
+      const dates = [...new Set(result.written.map((row) => row.date).filter(Boolean))]
+      const shifts = [...new Set(result.written.map((row) => row.shift).filter(Boolean))]
+      if (dates.length === 1) setDate(dates[0])
+      if (shifts.length === 1) setShift(shifts[0])
+      setRows((current) => mergePersistedSamplingRows(current, result.written))
+    }
+    toast(result.summary)
+  }
+
+  useEffect(() => installSamplingImportBridge((result) => onSamplingImport.current(result)), [])
 
   void tick
 
