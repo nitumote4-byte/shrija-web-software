@@ -7,7 +7,9 @@
  * This module does not change Fire Assay calculations or sheet layout.
  */
 
+import { tenantGet } from './tenant'
 import {
+  FIRE_ASSAY_SHEETS_KEY,
   loadFireAssaySheetArchive,
   type ManakFireAssayRow,
   type ManakFireAssaySheet,
@@ -142,12 +144,44 @@ function rowMatchesFireAssayLookup(
   return true
 }
 
+/**
+ * Newest sheet that contains each job, built once per archive snapshot.
+ * Same order and same full-sheet rows as scanning sheet-by-sheet.
+ */
+function indexNewestSheetRows(sheets: ManakFireAssaySheet[]): Map<string, ManakFireAssayRow[]> {
+  const ordered = [...sheets].sort((a, b) =>
+    String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
+  )
+  const byJob = new Map<string, ManakFireAssayRow[]>()
+  for (const sheet of ordered) {
+    const source = sheetSourceRows(sheet)
+    for (const row of source) {
+      const key = rowJobKey(row)
+      if (!key || byJob.has(key)) continue
+      byJob.set(key, source)
+    }
+  }
+  return byJob
+}
+
+let cachedArchiveRaw: string | null | undefined
+let cachedArchiveIndex: Map<string, ManakFireAssayRow[]> | null = null
+
+function defaultArchiveIndex(): Map<string, ManakFireAssayRow[]> {
+  const raw = tenantGet(FIRE_ASSAY_SHEETS_KEY)
+  if (cachedArchiveIndex && raw === cachedArchiveRaw) return cachedArchiveIndex
+  cachedArchiveRaw = raw
+  cachedArchiveIndex = indexNewestSheetRows(Object.values(loadFireAssaySheetArchive()))
+  return cachedArchiveIndex
+}
+
 function newestSheetRowsForJob(
   jobCardNo: string,
-  sheets: ManakFireAssaySheet[] = Object.values(loadFireAssaySheetArchive()),
+  sheets?: ManakFireAssaySheet[],
 ): ManakFireAssayRow[] | null {
   const key = canonicalJobCardNo(jobCardNo)
   if (!key) return null
+  if (!sheets) return defaultArchiveIndex().get(key) ?? null
   const ordered = [...sheets].sort((a, b) =>
     String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
   )
@@ -307,7 +341,7 @@ export function unusedSampleForRelatedRows(
  */
 export function hasCompletedFireAssayForJob(
   jobCardNo: string | undefined | null,
-  sheets: ManakFireAssaySheet[] = Object.values(loadFireAssaySheetArchive()),
+  sheets?: ManakFireAssaySheet[],
 ): boolean {
   return newestSheetRowsForJob(String(jobCardNo || ''), sheets) != null
 }
@@ -321,6 +355,5 @@ export function hasCompletedFireAssayForBillingJobs(
     ...new Set(jobCardNos.map((n) => canonicalJobCardNo(n)).filter(Boolean)),
   ]
   if (keys.length === 0) return false
-  const list = sheets ?? Object.values(loadFireAssaySheetArchive())
-  return keys.every((k) => newestSheetRowsForJob(k, list) != null)
+  return keys.every((k) => newestSheetRowsForJob(k, sheets) != null)
 }

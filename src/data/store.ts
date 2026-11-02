@@ -798,8 +798,39 @@ function findRequestByNo(data: StoreShape, requestNo: string) {
   return data.requests.find((r) => r.requestNo === requestNo)
 }
 
-/** Centre-scoped Request Nos allowed when matching Fire Assay archive rows. */
-function fireAssayLookupOpts(requestNo?: string, centreId?: string) {
+/** First request for each Request No. Rebuilt when the store is saved or reloaded. */
+let requestIndexVersion = -1
+let requestIndex: Map<string, HallmarkRequest> | null = null
+
+function requestsByNo(): Map<string, HallmarkRequest> {
+  const version = getStoreVersion()
+  if (requestIndex && requestIndexVersion === version) return requestIndex
+  const data = load()
+  const map = new Map<string, HallmarkRequest>()
+  for (const req of data.requests) {
+    if (req.requestNo && !map.has(req.requestNo)) map.set(req.requestNo, req)
+  }
+  requestIndex = map
+  requestIndexVersion = version
+  return map
+}
+
+/**
+ * Allowed Request Nos for one centre. Rebuilt when the store is saved or
+ * reloaded. The membership rules match a fresh scan of requests + rough sheets.
+ */
+let allowedRequestVersion = -1
+const allowedRequestsByCentre = new Map<string, Set<string>>()
+
+function allowedRequestNos(centreId?: string): Set<string> {
+  const version = getStoreVersion()
+  if (version !== allowedRequestVersion) {
+    allowedRequestVersion = version
+    allowedRequestsByCentre.clear()
+  }
+  const key = centreId || ''
+  const cached = allowedRequestsByCentre.get(key)
+  if (cached) return cached
   const data = load()
   const allowed = new Set<string>()
   for (const req of data.requests) {
@@ -810,6 +841,13 @@ function fireAssayLookupOpts(requestNo?: string, centreId?: string) {
     if (centreId && row.centreId && row.centreId !== centreId) continue
     if (row.requestNo) allowed.add(row.requestNo)
   }
+  allowedRequestsByCentre.set(key, allowed)
+  return allowed
+}
+
+/** Centre-scoped Request Nos allowed when matching Fire Assay archive rows. */
+function fireAssayLookupOpts(requestNo?: string, centreId?: string) {
+  const allowed = allowedRequestNos(centreId)
   return {
     requestNo,
     allowRequestNo: (no: string) => allowed.has(no),
@@ -1928,7 +1966,8 @@ export const store = {
   },
 
   getRequestByNo(requestNo: string) {
-    const req = findRequestByNo(load(), requestNo)
+    if (!requestNo) return undefined
+    const req = requestsByNo().get(requestNo)
     if (!req) return undefined
     const scopeId = oscDataScopeId()
     if (scopeId && !matchesCentreScope(scopeId, req)) return undefined
