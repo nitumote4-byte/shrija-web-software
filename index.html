@@ -17,6 +17,113 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Shrija" />
     <title>Shrija Hallmark Suite</title>
+    <script>
+      try {
+        if (
+          sessionStorage.getItem("shrija-hallmark-promo") === "1" ||
+          matchMedia("(prefers-reduced-motion: reduce)").matches
+        ) {
+          document.documentElement.classList.add("promo-off");
+        }
+      } catch (error) {}
+    </script>
+    <style>
+      html.promo-on { overflow: hidden; }
+      html.promo-off .suite-promo { display: none; }
+      .suite-promo {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        background:
+          radial-gradient(ellipse 70% 60% at 70% 18%, rgba(184, 146, 58, 0.22), transparent),
+          linear-gradient(165deg, #0f2744 0%, #1a365d 48%, #0c1a2e 100%);
+        color: #fff;
+        cursor: pointer;
+        font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+      }
+      .suite-promo-logo {
+        width: 112px;
+        height: 112px;
+        border-radius: 24px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+        animation: suite-promo-logo 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .suite-promo-name {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin: 0;
+        animation: suite-promo-name 0.55s ease 0.28s both;
+      }
+      .suite-promo-name strong {
+        font-family: "Libre Baskerville", Georgia, serif;
+        font-size: clamp(2rem, 5vw, 3.1rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        line-height: 1;
+      }
+      .suite-promo-name small {
+        margin-top: 10px;
+        color: #d4b56a;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+      }
+      .suite-promo-line {
+        width: min(168px, 42vw);
+        height: 3px;
+        margin-top: 4px;
+        border-radius: 999px;
+        background: #c9a227;
+        transform-origin: center;
+        animation: suite-promo-line 0.5s ease 0.72s both;
+      }
+      .suite-promo-skip {
+        position: absolute;
+        top: 18px;
+        right: 18px;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: 999px;
+        padding: 7px 14px;
+        font: inherit;
+        font-size: 0.88rem;
+        cursor: pointer;
+      }
+      .suite-promo-skip:hover {
+        color: #fff;
+        border-color: #fff;
+      }
+      .suite-promo.is-out {
+        animation: suite-promo-out 0.4s ease forwards;
+        pointer-events: none;
+      }
+      @keyframes suite-promo-logo {
+        from { opacity: 0; transform: translateY(14px) scale(0.9); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes suite-promo-name {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes suite-promo-line {
+        from { transform: scaleX(0); }
+        to { transform: scaleX(1); }
+      }
+      @keyframes suite-promo-out {
+        to { opacity: 0; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .suite-promo { display: none; }
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -25,7 +132,36 @@
     />
   </head>
   <body>
+    <div class="suite-promo" id="suite-promo" role="dialog" aria-modal="true" aria-label="Shrija Hallmark Suite">
+      <button class="suite-promo-skip" type="button">Skip</button>
+      <img class="suite-promo-logo" src="/logo.svg" width="112" height="112" alt="">
+      <p class="suite-promo-name"><strong>Shrija</strong><small>Hallmark Suite</small></p>
+      <span class="suite-promo-line" aria-hidden="true"></span>
+    </div>
     <div id="root"></div>
+    <script>
+      (function () {
+        var promo = document.getElementById("suite-promo");
+        if (!promo || document.documentElement.classList.contains("promo-off")) return;
+        document.documentElement.classList.add("promo-on");
+        function finish() {
+          if (!promo.isConnected || promo.classList.contains("is-out")) return;
+          promo.classList.add("is-out");
+          document.documentElement.classList.remove("promo-on");
+          try {
+            sessionStorage.setItem("shrija-hallmark-promo", "1");
+          } catch (error) {}
+          setTimeout(function () {
+            promo.remove();
+          }, 420);
+        }
+        promo.addEventListener("click", finish);
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape") finish();
+        });
+        setTimeout(finish, 2500);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
