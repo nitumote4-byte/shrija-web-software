@@ -31,6 +31,9 @@ function cacheBlockedLicense(code: 'EXPIRED' | 'SUSPENDED', reason: string): Lic
 /** Loads store + KV from API for the JWT tenant before rendering the app shell. */
 export function TenantBootstrap({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(() => !isAuthenticated() || isTenantHydrated())
+  const [phase, setPhase] = useState<'loading' | 'out' | 'app'>(() =>
+    !isAuthenticated() || isTenantHydrated() ? 'app' : 'loading',
+  )
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -125,11 +128,34 @@ export function TenantBootstrap({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  if (!ready) {
+  useEffect(() => {
+    if (!ready || phase === 'app') return
+    setPhase('out')
+    const timer = window.setTimeout(() => setPhase('app'), 400)
+    return () => window.clearTimeout(timer)
+  }, [ready, phase])
+
+  useEffect(() => {
+    if (phase === 'app') return
+    document.documentElement.classList.add('promo-on')
+    return () => document.documentElement.classList.remove('promo-on')
+  }, [phase])
+
+  if (phase !== 'app') {
     return (
-      <div className="login-page" style={{ placeItems: 'center' }}>
-        <p>Loading centre data…</p>
-        {error && <p className="login-error">{error}</p>}
+      <div
+        className={phase === 'out' ? 'suite-promo is-hold is-out' : 'suite-promo is-hold'}
+        role="status"
+        aria-live="polite"
+        aria-label="Loading centre data"
+      >
+        <img className="suite-promo-logo" src="/logo.svg" width="112" height="112" alt="" />
+        <p className="suite-promo-name">
+          <strong>Shrija</strong>
+          <small>Hallmark Suite</small>
+        </p>
+        <span className="suite-promo-line" aria-hidden="true" />
+        {error ? <p className="suite-promo-error">{error}</p> : null}
       </div>
     )
   }

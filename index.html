@@ -29,7 +29,18 @@
     </script>
     <style>
       html.promo-on { overflow: hidden; }
-      html.promo-off .suite-promo { display: none; }
+      html.promo-off .suite-promo:not(.is-hold) { display: none; }
+      .suite-promo.is-hold { cursor: default; }
+      .suite-promo-error {
+        position: absolute;
+        left: 24px;
+        right: 24px;
+        bottom: 28px;
+        margin: 0;
+        text-align: center;
+        color: #f3d7d4;
+        font-size: 0.92rem;
+      }
       .suite-promo {
         position: fixed;
         inset: 0;
@@ -121,7 +132,13 @@
         to { opacity: 0; }
       }
       @media (prefers-reduced-motion: reduce) {
-        .suite-promo { display: none; }
+        .suite-promo:not(.is-hold) { display: none; }
+        .suite-promo.is-hold,
+        .suite-promo.is-hold .suite-promo-logo,
+        .suite-promo.is-hold .suite-promo-name,
+        .suite-promo.is-hold .suite-promo-line {
+          animation: none;
+        }
       }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
