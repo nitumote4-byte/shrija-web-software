@@ -1,15 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="14" fill="#1a365d"/>
-  <circle cx="32" cy="30" r="18" stroke="#c9a227" stroke-width="3.5"/>
-  <circle cx="32" cy="30" r="14" stroke="#c9a227" stroke-width="1.25"/>
-  <text
-    x="32"
-    y="38"
-    text-anchor="middle"
-    font-family="Georgia, 'Times New Roman', serif"
-    font-size="26"
-    font-weight="700"
-    fill="#c9a227"
-  >S</text>
-  <rect x="20" y="42" width="24" height="2.5" rx="1" fill="#c9a227"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Shrija Hallmark Suite">
+  <rect width="512" height="512" rx="108" fill="#1a365d"/>
+  <circle cx="256" cy="256" r="214" fill="#0f2744"/>
+  <circle cx="256" cy="256" r="198" fill="none" stroke="#c9a227" stroke-width="15"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#d4b56a" stroke-width="2.5"/>
+  <circle cx="256" cy="256" r="187" fill="none" stroke="#e8d48a" stroke-width="4" stroke-dasharray="1.5 11.8" stroke-linecap="round"/>
+  <circle cx="256" cy="112" r="32" fill="#163056" stroke="#e8d48a" stroke-width="3.5"/>
+  <text x="256" y="126" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="38" font-weight="700" fill="#e8d48a">S</text>
+  <path d="M248 144h16v18h-16z" fill="#c9a227"/>
+  <circle cx="148" cy="176" r="7" fill="#e8d48a"/>
+  <circle cx="364" cy="176" r="7" fill="#e8d48a"/>
+  <path d="M154 176h204" stroke="#e8d48a" stroke-width="8" stroke-linecap="round"/>
+  <polygon points="256,166 247,180 265,180" fill="#e8d48a"/>
+  <path d="M256 180v34" stroke="#c9a227" stroke-width="6" stroke-linecap="round"/>
+  <path d="M164 180l-16 48" stroke="#e3c36a" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M164 180l16 48" stroke="#e3c36a" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M348 180l-16 48" stroke="#e3c36a" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M348 180l16 48" stroke="#e3c36a" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M132 228h64c0 16-64 16-64 0z" fill="#c9a227"/>
+  <path d="M140 228h48c0 8-48 8-48 0z" fill="#e8d48a"/>
+  <circle cx="164" cy="224" r="5.5" fill="#c9a227"/>
+  <path d="M316 228h64c0 16-64 16-64 0z" fill="#c9a227"/>
+  <path d="M324 228h48c0 8-48 8-48 0z" fill="#e8d48a"/>
+  <circle cx="348" cy="224" r="5.5" fill="#c9a227"/>
+  <path d="M214 292h84l-10 18h-64z" fill="#9a7528"/>
+  <ellipse cx="256" cy="308" rx="52" ry="13" fill="#c9a227"/>
+  <ellipse cx="256" cy="304" rx="40" ry="8" fill="#e8d48a"/>
+  <path fill="#e8d48a" d="M256 236c-10 22-24 24-20 48 3 16 12 22 20 28 8-6 17-12 20-28 4-24-10-26-20-48z"/>
+  <path fill="#c9a227" d="M232 268c-8 16-12 16-8 32 3 12 10 14 14 16 2-8 8-10 8-22 0-10-8-14-14-26z"/>
+  <path fill="#c9a227" d="M280 268c8 16 12 16 8 32-3 12-10 14-14 16-2-8-8-10-8-22 0-10 8-14 14-26z"/>
 </svg>
