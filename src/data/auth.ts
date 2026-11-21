@@ -9,6 +9,7 @@ import {
 } from '../api/client'
 import { flushStoreNow, hydrateTenantData, resetTenantCache } from './tenantCache'
 import { setCachedLicense, type LicenseStatus } from './license'
+import { sessionStillValid } from './sessionClock'
 
 export type AuthSession = ApiSession
 
@@ -17,7 +18,7 @@ export function getSession(): AuthSession | null {
 }
 
 export function isAuthenticated(): boolean {
-  return Boolean(getToken() && readStoredSession())
+  return Boolean(getToken() && readStoredSession() && sessionStillValid())
 }
 
 export function clearSession() {

@@ -19,6 +19,7 @@ import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_VERSION } from '../data/modules'
 export function Login() {
   const [params] = useSearchParams()
   const resetSuccess = params.get('reset') === 'success'
+  const sessionExpired = params.get('expired') === '1'
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -139,6 +140,11 @@ export function Login() {
           {resetSuccess && !error && (
             <p className="login-success" role="status">
               Password has been reset. You can now sign in with your new password.
+            </p>
+          )}
+          {sessionExpired && !error && !resetSuccess && (
+            <p className="login-success" role="status">
+              Session timed out. Sign in again.
             </p>
           )}
 

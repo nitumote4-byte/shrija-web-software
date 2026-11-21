@@ -1,4 +1,5 @@
 import { toSafeApiErrorMessage } from '../errors/safeErrorMessage'
+import { clearSessionActivity, markSessionActivity } from '../data/sessionClock'
 
 const TOKEN_KEY = 'shrija-auth-token'
 const SESSION_KEY = 'shrija-auth-session'
@@ -25,12 +26,14 @@ export function setAuth(token: string, session: ApiSession) {
   localStorage.setItem(TOKEN_KEY, token)
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   localStorage.setItem('shrija-active-tenant', session.tenantId)
+  markSessionActivity()
 }
 
 export function clearAuth() {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(SESSION_KEY)
   localStorage.removeItem('shrija-active-tenant')
+  clearSessionActivity()
 }
 
 export function readStoredSession(): ApiSession | null {
