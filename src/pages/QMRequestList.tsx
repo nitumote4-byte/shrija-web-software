@@ -621,7 +621,9 @@ export function QMRequestList() {
                         </span>
                       </td>
                     </tr>
-                    {group.rows.map((r) => {
+                    {group.rows.map((r, rowIndex) => {
+                  const lead = rowIndex === 0
+                  const span = group.rows.length
                   const req = r.requestNo ? store.getRequestByNo(r.requestNo) : undefined
                   const transfer = oscTransferLabel(req?.oscTransferStatus)
                   return (
@@ -633,8 +635,11 @@ export function QMRequestList() {
                         onChange={(e) => patchRow(r.id, { checked: e.target.checked })}
                       />
                     </td>
-                    <td className="qm-linkish">{r.partyName}</td>
-                    <td>
+                    {lead ? (
+                      <td className="reqlist-shared qm-linkish" rowSpan={span}>{r.partyName}</td>
+                    ) : null}
+                    {lead ? (
+                    <td className="reqlist-shared" rowSpan={span}>
                       <input
                         className="table-input"
                         value={r.co || ''}
@@ -642,11 +647,14 @@ export function QMRequestList() {
                         onChange={(e) => patchCo(r.id, e.target.value)}
                       />
                     </td>
+                    ) : null}
                     <td className="qm-linkish">{r.item}</td>
                     <td>{r.pic}</td>
                     <td>{r.weight.toFixed(3)}</td>
                     <td>{r.purity}</td>
-                    <td>{r.requestNo || '—'}</td>
+                    {lead ? (
+                      <td className="reqlist-shared" rowSpan={span}>{r.requestNo || '—'}</td>
+                    ) : null}
                     <td>
                       {transfer ? (
                         <span className="role-badge">{transfer}</span>

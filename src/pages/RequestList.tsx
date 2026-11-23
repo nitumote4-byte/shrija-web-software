@@ -50,6 +50,19 @@ function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
   })
 }
 
+function sameRequest(a: { requestNo?: string }, b: { requestNo?: string }) {
+  const request = (a.requestNo || '').trim()
+  return Boolean(request) && request === (b.requestNo || '').trim()
+}
+
+function persistSharedCo(source: SheetRow, all: SheetRow[]) {
+  const co = source.co || ''
+  for (const row of all) {
+    if (row.id === source.id || !sameRequest(source, row)) continue
+    store.updateRoughSheetRow(row.id, { co })
+  }
+}
+
 function persistRow(row: SheetRow, markJobSaved: boolean) {
   const jobCardNo = (row.jobCardNo || '').trim()
   store.updateRoughSheetRow(row.id, {
@@ -161,6 +174,18 @@ export function RequestList() {
     )
   }, [filtered])
 
+  const patchCo = (id: string, co: string) => {
+    setRows((prev) => {
+      const source = prev.find((r) => r.id === id)
+      if (!source) return prev
+      return prev.map((r) => {
+        if (r.id !== id && !sameRequest(source, r)) return r
+        if (r.id !== id && (r.co || '') === co) return r
+        return { ...r, co, dirty: r.id === id ? true : r.dirty }
+      })
+    })
+  }
+
   const patchRow = (id: string, patch: Partial<SheetRow>) => {
     setRows((prev) =>
       prev.map((r) => {
@@ -203,8 +228,13 @@ export function RequestList() {
       return
     }
     persistRow(row, true)
+    persistSharedCo(row, rows)
     setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, dirty: false, jobCardSaved: true, jobCardNo: jc } : r)),
+      prev.map((r) => {
+        if (r.id === id) return { ...r, dirty: false, jobCardSaved: true, jobCardNo: jc, co: row.co }
+        if (sameRequest(row, r)) return { ...r, co: row.co || '' }
+        return r
+      }),
     )
     toast('Row saved')
   }
@@ -218,6 +248,13 @@ export function RequestList() {
       return
     }
     for (const row of list) persistRow(row, true)
+    const seenRequests = new Set<string>()
+    for (const row of list) {
+      const request = (row.requestNo || '').trim()
+      if (!request || seenRequests.has(request)) continue
+      seenRequests.add(request)
+      persistSharedCo(row, rows)
+    }
     reload()
     toast(`Saved ${list.length} row(s)`)
   }
@@ -421,7 +458,9 @@ export function RequestList() {
                         </span>
                       </td>
                     </tr>
-                    {group.rows.map((r) => {
+                    {group.rows.map((r, rowIndex) => {
+                  const lead = rowIndex === 0
+                  const span = group.rows.length
                   const req = r.requestNo ? store.getRequestByNo(r.requestNo) : undefined
                   const transfer = oscTransferLabel(req?.oscTransferStatus)
                   return (
@@ -433,19 +472,21 @@ export function RequestList() {
                         onChange={(e) => patchRow(r.id, { checked: e.target.checked })}
                       />
                     </td>
-                    <td>{r.partyName}</td>
-                    <td>
+                    {lead ? <td className="reqlist-shared" rowSpan={span}>{r.partyName}</td> : null}
+                    {lead ? (
+                    <td className="reqlist-shared" rowSpan={span}>
                       <input
                         className="table-input"
                         value={r.co || ''}
-                        onChange={(e) => patchRow(r.id, { co: e.target.value })}
+                        onChange={(e) => patchCo(r.id, e.target.value)}
                       />
                     </td>
+                    ) : null}
                     <td>{r.item}</td>
                     <td>{r.pic}</td>
                     <td>{r.weight.toFixed(3)}</td>
                     <td>{r.purity}</td>
-                    <td>{r.requestNo || '—'}</td>
+                    {lead ? <td className="reqlist-shared" rowSpan={span}>{r.requestNo || '—'}</td> : null}
                     <td>
                       {transfer ? (
                         <span className="role-badge" title={req?.oscTransferStatus}>

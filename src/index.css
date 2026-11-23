@@ -5041,6 +5041,10 @@ button {
   opacity: 0.88;
 }
 
+.reqlist-shared {
+  vertical-align: top;
+}
+
 .reqlist-table tbody tr.reqlist-request-gap:hover td,
 .reqlist-table tbody tr.reqlist-request-head:hover td {
   background: #1e3a5f !important;
