@@ -29,6 +29,7 @@ import {
   listFireAssaySheetNos,
   nextAvailableSheetNo,
   parseFireAssaySheetNumber,
+  publishManakFireAssaySheet,
   publishManakFireAssaySheetAndFlush,
   sheetNumberForNewSheetGeneration,
   todayFireAssayDate,
@@ -540,6 +541,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
     if (!saved) return
     applySavedCg(saved)
     const source = saved.viewRows?.length ? saved.viewRows : saved.rows || []
+    publishManakFireAssaySheet(saved)
     if (!source.length) return
     setRows(
       source.map((r, i) => ({
@@ -599,6 +601,103 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       return next
     })
   }, [avgDelta])
+
+  const buildLiveManakSheet = (activeSheet: string, sheetRows: SheetRow[]): ManakFireAssaySheet | null => {
+    if (!purity || !activeSheet || !sheetRows.some((r) => r.jobCardNo.trim())) return null
+    const existingSheet = getFireAssaySheet(purity, shift || 'Day', activeSheet, sheetDate)
+    const avg = Number(avgDelta) || 0
+    const toRow = (r: SheetRow, i: number, keepEmpty: boolean) => {
+      const parsed = parseLotJobCard(r.jobCardNo)
+      const lot = parsed.lotNo || r.lotNo || Math.floor(i / 2) + 1
+      const manakJobCard = r.jobCardNo.trim()
+        ? parsed.jobCard || r.jobCardNo.replace(/^\d+[_\-/]/, '').trim()
+        : ''
+      if (!keepEmpty && !r.jobCardNo.trim()) return null
+      return {
+        lotNo: lot,
+        jobCardNo: r.jobCardNo.trim(),
+        manakJobCard,
+        sampleDrawn: Number(r.sampleDrawn) || 0,
+        sampleWeight: Number(r.sampleWeight) || 0,
+        silver: Number(r.silver) || 0,
+        copper: 0,
+        lead: Number(r.lead) || 4,
+        wotgcaa: Number(r.wotgcaa) || 0,
+        fineness: Number(r.fineness) || 0,
+        meanFineness: Number(r.meanFineness) || 0,
+        partyName: r.partyName,
+        requestNo: r.requestNo,
+      }
+    }
+    return {
+      version: 1,
+      source: 'shrija-hallmark-suite',
+      createdAt: existingSheet?.createdAt || new Date().toISOString(),
+      date: existingSheet?.date || sheetDate,
+      purity,
+      shift: shift || 'Day',
+      sheetNo: String(activeSheet),
+      assayType: meta.assayType,
+      cg: {
+        cg1Id: Number(cg1Id) || undefined,
+        cg2Id: Number(cg2Id) || undefined,
+        cg1: cg1Val || 0,
+        cg2: cg2Val || 0,
+        silverCg1: Number(silverCg1) || 0,
+        silverCg2: Number(silverCg2) || 0,
+        copperCg1: Number(copperCg1) || 0,
+        copperCg2: Number(copperCg2) || 0,
+        leadCg1: Number(leadCg1) || 4,
+        leadCg2: Number(leadCg2) || 4,
+        wotgcaa1: Number(wotgcaa1) || 0,
+        wotgcaa2: Number(wotgcaa2) || 0,
+        delta1: Number(delta1) || 0,
+        delta2: Number(delta2) || 0,
+        avgDelta: avg,
+      },
+      rows: sheetRows.flatMap((r, i) => {
+        const row = toRow(r, i, false)
+        return row ? [row] : []
+      }),
+      viewRows: sheetRows.flatMap((r, i) => {
+        const row = toRow(r, i, true)
+        return row ? [row] : []
+      }),
+    }
+  }
+
+  useEffect(() => {
+    if (!purity || !sheetNo) return
+    if (!getFireAssaySheet(purity, shift || 'Day', sheetNo, sheetDate)) return
+    const timer = window.setTimeout(() => {
+      const sheet = buildLiveManakSheet(sheetNo, rows)
+      if (sheet) publishManakFireAssaySheet(sheet)
+    }, 600)
+    return () => window.clearTimeout(timer)
+    // Republish M2 and other edits on a sheet that was already created.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    rows,
+    sheetNo,
+    purity,
+    shift,
+    sheetDate,
+    wotgcaa1,
+    wotgcaa2,
+    silverCg1,
+    silverCg2,
+    leadCg1,
+    leadCg2,
+    copperCg1,
+    copperCg2,
+    delta1,
+    delta2,
+    avgDelta,
+    cg1Id,
+    cg2Id,
+    cg1Val,
+    cg2Val,
+  ])
 
   const buildBlankLotPair = (
     lotNo: number,

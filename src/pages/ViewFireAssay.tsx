@@ -10,6 +10,7 @@ import {
   listFireAssaySheetNos,
   loadFireAssaySheetArchive,
   nextSharedSheetNo,
+  publishManakFireAssaySheet,
   publishManakFireAssaySheetAndFlush,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
@@ -207,6 +208,7 @@ export function ViewFireAssay() {
       ])
     }
     setRows(view)
+    publishManakFireAssaySheet(sheet)
     if (!silent) {
       const n = (sheet.viewRows || sheet.rows).length
       toast(`Opened sheet ${sheet.sheetNo} · ${n} row(s) · ${sheet.purity} · ${sheet.shift}`)

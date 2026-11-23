@@ -144,7 +144,7 @@ const SAMPLE_SHEET = {
     },
     {
       lotNo: 2,
-      jobCardNo: '1_104736832',
+      jobCardNo: '2_104736832',
       manakJobCard: '104736832',
       sampleDrawn: 332.81,
       sampleWeight: 166.525,
@@ -156,7 +156,7 @@ const SAMPLE_SHEET = {
     },
     {
       lotNo: 2,
-      jobCardNo: '1_104736832',
+      jobCardNo: '2_104736832',
       manakJobCard: '104736832',
       sampleDrawn: 332.81,
       sampleWeight: 166.285,
@@ -335,6 +335,42 @@ async function main() {
   const clicks = trackClicks(window.document)
 
   // --- Unit: lot parse ---
+  const sheetOne = {
+    sheetNo: '1',
+    publishedAt: 1,
+    rows: [{ lotNo: 1, jobCardNo: '1_111', manakJobCard: '111', wotgcaa: 10 }],
+  }
+  const sheetTwo = {
+    sheetNo: '2',
+    publishedAt: 2,
+    rows: [{ lotNo: 1, jobCardNo: '1_222', manakJobCard: '222', wotgcaa: 20 }],
+  }
+  const older = ManakFill.pickSheetForJobLot([sheetTwo, sheetOne], '111', 1)
+  assert(older && older.sheetNo === '1', 'sheet 2 does not hide sheet 1 job')
+  const latest = ManakFill.pickSheetForJobLot(
+    [sheetOne, { ...sheetOne, publishedAt: 9, rows: [{ ...sheetOne.rows[0], wotgcaa: 99 }] }],
+    '111',
+    1,
+  )
+  assert(latest && latest.rows[0].wotgcaa === 99, 'newer M2 on the same job wins')
+  const oneLotSheet = {
+    rows: [
+      { lotNo: 2, jobCardNo: '1_104736831', manakJobCard: '104736831', sampleWeight: 111 },
+      { lotNo: 3, jobCardNo: '1_104736831', manakJobCard: '104736831', sampleWeight: 112 },
+    ],
+  }
+  assert(
+    ManakFill.resolveStripRowsByJobAndLot(oneLotSheet, '104736831', 1).rows.length === 2,
+    'typed lot 1 is used when sheet lotNo is the row position',
+  )
+  assert(
+    ManakFill.resolveStripRowsByJobAndLot(oneLotSheet, '104736831', 2).rows.length === 0,
+    'lot 2 does not receive the only lot 1 entry',
+  )
+  assert(
+    ManakFill.resolveStripRowsByJobAndLot(oneLotSheet, '104736831', 3).rows.length === 0,
+    'lot 3 does not receive the only lot 1 entry',
+  )
   assert(ManakFill.parseLotOptionText('Lot 1:104736831').jobCard === '104736831', 'parse Lot 1:job')
   assert(ManakFill.parseLotOptionText('Select').lot == null, 'Select = no lot')
 

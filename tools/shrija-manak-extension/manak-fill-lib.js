@@ -399,11 +399,22 @@
     return ManakFill.parseShrijaJob(r.jobCardNo).card === want
   }
 
+  /**
+   * One Manak lot number for this row.
+   * `1_job` means lot 1 even if the sheet stored a different lotNo (row position).
+   * Those two must not both match, or lot 1's weights also fill lot 2 and lot 3.
+   */
+  ManakFill.rowLotNumber = function rowLotNumber(r) {
+    const fromCard = Number(ManakFill.parseShrijaJob(r?.jobCardNo).lot) || 0
+    if (fromCard > 0) return fromCard
+    const stored = Number(r?.lotNo)
+    return Number.isFinite(stored) && stored > 0 ? stored : 0
+  }
+
   ManakFill.rowMatchesLot = function rowMatchesLot(r, lotNum) {
-    if (lotNum == null || Number.isNaN(Number(lotNum))) return false
     const n = Number(lotNum)
-    if (Number(r.lotNo) === n) return true
-    return ManakFill.parseShrijaJob(r.jobCardNo).lot === n
+    if (!Number.isFinite(n) || n <= 0) return false
+    return ManakFill.rowLotNumber(r) === n
   }
 
   /**
@@ -424,8 +435,20 @@
   }
 
   /**
-   * Live Phase 1 + Phase 2: Job Card + Lot only. No job-only / lot-only / first-row fallback.
+   * Lot fill must use the sheet that contains this Job + Lot.
+   * A newer sheet must not hide M2 values that still belong to an earlier sheet.
    */
+  ManakFill.pickSheetForJobLot = function pickSheetForJobLot(sheets, jobCard, lot) {
+    const list = (Array.isArray(sheets) ? sheets : Object.values(sheets || {})).filter(Boolean)
+    const matches = list.filter((sheet) => {
+      const resolved = ManakFill.resolveStripRowsByJobAndLot(sheet, jobCard, lot)
+      return resolved.rows.length > 0
+    })
+    if (!matches.length) return null
+    matches.sort((a, b) => Number(b.publishedAt || 0) - Number(a.publishedAt || 0))
+    return matches[0]
+  }
+
   ManakFill.resolvePhaseStripRows = function resolvePhaseStripRows(sheet, selectText, opts = {}) {
     const fromOpt = ManakFill.parseLotOptionText(selectText)
     const lotNum = opts.lot != null && opts.lot !== '' ? Number(opts.lot) : fromOpt.lot

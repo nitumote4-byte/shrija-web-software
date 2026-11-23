@@ -5,6 +5,7 @@
  * Does not click/focus weight fields (that opens BIS Web Serial).
  */
 const KEY = 'shrija-manak-fire-assay-sheet'
+const ARCHIVE_KEY = 'shrija-manak-fire-assay-archive'
 const M2_PENDING_KEY = 'shrija-manak-m2-pending'
 const FLOW_KEY = 'shrija-manak-fill-flow'
 const DONE_KEY = 'shrija-manak-fill-done'
@@ -178,9 +179,18 @@ function ensureStatusBadge() {
   const label = document.getElementById('shrija-manak-auto-label')
   if (!label) return
   try {
-    chrome.storage.local.get([KEY], (data) => {
+    chrome.storage.local.get([KEY, ARCHIVE_KEY], (data) => {
       if (!extAlive() || chrome.runtime.lastError) return
-      const sheet = data[KEY]
+      const lotNow = MF ? readSelectedLot() : { lot: null, jobCard: '' }
+      const archive = data[ARCHIVE_KEY]
+      const list = []
+      if (archive && typeof archive === 'object') list.push(...Object.values(archive))
+      if (data[KEY]) list.push(data[KEY])
+      const matched =
+        lotNow.jobCard && lotNow.lot != null && MF?.pickSheetForJobLot
+          ? MF.pickSheetForJobLot(list, lotNow.jobCard, lotNow.lot)
+          : null
+      const sheet = matched || data[KEY]
       const fs = sheet?.sheetNo || '?'
       const lot = MF ? readSelectedLot() : { lot: null, jobCard: '' }
       const lotBit =
@@ -317,8 +327,17 @@ function requiredDrawnForStrips(sheet, selectText, lot, jobCard) {
   return Number(Math.max(fromSheet, need).toFixed(3))
 }
 
-async function currentSheet() {
-  return (await storageGet([KEY]))[KEY]
+async function sheetForJob(jobCard, lot) {
+  const data = await storageGet([KEY, ARCHIVE_KEY])
+  const archive = data[ARCHIVE_KEY]
+  const list = []
+  if (archive && typeof archive === 'object') list.push(...Object.values(archive))
+  if (data[KEY]) list.push(data[KEY])
+  if (jobCard && lot != null && MF?.pickSheetForJobLot) {
+    const picked = MF.pickSheetForJobLot(list, jobCard, lot)
+    if (picked) return picked
+  }
+  return data[KEY]
 }
 
 function requireSelectedLot(resumeOpts = {}) {
@@ -369,13 +388,13 @@ async function runPhase1(resumeOpts = {}) {
   window.__shrijaFilling = true
   try {
     await disableLegacyAutoM2()
-    const sheet = await currentSheet()
+    const lot = requireSelectedLot(resumeOpts)
+    if (!lot) return
+    const sheet = await sheetForJob(lot.jobCard, lot.lot)
     if (!sheet) {
       showToast('Shrija AUTO: pehle Create Sheet')
       return
     }
-    const lot = requireSelectedLot(resumeOpts)
-    if (!lot) return
     if (lot.lot == null || !lot.jobCard) {
       showToast('Shrija Phase 1: Job Card + Lot dono chahiye')
       return
@@ -466,13 +485,13 @@ async function runPhase2(resumeOpts = {}) {
   window.__shrijaFilling = true
   try {
     await disableLegacyAutoM2()
-    const sheet = await currentSheet()
+    const lot = requireSelectedLot()
+    if (!lot) return
+    const sheet = await sheetForJob(lot.jobCard, lot.lot)
     if (!sheet) {
       showToast('Shrija AUTO: pehle Create Sheet')
       return
     }
-    const lot = requireSelectedLot()
-    if (!lot) return
     if (lot.lot == null || !lot.jobCard) {
       showToast('Shrija Phase 2: Job Card + Lot dono chahiye')
       return
@@ -529,9 +548,9 @@ async function runLotAutoFill(reason) {
   if (window.__shrijaLotAutoRunning) return
   window.__shrijaLotAutoRunning = true
   try {
-  const sheet = await currentSheet()
   const lot = readSelectedLot()
   if (lot.lot == null || !lot.jobCard) return
+  const sheet = await sheetForJob(lot.jobCard, lot.lot)
   if (!sheet) {
     if (reason === 'change') showToast('Shrija AUTO: pehle Create Sheet')
     return
@@ -612,6 +631,13 @@ try {
     if (msg?.type === 'SHRIJA_FILL_MANAK_NOW') runPhase1()
     if (msg?.type === 'SHRIJA_FILL_MANAK_PHASE1') runPhase1()
     if (msg?.type === 'SHRIJA_FILL_MANAK_PHASE2') runPhase2()
+  })
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !extAlive()) return
+    if (!changes[KEY] && !changes[ARCHIVE_KEY]) return
+    const lot = readSelectedLot()
+    if (lot.lot == null || !lot.jobCard) return
+    scheduleLotAutoFill('storage')
   })
 } catch {
   /* ignore */

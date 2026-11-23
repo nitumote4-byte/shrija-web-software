@@ -2,6 +2,7 @@ import { tenantGet, tenantSet } from './tenant'
 import { bumpFireAssayArchiveVersion, flushPendingKv } from './tenantCache'
 
 export const MANAK_FIRE_ASSAY_KEY = 'shrija-manak-fire-assay-sheet'
+export const MANAK_FIRE_ASSAY_ARCHIVE_KEY = 'shrija-manak-fire-assay-archive'
 export const MANAK_FIRE_ASSAY_EVENT = 'shrija:manak-fire-assay-sheet'
 export const FIRE_ASSAY_SHEETS_KEY = 'shrija-fire-assay-sheets-archive'
 
@@ -54,6 +55,8 @@ export type ManakFireAssaySheet = {
   rows: ManakFireAssayRow[]
   /** Full grid (e.g. 22 rows) for View Fire Assay */
   viewRows?: ManakFireAssayRow[]
+  /** Milliseconds when this copy was last sent to the Manak extension. */
+  publishedAt?: number
 }
 
 /** YYYY-MM-DD from a date picker, stored `date`, or ISO `createdAt`. */
@@ -253,11 +256,15 @@ export function fireAssaySheetExists(
 }
 
 export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
-  saveFireAssaySheetArchive(sheet)
-  const json = JSON.stringify(sheet)
+  const published: ManakFireAssaySheet = { ...sheet, publishedAt: Date.now() }
+  saveFireAssaySheetArchive(published)
+  const archive = loadFireAssaySheetArchive()
+  const json = JSON.stringify(published)
+  const archiveJson = JSON.stringify(archive)
   try {
     localStorage.setItem(MANAK_FIRE_ASSAY_KEY, json)
     sessionStorage.setItem(MANAK_FIRE_ASSAY_KEY, json)
+    localStorage.setItem(MANAK_FIRE_ASSAY_ARCHIVE_KEY, archiveJson)
     // Also mirror under plain key for older extension builds
     localStorage.setItem('shrija-manak-fire-assay-sheet-v1', json)
   } catch {
@@ -265,6 +272,7 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
   }
   try {
     tenantSet(MANAK_FIRE_ASSAY_KEY, json)
+    tenantSet(MANAK_FIRE_ASSAY_ARCHIVE_KEY, archiveJson)
   } catch {
     /* ignore */
   }
@@ -282,12 +290,13 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
     }
     el.textContent = json
     el.setAttribute('data-updated', String(Date.now()))
+    el.setAttribute('data-archive', archiveJson)
   } catch {
     /* ignore */
   }
 
   try {
-    window.dispatchEvent(new CustomEvent(MANAK_FIRE_ASSAY_EVENT, { detail: sheet }))
+    window.dispatchEvent(new CustomEvent(MANAK_FIRE_ASSAY_EVENT, { detail: published }))
   } catch {
     /* ignore */
   }
@@ -295,7 +304,10 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
   // postMessage — content script listens; repeat so late-injected scripts catch it
   const ping = () => {
     try {
-      window.postMessage({ type: 'SHRIJA_MANAK_FIRE_ASSAY', sheet }, '*')
+      window.postMessage(
+        { type: 'SHRIJA_MANAK_FIRE_ASSAY', sheet: published, archive },
+        '*',
+      )
     } catch {
       /* ignore */
     }
@@ -305,7 +317,7 @@ export function publishManakFireAssaySheet(sheet: ManakFireAssaySheet) {
   setTimeout(ping, 1000)
   setTimeout(ping, 2500)
 
-  return sheet
+  return published
 }
 
 /** Publish sheet and flush durable KV so deploy/refresh cannot drop the archive write. */
