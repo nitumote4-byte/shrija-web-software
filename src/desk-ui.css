@@ -132,8 +132,9 @@ html[data-density='compact'] {
   border-color: var(--navy-deep);
 }
 
-.app-main.desk-enter {
-  animation: desk-enter 180ms ease;
+.app-main.desk-enter,
+.main-content > * {
+  animation: none;
 }
 
 @keyframes desk-enter {
@@ -678,6 +679,14 @@ html[data-density='compact'] .top-header {
       inset -4px -4px 8px rgba(255, 255, 255, 0.9);
   }
 
+  .app-main table input,
+  .app-main table select,
+  .app-main table textarea {
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: none;
+  }
+
   .app-main .party-search-box input,
   .app-main .search-box input {
     background: transparent;
@@ -795,7 +804,7 @@ html[data-density='compact'] .top-header {
 
 .edge-clones {
   position: fixed;
-  right: 0;
+  right: 18px;
   top: 50%;
   z-index: 80;
   display: flex;
@@ -803,9 +812,16 @@ html[data-density='compact'] .top-header {
   justify-content: flex-start;
   align-items: flex-end;
   gap: 8px;
-  width: auto;
+  width: 14px;
+  overflow: hidden;
   transform: translateY(-50%);
+  transition: width 0.28s ease;
   pointer-events: none;
+}
+
+.edge-clones.is-open:hover,
+.edge-clones.is-open:focus-within {
+  width: 186px;
 }
 
 .edge-clone {
@@ -825,7 +841,7 @@ html[data-density='compact'] .top-header {
   border-radius: 999px;
   white-space: nowrap;
   cursor: pointer;
-  transform: translateX(162px) rotate(-6deg);
+  transform: rotate(-6deg);
   transform-origin: right center;
   transition: transform 0.28s ease;
   background-image:
@@ -838,13 +854,9 @@ html[data-density='compact'] .top-header {
     8px 16px 18px rgba(15, 23, 42, 0.28);
 }
 
-.edge-clones.is-open .edge-clone {
-  transform: translateX(86px) rotate(-6deg);
-}
-
-.edge-clones.is-open .edge-clone:hover,
-.edge-clones.is-open .edge-clone:active {
-  transform: translateX(22px) rotate(-3deg);
+.edge-clones.is-open:hover .edge-clone,
+.edge-clones.is-open:focus-within .edge-clone {
+  transform: rotate(-3deg);
 }
 
 .edge-clone:active {
