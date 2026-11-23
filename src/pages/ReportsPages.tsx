@@ -49,6 +49,7 @@ import {
 import { nextCreditNoteNo } from '../utils/documentNumbers'
 import { getWorkingPeriodName } from '../data/operationalPeriod'
 import { bisLevyForConsignment, metalFromPurity } from '../utils/hallmarkingRates'
+import { hallmarkedPiecesOnInvoice } from '../utils/billPieces'
 
 /** Local calendar YYYY-MM-DD (avoids UTC day shift in IST late night / early morning). */
 function localYmd(d = new Date()) {
@@ -552,21 +553,8 @@ export function PartyStatement() {
     partyOptions.find((p) => p.id === partyId) ||
     null
 
-  const hmPcsForInvoice = (inv: (typeof data.invoices)[0]) => {
-    const rough = data.roughSheets.filter(
-      (r) =>
-        r.requestNo === inv.requestNo ||
-        (r.partyName.trim().toLowerCase() === inv.partyName.trim().toLowerCase() &&
-          r.date === inv.date),
-    )
-    const fromRough = rough.reduce(
-      (s, r) => s + Math.max(0, (r.pic || 0) - (r.rejectPic || 0)),
-      0,
-    )
-    if (fromRough) return fromRough
-    const req = data.requests.find((r) => r.requestNo === inv.requestNo)
-    return req?.pieces || 0
-  }
+  const hmPcsForInvoice = (inv: (typeof data.invoices)[0]) =>
+    hallmarkedPiecesOnInvoice(inv, data)
 
   const matchPartyName = (a: string, b: string) =>
     a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -2575,16 +2563,7 @@ export function InvoiceListReport() {
       })
       .map((inv) => {
         const party = findParty(inv.partyName)
-        const req = data.requests.find((r) => r.requestNo === inv.requestNo)
-        const rough = data.roughSheets.filter(
-          (r) =>
-            r.requestNo === inv.requestNo ||
-            (r.partyName === inv.partyName && r.date === inv.date),
-        )
-        const hmPiece =
-          rough.reduce((s, r) => s + Math.max(0, (r.pic || 0) - (r.rejectPic || 0)), 0) ||
-          req?.pieces ||
-          0
+        const hmPiece = hallmarkedPiecesOnInvoice(inv, data)
         const useIgst = Boolean(party?.igstApplicable)
         const sgst = useIgst ? 0 : Number((inv.tax / 2).toFixed(2))
         const cgst = useIgst ? 0 : Number((inv.tax / 2).toFixed(2))

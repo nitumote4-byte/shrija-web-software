@@ -1,4 +1,4 @@
-# Shrija → Manak AUTO Fill v2.9.0
+# Shrija → Manak AUTO Fill v2.9.1
 
 ## Extension popup (License + Delete)
 
@@ -26,8 +26,8 @@ Client delivery: \`npm run pack:manak-ext\` → ZIP in \`dist/manak-extension-cl
 
 ## Install / update
 
-1. `chrome://extensions` → **Reload** (must show **2.9.0**)
-2. Site access: `*.vercel.app` + `huid.manakonline.in`
+1. `chrome://extensions` → **Reload** (must show **2.9.1**)
+2. Site access: `app.shrijawebsolution.in`, `*.vercel.app`, `huid.manakonline.in`
 
 ## Weight fields and the serial-port popup
 

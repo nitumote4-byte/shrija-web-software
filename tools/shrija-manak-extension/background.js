@@ -6,7 +6,7 @@ function isFireSheetUrl(url) {
   if (/manakonline\.in|newmanak\.uat\.dcservices\.in/i.test(u)) {
     return /Samplingweighting|SamplingWeighting|assayingAH|Assaying|FireAssay|fire-assay/i.test(u)
   }
-  if (/vercel\.app|localhost|127\.0\.0\.1/i.test(u)) {
+  if (/vercel\.app|shrijawebsolution\.in|localhost|127\.0\.0\.1/i.test(u)) {
     return /create-fire-assay|view-fire-assay/i.test(u)
   }
   return false
@@ -94,7 +94,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 function injectIfFireSheet(tabId, url) {
   if (!tabId || !isFireSheetUrl(url)) return
-  if (/vercel\.app|localhost|127\.0\.0\.1/i.test(url)) injectShrija(tabId)
+  if (/vercel\.app|shrijawebsolution\.in|localhost|127\.0\.0\.1/i.test(url)) injectShrija(tabId)
   if (/manakonline\.in|newmanak\.uat\.dcservices\.in/i.test(url)) injectManakMainWorld(tabId)
 }
 
@@ -105,6 +105,8 @@ function onInstalledOrStartup() {
         'https://huid.manakonline.in/*',
         'https://newmanak.uat.dcservices.in/*',
         'https://*.vercel.app/*',
+        'https://shrijawebsolution.in/*',
+        'https://*.shrijawebsolution.in/*',
         'http://localhost/*',
         'http://127.0.0.1/*',
       ],

@@ -42,6 +42,9 @@ let hydratePromise: Promise<void> | null = null
 let storeVersion = 0
 /** Server store_docs.rev from last successful GET/PUT. */
 let storeRev = 0
+let pullInFlight: Promise<PullStoreResult> | null = null
+
+export type PullStoreResult = 'updated' | 'unchanged' | 'skipped' | 'error'
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let flushInFlight: Promise<{ ok: boolean; message?: string }> | null = null
 let flushQueued = false
@@ -143,6 +146,28 @@ export function isTenantHydrated() {
   return hydrated
 }
 
+/** Re-apply deletions that were saved on this computer but not yet on the server. */
+function withPendingDeletions(serverData: StoreShape): { data: StoreShape; outstanding: boolean } {
+  const scope = currentStoreScope()
+  if (!scope) return { data: serverData, outstanding: false }
+  const recoveredInvoices = applyPendingInvoiceTombstonesToStore(serverData, scope)
+  let data = recoveredInvoices.store
+  const serverTombIds = tombstoneIds(serverData[INVOICE_TOMBSTONES_KEY])
+  const confirmed = recoveredInvoices.applied
+    .filter((row) => serverTombIds.has(row.id))
+    .map((row) => row.id)
+  if (confirmed.length) clearPendingInvoiceTombstones(scope, confirmed)
+  let outstanding = recoveredInvoices.applied.some((row) => !serverTombIds.has(row.id))
+
+  const recoveredFinancial = applyPendingFinancialTombstonesToStore(data, scope)
+  data = recoveredFinancial.store
+  clearConfirmedPendingFinancialTombstones(scope, serverData)
+  if (recoveredFinancial.applied.some((row) => !confirmedFinancialOnServer(serverData, row))) {
+    outstanding = true
+  }
+  return { data, outstanding }
+}
+
 export async function hydrateTenantData() {
   if (!getToken()) {
     resetTenantCache()
@@ -157,28 +182,9 @@ export async function hydrateTenantData() {
       api<{ profile: Record<string, unknown> }>('/api/data/firm-profile'),
       fetchLetterhead(true).catch(() => null),
     ])
-    let data = storeRes.data
-    const scope = currentStoreScope()
-    let outstandingPending = false
-    if (scope) {
-      const recoveredInvoices = applyPendingInvoiceTombstonesToStore(data, scope)
-      data = recoveredInvoices.store
-      const serverTombIds = tombstoneIds(storeRes.data[INVOICE_TOMBSTONES_KEY])
-      const confirmed = recoveredInvoices.applied
-        .filter((row) => serverTombIds.has(row.id))
-        .map((row) => row.id)
-      if (confirmed.length) clearPendingInvoiceTombstones(scope, confirmed)
-      outstandingPending = recoveredInvoices.applied.some((row) => !serverTombIds.has(row.id))
-
-      const recoveredFinancial = applyPendingFinancialTombstonesToStore(data, scope)
-      data = recoveredFinancial.store
-      clearConfirmedPendingFinancialTombstones(scope, storeRes.data)
-      if (
-        recoveredFinancial.applied.some((row) => !confirmedFinancialOnServer(storeRes.data, row))
-      ) {
-        outstandingPending = true
-      }
-    }
+    const pending = withPendingDeletions(storeRes.data)
+    const data = pending.data
+    const outstandingPending = pending.outstanding
     storeCache = data
     storeRev = Number.isFinite(Number(storeRes.rev)) ? Number(storeRes.rev) : 0
     storeVersion += 1
@@ -436,6 +442,47 @@ async function flushStore(opts: FlushOpts = {}): Promise<FlushResult> {
       flushQueued = false
       void flushStore()
     }
+  }
+}
+
+function storeWritePending() {
+  return Boolean(flushTimer || flushQueued || flushInFlight || retryTimer)
+}
+
+/**
+ * Pull a newer server snapshot when this computer has no unsaved edits.
+ * Does not schedule a write. Analytics uses this so other operators show up
+ * without replacing an in-progress local save.
+ */
+export async function pullStoreIfIdle(): Promise<PullStoreResult> {
+  if (pullInFlight) return pullInFlight
+  const run = (async (): Promise<PullStoreResult> => {
+    if (!hydrated || !getToken() || !storeCache) return 'skipped'
+    if (storeWritePending()) return 'skipped'
+    const revAtStart = storeRev
+    const versionAtStart = storeVersion
+    let res: { data: StoreShape; rev?: number }
+    try {
+      res = await api<{ data: StoreShape; rev?: number }>('/api/data/store')
+    } catch {
+      return 'error'
+    }
+    if (storeWritePending() || storeVersion !== versionAtStart || storeRev !== revAtStart) return 'skipped'
+    const remoteRev = Number.isFinite(Number(res.rev)) ? Number(res.rev) : revAtStart
+    if (remoteRev <= revAtStart) return 'unchanged'
+    const pending = withPendingDeletions(res.data)
+    if (storeWritePending() || storeVersion !== versionAtStart || storeRev !== revAtStart) return 'skipped'
+    storeCache = pending.data
+    storeRev = remoteRev
+    storeVersion += 1
+    if (pending.outstanding) void flushStore()
+    return 'updated'
+  })()
+  pullInFlight = run
+  try {
+    return await run
+  } finally {
+    pullInFlight = null
   }
 }
 
