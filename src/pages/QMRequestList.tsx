@@ -48,7 +48,7 @@ function liveCornet(r: {
 }
 
 function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
-  return entries.map((r) => {
+  const built = entries.map((r) => {
     const fa = store.getFireAssaySampleWeight(r.jobCardNo, r.requestNo, r.centreId)
     const sampleWeight =
       fa.status === 'ready' && fa.total != null ? fa.total : Number(r.sampleWeight) || 0
@@ -74,6 +74,30 @@ function toSheetRows(entries: RoughSheetEntry[]): SheetRow[] {
       dirty: false,
     }
   })
+  return applySharedCo(built)
+}
+
+/** Jobs of one request number share a single C/O. Blank rows pick up the first filled value. */
+function applySharedCo(rows: SheetRow[]): SheetRow[] {
+  const first = new Map<string, string>()
+  for (const row of rows) {
+    const request = (row.requestNo || '').trim()
+    const co = (row.co || '').trim()
+    if (!request || !co || first.has(request)) continue
+    first.set(request, row.co || '')
+  }
+  return rows.map((row) => {
+    const request = (row.requestNo || '').trim()
+    if (!request || (row.co || '').trim()) return row
+    const shared = first.get(request)
+    if (!shared) return row
+    return { ...row, co: shared }
+  })
+}
+
+function sameRequest(a: { requestNo?: string }, b: { requestNo?: string }) {
+  const request = (a.requestNo || '').trim()
+  return Boolean(request) && request === (b.requestNo || '').trim()
 }
 
 function persistRow(row: SheetRow, markSaved: boolean) {
@@ -91,6 +115,15 @@ function persistRow(row: SheetRow, markSaved: boolean) {
     rejectPic: Number(row.rejectPic) || 0,
     weight: Number(row.weight) || 0,
   })
+}
+
+/** Write this request's C/O onto its other jobs without touching their job cards. */
+function persistSharedCo(source: SheetRow, all: SheetRow[]) {
+  const co = source.co || ''
+  for (const row of all) {
+    if (row.id === source.id || !sameRequest(source, row)) continue
+    store.updateRoughSheetRow(row.id, { co })
+  }
 }
 
 /**
@@ -131,7 +164,7 @@ export function QMRequestList() {
       const shifts = [...new Set(result.written.map((row) => row.shift).filter(Boolean))]
       if (dates.length === 1) setDate(dates[0])
       if (shifts.length === 1) setShift(shifts[0])
-      setRows((current) => mergePersistedSamplingRows(current, result.written))
+      setRows((current) => applySharedCo(mergePersistedSamplingRows(current, result.written)))
     }
     toast(result.summary)
   }
@@ -177,6 +210,18 @@ export function QMRequestList() {
       { pic: 0, weight: 0, sampleWeight: 0, sampleQty: 0, cornet: 0 },
     )
   }, [filtered])
+
+  const patchCo = (id: string, co: string) => {
+    setRows((prev) => {
+      const source = prev.find((r) => r.id === id)
+      if (!source) return prev
+      return prev.map((r) => {
+        if (r.id !== id && !sameRequest(source, r)) return r
+        if (r.id !== id && (r.co || '') === co) return r
+        return { ...r, co, dirty: r.id === id ? true : r.dirty }
+      })
+    })
+  }
 
   const patchRow = (id: string, patch: Partial<SheetRow>) => {
     setRows((prev) =>
@@ -246,8 +291,13 @@ export function QMRequestList() {
       return
     }
     persistRow(row, true)
+    persistSharedCo(row, rows)
     setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, dirty: false, jobCardSaved: true, jobCardNo: jc } : r)),
+      prev.map((r) => {
+        if (r.id === id) return { ...r, dirty: false, jobCardSaved: true, jobCardNo: jc, co: row.co }
+        if (sameRequest(row, r)) return { ...r, co: row.co || '' }
+        return r
+      }),
     )
     toast('Record updated successfully.')
   }
@@ -270,6 +320,13 @@ export function QMRequestList() {
       return
     }
     for (const row of list) persistRow(row, true)
+    const seenRequests = new Set<string>()
+    for (const row of list) {
+      const request = (row.requestNo || '').trim()
+      if (!request || seenRequests.has(request)) continue
+      seenRequests.add(request)
+      persistSharedCo(row, rows)
+    }
     reload()
     toast('Record updated successfully.')
   }
@@ -474,6 +531,7 @@ export function QMRequestList() {
       </div>
 
       <p className="reqlist-hint">
+        C/O is once per request number — type it on one job and the other jobs of that request fill in.
         Edit Job Card, Sample Weight (0.350 / .374 / 1.23), Sample Id, Sampling Method →{' '}
         <strong>Save</strong>
         {oscDesk ? (
@@ -548,7 +606,7 @@ export function QMRequestList() {
                         className="table-input"
                         value={r.co || ''}
                         disabled={!editMode}
-                        onChange={(e) => patchRow(r.id, { co: e.target.value })}
+                        onChange={(e) => patchCo(r.id, e.target.value)}
                       />
                     </td>
                     <td className="qm-linkish">{r.item}</td>
