@@ -4943,7 +4943,7 @@ button {
 
 .reqlist-table {
   font-size: 0.78rem;
-  min-width: 1320px;
+  min-width: 1400px;
 }
 
 .reqlist-table th {
@@ -4952,7 +4952,7 @@ button {
 }
 
 .reqlist-table .table-input {
-  min-width: 64px;
+  min-width: 72px;
   width: 100%;
 }
 
@@ -13740,22 +13740,17 @@ table.data-table td {
 }
 
 .reqlist-table th {
-  font-size: 0.74rem;
-  padding: 0.62rem 0.4rem;
+  font-size: 0.78rem;
+  padding: 0.8rem 0.75rem;
 }
 
 .reqlist-table td {
-  padding: 0.5rem 0.4rem;
-  font-size: 0.84rem;
+  padding: 0.72rem 0.75rem;
+  font-size: 0.88rem;
 }
 
 .reqlist-table td.reqlist-shared {
   vertical-align: top;
-}
-
-.navy-head-table.reqlist-table thead th,
-.navy-head-table.reqlist-table tbody td {
-  padding: 0.55rem 0.42rem;
 }
 
 .home-page {
