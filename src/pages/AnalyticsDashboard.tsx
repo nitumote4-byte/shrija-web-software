@@ -148,7 +148,7 @@ function PerformanceChart({ values }: { values: number[] }) {
             </text>
           ))}
 
-          {pts.map((p, i) => (
+          {pts.map((_, i) => (
             <rect
               key={`hit-${i}`}
               x={pad.l + slot * i}
