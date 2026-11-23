@@ -2518,6 +2518,8 @@ export function InvoiceListReport() {
   const { toast, Toast } = useToast()
   /** Empty string = All Parties */
   const [partyName, setPartyName] = useState('')
+  /** Date order is the default list. Party order keeps the old grouped sections. */
+  const [arrangeBy, setArrangeBy] = useState<'date' | 'party'>('date')
   const [status, setStatus] = useState('All Status')
   const [txnType, setTxnType] = useState('All Types')
   const [startDate, setStartDate] = useState(() => {
@@ -2580,12 +2582,19 @@ export function InvoiceListReport() {
         }
       })
       .sort((a, b) => {
-        const byParty = a.inv.partyName.localeCompare(b.inv.partyName)
-        if (byParty !== 0) return byParty
-        return a.inv.date.localeCompare(b.inv.date) || a.inv.invoiceNo.localeCompare(b.inv.invoiceNo)
+        if (arrangeBy === 'party') {
+          const byParty = a.inv.partyName.localeCompare(b.inv.partyName)
+          if (byParty !== 0) return byParty
+          return a.inv.date.localeCompare(b.inv.date) || a.inv.invoiceNo.localeCompare(b.inv.invoiceNo)
+        }
+        return (
+          a.inv.date.localeCompare(b.inv.date) ||
+          a.inv.invoiceNo.localeCompare(b.inv.invoiceNo) ||
+          a.inv.partyName.localeCompare(b.inv.partyName)
+        )
       })
     // findParty closes over data.parties — ok inside useMemo deps via data
-  }, [fetched, data, partyName, status, txnType, startDate, endDate, paymentStatusById])
+  }, [fetched, data, partyName, arrangeBy, status, txnType, startDate, endDate, paymentStatusById])
 
   /** All Parties → group by party; single party → one group */
   const partyGroups = useMemo(() => {
@@ -2699,7 +2708,7 @@ export function InvoiceListReport() {
       { hm: 0, amount: 0, sgst: 0, cgst: 0, igst: 0, grand: 0 },
     )
 
-  const showPartyGroups = !partyName.trim() && partyGroups.length > 1
+  const showPartyGroups = arrangeBy === 'party' && !partyName.trim() && partyGroups.length > 1
 
   return (
     <div className="invlist-page">
@@ -2710,10 +2719,17 @@ export function InvoiceListReport() {
       <section className="invlist-filter-card">
         <h2>Filter Invoices by Date Range</h2>
         <p className="invlist-filter-hint">
-          Choose <strong>All Parties</strong> for the full list (party-wise sections), or pick one party for
-          individual invoices.
+          <strong>Date wise</strong> lists every bill in date order, one after another.{' '}
+          <strong>Party wise</strong> groups bills under each party.
         </p>
         <div className="invlist-filter-grid">
+          <div className="field">
+            <label>ARRANGE</label>
+            <select value={arrangeBy} onChange={(e) => setArrangeBy(e.target.value as 'date' | 'party')}>
+              <option value="date">Date wise</option>
+              <option value="party">Party wise</option>
+            </select>
+          </div>
           <div className="field">
             <label>PARTY</label>
             <select value={partyName} onChange={(e) => setPartyName(e.target.value)}>
@@ -2770,6 +2786,8 @@ export function InvoiceListReport() {
             <span>
               Showing:{' '}
               <strong>{partyName.trim() ? partyName.trim() : 'All Parties'}</strong>
+              {' · '}
+              <strong>{arrangeBy === 'date' ? 'Date wise' : 'Party wise'}</strong>
               {rows.length ? ` · ${rows.length} invoice(s)` : null}
               {showPartyGroups ? ` · ${partyGroups.length} parties` : null}
             </span>
@@ -2800,7 +2818,7 @@ export function InvoiceListReport() {
                 <tr>
                   <td colSpan={12} className="empty-state invlist-empty">
                     <span className="invlist-empty-icon">📄</span>
-                    Select All Parties or one party, then click &apos;Get Invoices&apos;
+                    Choose Date wise or Party wise, then click &apos;Get Invoices&apos;
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
