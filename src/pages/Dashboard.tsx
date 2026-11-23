@@ -9,10 +9,8 @@ import {
   Flame,
   FlaskConical,
   IndianRupee,
-  Keyboard,
   LayoutGrid,
   Package,
-  UserPlus,
   Users,
 } from 'lucide-react'
 import { getSession } from '../data/auth'
@@ -399,17 +397,6 @@ export function Dashboard() {
     },
   )
 
-  const stripCandidates: { to: string; label: string; accent: string; icon: LucideIcon }[] = [
-    { to: '/manual-request', label: 'Manual Request', accent: 'blue', icon: Keyboard },
-    { to: '/auto-request', label: 'Auto Request', accent: 'green', icon: FileSpreadsheet },
-    { to: '/create-fire-assay', label: 'Create Fire Assay', accent: 'rose', icon: Flame },
-    { to: '/fund-entry', label: 'Fund Entry', accent: 'emerald', icon: IndianRupee },
-    { to: '/add-party', label: 'Add Party', accent: 'indigo', icon: UserPlus },
-    { to: '/qm-stock', label: 'QM Stock', accent: 'teal', icon: Package },
-    { to: '/reports', label: 'Reports', accent: 'violet', icon: FileSpreadsheet },
-    { to: '/others', label: 'Others', accent: 'slate', icon: LayoutGrid },
-  ]
-  const stripActions = stripCandidates.filter((a) => canAccessPath(a.to))
   const listTitle = canRequests ? 'Recent Requests' : canLabAssay ? 'Recent Assays' : 'Recent Records'
   const listPath = canRequests ? requestsPath : canLabAssay ? '/view-fire-assay' : '/'
 
@@ -585,25 +572,6 @@ export function Dashboard() {
 
       <LiveJobTracking />
       </div>
-
-      {stripActions.length > 0 && (
-        <section className="home-quick-panel" data-accent="slate">
-          <h2>Quick Actions</h2>
-          <div className="home-quick-row">
-            {stripActions.map((action) => {
-              const Icon = action.icon
-              return (
-                <Link key={action.to} to={action.to} className="home-quick-action" data-accent={action.accent}>
-                  <span className="home-quick-icon" data-accent={action.accent} aria-hidden>
-                    <Icon size={20} strokeWidth={1.85} />
-                  </span>
-                  <span>{action.label}</span>
-                </Link>
-              )
-            })}
-          </div>
-        </section>
-      )}
     </div>
   )
 }

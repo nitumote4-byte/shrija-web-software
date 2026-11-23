@@ -6,7 +6,7 @@ import { PRODUCT_NAME } from '../data/modules'
 import { getPageTitle, getSearchableNav } from '../data/navigation'
 import { clearSession, getSession } from '../data/auth'
 import { FIRM_PROFILE_EVENT, getActiveCentre, getFirmName } from '../data/firmProfile'
-import { roleLabel } from '../data/roles'
+import { canAccessPath, roleLabel } from '../data/roles'
 import { getCachedLicense } from '../data/license'
 import { STORE_PERSIST_EVENT } from '../data/tenantCache'
 import { OperationalPeriodBadge } from './OperationalPeriodBadge'
@@ -110,6 +110,31 @@ export function Layout() {
     window.addEventListener(STORE_PERSIST_EVENT, onPersist)
     return () => window.removeEventListener(STORE_PERSIST_EVENT, onPersist)
   }, [])
+
+  useEffect(() => {
+    const shortcuts: { key: string; paths: string[] }[] = [
+      { key: 'p', paths: ['/fund-entry'] },
+      { key: 'f', paths: ['/create-fire-assay', '/view-fire-assay'] },
+      { key: 'b', paths: ['/billing'] },
+      { key: 'r', paths: ['/manual-request', '/request-list', '/qm-request-list'] },
+    ]
+    const onShortcut = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.repeat) return
+      const match = shortcuts.find((row) => row.key === e.key.toLowerCase())
+      if (!match) return
+      const target = e.target
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return
+      }
+      const path = match.paths.find((candidate) => canAccessPath(candidate))
+      if (!path) return
+      e.preventDefault()
+      navigate(path)
+    }
+    window.addEventListener('keydown', onShortcut)
+    return () => window.removeEventListener('keydown', onShortcut)
+  }, [navigate])
 
   useEffect(() => {
     const onResize = () => {
