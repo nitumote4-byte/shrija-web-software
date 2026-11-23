@@ -149,17 +149,18 @@ const NAV_GROUPS: NavGroupDef[] = [
       },
       'fund-entry',
       'expense-entry',
+      'add-party',
     ],
-  },
-  {
-    id: 'lab',
-    label: 'Lab & Assay',
-    entries: ['create-fire-assay', 'view-fire-assay'],
   },
   {
     id: 'xrf',
     label: 'XRF',
     entries: ['xrf-daily-standard'],
+  },
+  {
+    id: 'lab',
+    label: 'Lab & Assay',
+    entries: ['create-fire-assay', 'view-fire-assay'],
   },
   {
     id: 'inventory',
@@ -184,7 +185,7 @@ const NAV_GROUPS: NavGroupDef[] = [
   {
     id: 'settings',
     label: 'Settings & Others',
-    entries: ['add-party', 'new-category', 'others'],
+    entries: ['new-category', 'others'],
   },
   {
     id: 'upcoming',

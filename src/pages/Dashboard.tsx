@@ -22,8 +22,6 @@ import { LiveJobTracking } from '../components/LiveJobTracking'
 import { store, type HallmarkRequest } from '../data/store'
 import { getStoreVersion } from '../data/tenantCache'
 import { OFP_CHANGE_EVENT } from '../data/operationalPeriod'
-import { OperationalPeriodBadge } from '../components/OperationalPeriodBadge'
-
 function formatWelcomeDate(d = new Date()) {
   const weekday = d.toLocaleDateString('en-IN', { weekday: 'long' })
   const day = d.getDate()
@@ -444,8 +442,6 @@ export function Dashboard() {
           </p>
         )}
       </section>
-
-      <OperationalPeriodBadge />
 
       {kpis.length > 0 && (
         <div className="home-kpi-row home-kpi-row-saas">

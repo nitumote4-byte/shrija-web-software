@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Bell, Building2, ChevronDown, KeyRound, LogOut, Menu, Search, Settings, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Bell, ChevronDown, KeyRound, LogOut, Menu, Search, Settings, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSidebar } from './AppSidebar'
 import { PRODUCT_NAME } from '../data/modules'
 import { getPageTitle, getSearchableNav } from '../data/navigation'
@@ -9,7 +9,6 @@ import { FIRM_PROFILE_EVENT, getActiveCentre, getFirmName } from '../data/firmPr
 import { canAccessPath, roleLabel } from '../data/roles'
 import { getCachedLicense } from '../data/license'
 import { STORE_PERSIST_EVENT } from '../data/tenantCache'
-import { OperationalPeriodBadge } from './OperationalPeriodBadge'
 import { ScheduledMaintenanceNoticeCard } from './ScheduledMaintenanceNotice'
 import {
   dismissMaintenanceBanner,
@@ -18,19 +17,13 @@ import {
 } from '../useScheduledMaintenanceNotice'
 
 const MOBILE_MAX = 899
-const DENSITY_KEY = 'shrija-ui-density'
 
-function readDensity(): 'comfortable' | 'compact' {
-  try {
-    return localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable'
-  } catch {
-    return 'comfortable'
-  }
-}
-
-function applyDensity(mode: 'comfortable' | 'compact') {
-  document.documentElement.dataset.density = mode
-}
+const EDGE_CLONES = [
+  { to: '/manual-request', label: 'Manual Request', tone: 'blue' },
+  { to: '/billing', label: 'Billing', tone: 'amber' },
+  { to: '/fund-entry', label: 'Fund Entry', tone: 'green' },
+  { to: '/add-party', label: 'Add Party', tone: 'violet' },
+] as const
 
 function dayGreeting() {
   const hour = new Date().getHours()
@@ -47,12 +40,9 @@ export function Layout() {
   const [centreName, setCentreName] = useState(() => getActiveCentre().name || getFirmName())
   const [persistError, setPersistError] = useState('')
   const [bellOpen, setBellOpen] = useState(false)
-  const [density, setDensity] = useState<'comfortable' | 'compact'>(() => {
-    const mode = readDensity()
-    applyDensity(mode)
-    return mode
-  })
   const [pageEnter, setPageEnter] = useState(true)
+  const [edgeOpen, setEdgeOpen] = useState(true)
+  const edgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [bannerHidden, setBannerHidden] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const bellRef = useRef<HTMLDivElement>(null)
@@ -64,10 +54,6 @@ export function Layout() {
   const session = getSession()
   const displayName = session?.username || 'User'
   const displayRole = roleLabel(session?.role || 'user')
-  const tenantLabel =
-    session?.centreKind === 'osc'
-      ? session.centreName || 'Off-Site Centre'
-      : session?.tenantName || centreName
   const license = getCachedLicense()
   const licenseWarn =
     license && license.ok && license.daysLeft !== null && license.daysLeft <= 14
@@ -135,6 +121,32 @@ export function Layout() {
     window.addEventListener('keydown', onShortcut)
     return () => window.removeEventListener('keydown', onShortcut)
   }, [navigate])
+
+  const scheduleEdgeHide = useCallback(() => {
+    if (edgeTimer.current) clearTimeout(edgeTimer.current)
+    edgeTimer.current = setTimeout(() => setEdgeOpen(false), 5000)
+  }, [])
+
+  const revealEdge = () => {
+    if (edgeTimer.current) clearTimeout(edgeTimer.current)
+    setEdgeOpen(true)
+  }
+
+  useEffect(() => {
+    scheduleEdgeHide()
+    return () => {
+      if (edgeTimer.current) clearTimeout(edgeTimer.current)
+    }
+  }, [scheduleEdgeHide])
+
+  useEffect(() => {
+    delete document.documentElement.dataset.density
+    try {
+      localStorage.removeItem('shrija-ui-density')
+    } catch {
+      /* spacing preference only */
+    }
+  }, [])
 
   useEffect(() => {
     const onResize = () => {
@@ -232,14 +244,6 @@ export function Layout() {
             </div>
           </div>
 
-          {session?.tenantId && (
-            <div className="tenant-chip" title={`Tenant ID: ${session.tenantId}`}>
-              <Building2 size={14} />
-              <span>{tenantLabel}</span>
-              {session.centreKind === 'osc' ? <span> · own data</span> : null}
-            </div>
-          )}
-          {session?.tenantId ? <OperationalPeriodBadge compact /> : null}
           {persistError && (
             <div
               className="tenant-chip"
@@ -295,25 +299,6 @@ export function Layout() {
                 </div>
               )}
             </div>
-
-            <button
-              type="button"
-              className={`header-density-btn${density === 'compact' ? ' is-compact' : ''}`}
-              aria-pressed={density === 'compact'}
-              title={density === 'compact' ? 'Use comfortable spacing' : 'Use compact spacing'}
-              onClick={() => {
-                const next = density === 'compact' ? 'comfortable' : 'compact'
-                setDensity(next)
-                applyDensity(next)
-                try {
-                  localStorage.setItem(DENSITY_KEY, next)
-                } catch {
-                  /* spacing preference only */
-                }
-              }}
-            >
-              {density === 'compact' ? 'Comfort' : 'Compact'}
-            </button>
 
             <div className="header-bell" ref={bellRef}>
               <button
@@ -453,6 +438,24 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
+
+      <nav
+        className={`edge-clones${edgeOpen ? ' is-open' : ''}`}
+        aria-label="Page shortcuts"
+        onMouseEnter={revealEdge}
+        onMouseLeave={scheduleEdgeHide}
+      >
+        {EDGE_CLONES.filter((item) => canAccessPath(item.to)).map((item) => (
+          <button
+            key={item.to}
+            type="button"
+            className={`edge-clone edge-clone-${item.tone}`}
+            onClick={() => navigate(item.to)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }
