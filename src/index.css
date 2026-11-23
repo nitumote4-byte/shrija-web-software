@@ -13749,6 +13749,10 @@ table.data-table td {
   font-size: 0.88rem;
 }
 
+.reqlist-table td.reqlist-shared {
+  vertical-align: top;
+}
+
 .home-page {
   gap: 14px;
 }

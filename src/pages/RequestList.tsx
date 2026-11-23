@@ -417,11 +417,11 @@ export function RequestList() {
                 </th>
                 <th>Party Name</th>
                 <th>C/O</th>
+                <th>Request No</th>
                 <th>Item Name</th>
                 <th>Pic</th>
                 <th>Weight</th>
                 <th>Purity</th>
-                <th>Request No</th>
                 <th>OSC / Lab</th>
                 <th>Job Card No *</th>
                 <th>Sample Weight</th>
@@ -482,11 +482,11 @@ export function RequestList() {
                       />
                     </td>
                     ) : null}
+                    {lead ? <td className="reqlist-shared" rowSpan={span}>{r.requestNo || '—'}</td> : null}
                     <td>{r.item}</td>
                     <td>{r.pic}</td>
                     <td>{r.weight.toFixed(3)}</td>
                     <td>{r.purity}</td>
-                    {lead ? <td className="reqlist-shared" rowSpan={span}>{r.requestNo || '—'}</td> : null}
                     <td>
                       {transfer ? (
                         <span className="role-badge" title={req?.oscTransferStatus}>
@@ -596,7 +596,7 @@ export function RequestList() {
             {filtered.length > 0 && (
               <tfoot>
                 <tr className="reqlist-totals">
-                  <td colSpan={4}>
+                  <td colSpan={5}>
                     <strong>Totals:</strong>
                   </td>
                   <td>
@@ -605,7 +605,7 @@ export function RequestList() {
                   <td>
                     <strong>{totals.weight.toFixed(3)}</strong>
                   </td>
-                  <td colSpan={4} />
+                  <td colSpan={3} />
                   <td>
                     <strong>{totals.sampleWeight.toFixed(3)}</strong>
                   </td>

@@ -580,11 +580,11 @@ export function QMRequestList() {
                 </th>
                 <th>Party Name</th>
                 <th>C/O</th>
+                <th>Request No</th>
                 <th>Item Name</th>
                 <th>Pic</th>
                 <th>Weight</th>
                 <th>Purity</th>
-                <th>Request No</th>
                 <th>OSC / Lab</th>
                 <th>Job Card No</th>
                 <th>Sample Weight</th>
@@ -648,13 +648,13 @@ export function QMRequestList() {
                       />
                     </td>
                     ) : null}
+                    {lead ? (
+                      <td className="reqlist-shared" rowSpan={span}>{r.requestNo || '—'}</td>
+                    ) : null}
                     <td className="qm-linkish">{r.item}</td>
                     <td>{r.pic}</td>
                     <td>{r.weight.toFixed(3)}</td>
                     <td>{r.purity}</td>
-                    {lead ? (
-                      <td className="reqlist-shared" rowSpan={span}>{r.requestNo || '—'}</td>
-                    ) : null}
                     <td>
                       {transfer ? (
                         <span className="role-badge">{transfer}</span>
@@ -761,7 +761,7 @@ export function QMRequestList() {
             {filtered.length > 0 && (
               <tfoot>
                 <tr className="reqlist-totals">
-                  <td colSpan={4}>
+                  <td colSpan={5}>
                     <strong>Totals:</strong>
                   </td>
                   <td>
@@ -770,7 +770,7 @@ export function QMRequestList() {
                   <td>
                     <strong>{totals.weight.toFixed(3)}</strong>
                   </td>
-                  <td colSpan={4} />
+                  <td colSpan={3} />
                   <td>
                     <strong>{totals.sampleWeight.toFixed(3)}</strong>
                   </td>
