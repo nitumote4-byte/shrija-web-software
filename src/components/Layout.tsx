@@ -18,6 +18,19 @@ import {
 } from '../useScheduledMaintenanceNotice'
 
 const MOBILE_MAX = 899
+const DENSITY_KEY = 'shrija-ui-density'
+
+function readDensity(): 'comfortable' | 'compact' {
+  try {
+    return localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable'
+  } catch {
+    return 'comfortable'
+  }
+}
+
+function applyDensity(mode: 'comfortable' | 'compact') {
+  document.documentElement.dataset.density = mode
+}
 
 function dayGreeting() {
   const hour = new Date().getHours()
@@ -34,6 +47,12 @@ export function Layout() {
   const [centreName, setCentreName] = useState(() => getActiveCentre().name || getFirmName())
   const [persistError, setPersistError] = useState('')
   const [bellOpen, setBellOpen] = useState(false)
+  const [density, setDensity] = useState<'comfortable' | 'compact'>(() => {
+    const mode = readDensity()
+    applyDensity(mode)
+    return mode
+  })
+  const [pageEnter, setPageEnter] = useState(true)
   const [bannerHidden, setBannerHidden] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const bellRef = useRef<HTMLDivElement>(null)
@@ -128,6 +147,9 @@ export function Layout() {
 
   useEffect(() => {
     setBellOpen(false)
+    setPageEnter(false)
+    const id = requestAnimationFrame(() => setPageEnter(true))
+    return () => cancelAnimationFrame(id)
   }, [location.pathname])
 
   useEffect(() => {
@@ -248,6 +270,25 @@ export function Layout() {
                 </div>
               )}
             </div>
+
+            <button
+              type="button"
+              className={`header-density-btn${density === 'compact' ? ' is-compact' : ''}`}
+              aria-pressed={density === 'compact'}
+              title={density === 'compact' ? 'Use comfortable spacing' : 'Use compact spacing'}
+              onClick={() => {
+                const next = density === 'compact' ? 'comfortable' : 'compact'
+                setDensity(next)
+                applyDensity(next)
+                try {
+                  localStorage.setItem(DENSITY_KEY, next)
+                } catch {
+                  /* spacing preference only */
+                }
+              }}
+            >
+              {density === 'compact' ? 'Comfort' : 'Compact'}
+            </button>
 
             <div className="header-bell" ref={bellRef}>
               <button
@@ -374,7 +415,7 @@ export function Layout() {
           </div>
         </header>
 
-        <main className="app-main main-content">
+        <main className={`app-main main-content${pageEnter ? ' desk-enter' : ''}`}>
           {maintenanceNotice && bannerHidden === '' ? (
             <ScheduledMaintenanceNoticeCard
               notice={maintenanceNotice}

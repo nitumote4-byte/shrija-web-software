@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -12,13 +12,17 @@ import {
   MapPin,
   Phone,
   Plus,
+  Search,
   Settings2,
+  Star,
   Upload,
   Users,
 } from 'lucide-react'
 import { useToast } from '../components/ui'
-import { store, type Party } from '../data/store'
-import { displayPartyGstin, normalizePartyGstin, validatePartyGstin } from '../utils/partyGstin'
+import { calcPartyBalance, store, type Party } from '../data/store'
+import { buildPartyBoard } from '../utils/partyInsight'
+import { PartyDossier } from './PartyDossier'
+import { normalizePartyGstin, validatePartyGstin } from '../utils/partyGstin'
 import {
   PARTY_IMPORT_TEMPLATE_HEADER,
   PARTY_IMPORT_TEMPLATE_SAMPLE,
@@ -57,6 +61,76 @@ const INDIAN_STATES: { name: string; code: string }[] = [
   { name: 'West Bengal', code: '19' },
 ]
 
+const FAV_KEY = 'shrija-party-favourites'
+
+const AVATAR_TONES = [
+  { bg: '#fde7d6', fg: '#c2410c' },
+  { bg: '#dbeafe', fg: '#1d4ed8' },
+  { bg: '#fef3c7', fg: '#a16207' },
+  { bg: '#f3e8ff', fg: '#7e22ce' },
+  { bg: '#dcfce7', fg: '#15803d' },
+  { bg: '#ffe4e6', fg: '#be123c' },
+  { bg: '#e0f2fe', fg: '#0369a1' },
+]
+
+function readFavs(): string[] {
+  try {
+    const raw = localStorage.getItem(FAV_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeFavs(ids: string[]) {
+  localStorage.setItem(FAV_KEY, JSON.stringify(ids))
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+}
+
+function toneFor(name: string) {
+  let hash = 0
+  for (let i = 0; i < name.length; i += 1) hash = (hash + name.charCodeAt(i) * (i + 1)) % AVATAR_TONES.length
+  return AVATAR_TONES[hash]
+}
+
+function formatWhen(value: string) {
+  if (!value) return ''
+  const d = new Date(value.length === 10 ? `${value}T00:00:00` : value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+}
+
+function partyMatchesQuery(party: Party, query: string) {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const digits = q.replace(/\D/g, '')
+  const phone = party.phone.replace(/\D/g, '')
+  return (
+    party.name.toLowerCase().includes(q) ||
+    party.phone.toLowerCase().includes(q) ||
+    (digits.length >= 3 && phone.includes(digits)) ||
+    party.licenseNo.toLowerCase().includes(q) ||
+    party.address.toLowerCase().includes(q) ||
+    party.gstin.toLowerCase().includes(q) ||
+    party.state.toLowerCase().includes(q)
+  )
+}
+
+function formatInr(amount: number) {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
 const emptyForm = {
   name: '',
   address: '',
@@ -90,17 +164,93 @@ function IconInput({
 export function AddParty() {
   const { toast, Toast } = useToast()
   const fileRef = useRef<HTMLInputElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const [tick, setTick] = useState(0)
   const [form, setForm] = useState(emptyForm)
   const [stateOpen, setStateOpen] = useState(false)
   const [importFile, setImportFile] = useState('')
+  const [showForm, setShowForm] = useState(false)
+  const [query, setQuery] = useState('')
+  const [tab, setTab] = useState<'all' | 'fav' | 'credit'>('all')
+  const [selectedId, setSelectedId] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [favs, setFavs] = useState<string[]>(() => readFavs())
   void tick
 
-  const parties = store.getAll().parties
+  const data = store.getAll()
+  const parties = data.parties
   const groups = useMemo(
     () => [...new Set(parties.map((p) => p.groupName).filter(Boolean))],
     [parties],
   )
+
+  const favSet = useMemo(() => new Set(favs), [favs])
+
+  const quickParties = useMemo(() => {
+    const ordered = [
+      ...parties.filter((p) => favSet.has(p.id)),
+      ...parties.filter((p) => !favSet.has(p.id)),
+    ]
+    return ordered.slice(0, 4)
+  }, [parties, favSet])
+
+  const matches = useMemo(
+    () => parties.filter((p) => partyMatchesQuery(p, query)),
+    [parties, query],
+  )
+
+  const visibleParties = useMemo(() => {
+    return matches.filter((p) => {
+      if (tab === 'fav' && !favSet.has(p.id)) return false
+      if (tab === 'credit' && p.transactionType !== 'Credit') return false
+      return true
+    })
+  }, [matches, tab, favSet])
+
+  const board = useMemo(
+    () => buildPartyBoard(parties, data.requests, data.invoices, data.funds),
+    [parties, data.requests, data.invoices, data.funds],
+  )
+
+  const focusParty = query.trim()
+    ? matches.find((p) => p.id === selectedId) || matches[0] || null
+    : parties.find((p) => p.id === selectedId) || null
+  const insight = focusParty ? board.insights.get(focusParty.id) : undefined
+  const outstanding = focusParty ? calcPartyBalance(data.invoices, data.funds, focusParty.name) : 0
+
+  const lastJobLabel = (party: Party) => {
+    const dates = [
+      ...data.requests
+        .filter((r) => r.partyId === party.id || r.partyName === party.name)
+        .map((r) => r.date),
+      ...data.invoices
+        .filter((inv) => inv.partyId === party.id || inv.partyName === party.name)
+        .map((inv) => inv.date),
+    ].filter(Boolean)
+    dates.sort()
+    const latest = dates[dates.length - 1]
+    return latest ? `Last job · ${formatWhen(latest)}` : 'No jobs yet'
+  }
+
+  const toggleFav = (id: string) => {
+    setFavs((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      writeFavs(next)
+      return next
+    })
+  }
+
+  const openParty = (id: string) => {
+    setSelectedId(id)
+    setSearchOpen(false)
+  }
+
+  const openForm = () => setShowForm(true)
+
+  useEffect(() => {
+    if (!showForm) return
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [showForm])
 
   const stateMatches = useMemo(() => {
     const q = form.state.trim().toLowerCase()
@@ -162,6 +312,7 @@ export function AddParty() {
     setTick((t) => t + 1)
     toast(`${form.name} added successfully`)
     resetForm()
+    setShowForm(false)
   }
 
   const importData = () => {
@@ -215,9 +366,238 @@ export function AddParty() {
     URL.revokeObjectURL(url)
   }
 
+  const selectedTone = focusParty ? toneFor(focusParty.name) : AVATAR_TONES[0]
+
   return (
     <div className="add-party-page">
-      <form className="panel party-form-card" onSubmit={submit}>
+      <header className="party-board-head">
+        <div>
+          <h1>Parties</h1>
+          <p>The jewellers and businesses you bill the most, one tap away.</p>
+        </div>
+        <button type="button" className="party-add-btn" onClick={openForm}>
+          <Plus size={16} /> Add party
+        </button>
+      </header>
+
+      <div className="party-find">
+        <label className="party-search-box party-search-lg">
+          <Search size={18} />
+          <input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setSearchOpen(true)
+            }}
+            onFocus={() => setSearchOpen(true)}
+            onBlur={() => setTimeout(() => setSearchOpen(false), 160)}
+            placeholder="Search name, mobile, licence or address"
+            aria-label="Search party by name, mobile, licence or address"
+          />
+        </label>
+        {searchOpen && query.trim() && (
+          <div className="party-find-list">
+            {matches.length === 0 ? (
+              <p>No party found for “{query.trim()}”.</p>
+            ) : (
+              matches.slice(0, 8).map((p) => (
+                <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => openParty(p.id)}>
+                  <strong>{p.name}</strong>
+                  <span>
+                    {p.phone || 'No mobile'}
+                    {p.licenseNo ? ` · ${p.licenseNo}` : ''}
+                    {p.address ? ` · ${p.address}` : ''}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {focusParty && insight && (
+        <PartyDossier
+          party={focusParty}
+          insight={insight}
+          ranks={board.ranks}
+          initials={initials(focusParty.name)}
+          tone={toneFor(focusParty.name)}
+          onOpen={openParty}
+        />
+      )}
+
+      <section className="party-quick">
+        <div className="party-quick-pick">
+          <h2>Quick open</h2>
+          <p>Pick a favourite. Balance and details, one tap away.</p>
+          <div className="party-avatar-row">
+            {quickParties.map((p) => {
+              const tone = toneFor(p.name)
+              const active = focusParty?.id === p.id
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`party-avatar-btn ${active ? 'is-active' : ''}`}
+                  onClick={() => openParty(p.id)}
+                >
+                  <span className="party-avatar" style={{ background: tone.bg, color: tone.fg }}>
+                    {initials(p.name)}
+                  </span>
+                  <span>{p.name.split(' ')[0]}</span>
+                </button>
+              )
+            })}
+            <button type="button" className="party-avatar-btn" onClick={openForm}>
+              <span className="party-avatar party-avatar-new">
+                <Plus size={18} />
+              </span>
+              <span>New</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="party-quick-card">
+          {focusParty ? (
+            <>
+              <div className="party-quick-who">
+                <span
+                  className="party-avatar party-avatar-lg"
+                  style={{ background: selectedTone.bg, color: selectedTone.fg }}
+                >
+                  {initials(focusParty.name)}
+                </span>
+                <div>
+                  <strong>{focusParty.name}</strong>
+                  <span>{focusParty.phone || 'No phone'}</span>
+                </div>
+                <button
+                  type="button"
+                  className={`party-star ${favSet.has(focusParty.id) ? 'is-on' : ''}`}
+                  aria-label={favSet.has(focusParty.id) ? 'Remove favourite' : 'Mark favourite'}
+                  onClick={() => toggleFav(focusParty.id)}
+                >
+                  <Star size={16} fill={favSet.has(focusParty.id) ? 'currentColor' : 'none'} />
+                </button>
+              </div>
+              <div className="party-quick-amount">
+                <strong>{formatInr(Math.abs(outstanding))}</strong>
+                <span>{outstanding < 0 ? 'Advance' : 'Outstanding'}</span>
+              </div>
+              <div className="party-chip-row">
+                <span className="party-chip is-on">{focusParty.transactionType}</span>
+                <span className="party-chip">{focusParty.state || 'State —'}</span>
+                <span className="party-chip">{focusParty.licenseNo || 'No licence'}</span>
+              </div>
+              <Link className="party-send-btn" to="/reports/party-statement">
+                Open statement
+              </Link>
+            </>
+          ) : (
+            <div className="party-quick-empty">
+              <strong>{parties.length === 0 ? 'No parties yet' : 'Search a party'}</strong>
+              <span>
+                {parties.length === 0
+                  ? 'Add the first jeweller to start billing.'
+                  : 'Name, mobile, licence or address. Full profile opens on this screen.'}
+              </span>
+              {parties.length === 0 && (
+                <button type="button" className="party-send-btn" onClick={openForm}>
+                  Add party
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div className="party-board-tools">
+        <div className="party-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'all'}
+            className={tab === 'all' ? 'is-on' : ''}
+            onClick={() => setTab('all')}
+          >
+            <Users size={14} /> All
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'fav'}
+            className={tab === 'fav' ? 'is-on' : ''}
+            onClick={() => setTab('fav')}
+          >
+            <Star size={14} /> Favourites
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'credit'}
+            className={tab === 'credit' ? 'is-on' : ''}
+            onClick={() => setTab('credit')}
+          >
+            <Building2 size={14} /> Credit
+          </button>
+        </div>
+      </div>
+
+      {visibleParties.length === 0 ? (
+        <div className="party-empty">
+          {parties.length === 0
+            ? 'No parties registered yet.'
+            : 'No parties match this filter.'}
+        </div>
+      ) : (
+        <div className="party-card-grid">
+          {visibleParties.map((p) => {
+            const tone = toneFor(p.name)
+            const active = focusParty?.id === p.id
+            return (
+              <article
+                key={p.id}
+                className={`party-contact-card ${active ? 'is-active' : ''}`}
+                onClick={() => openParty(p.id)}
+              >
+                <span
+                  className="party-avatar"
+                  style={{ background: tone.bg, color: tone.fg }}
+                >
+                  {initials(p.name)}
+                </span>
+                <button
+                  type="button"
+                  className={`party-star party-card-star ${favSet.has(p.id) ? 'is-on' : ''}`}
+                  aria-pressed={favSet.has(p.id)}
+                  aria-label={favSet.has(p.id) ? 'Remove favourite' : 'Mark favourite'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleFav(p.id)
+                  }}
+                >
+                  <Star size={14} fill={favSet.has(p.id) ? 'currentColor' : 'none'} />
+                </button>
+                <strong>{p.name}</strong>
+                <span className="party-card-phone">{p.phone || 'No phone'}</span>
+                <span className={`party-kind party-kind-${p.transactionType.toLowerCase()}`}>
+                  {p.transactionType}
+                </span>
+                <span className="party-card-meta">
+                  {p.gstin ? `GST · ${p.gstin.slice(-4)}` : p.licenseNo || 'No GST'}
+                </span>
+                <span className="party-card-when">
+                  #{board.insights.get(p.id)?.rankByJobs ?? '—'} by work · {lastJobLabel(p)}
+                </span>
+              </article>
+            )
+          })}
+        </div>
+      )}
+
+      {showForm && (
+      <>
+      <form ref={formRef} className="panel party-form-card" onSubmit={submit}>
         <div className="party-form-head">
           <div className="party-form-head-icon">
             <Contact size={22} />
@@ -461,9 +841,9 @@ export function AddParty() {
         </section>
 
         <div className="party-form-actions">
-          <Link to="/" className="btn btn-back">
-            <ArrowLeft size={16} /> Back
-          </Link>
+          <button type="button" className="btn btn-back" onClick={() => setShowForm(false)}>
+            <ArrowLeft size={16} /> Close
+          </button>
           <button type="submit" className="btn btn-primary btn-add-party">
             <Plus size={16} /> Add Party
           </button>
@@ -510,39 +890,8 @@ export function AddParty() {
           </button>
         </div>
       </div>
-
-      <div className="panel">
-        <h2>Registered Parties ({parties.length})</h2>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Contact</th>
-                <th>GST</th>
-                <th>State</th>
-                <th>Txn</th>
-                <th>License</th>
-              </tr>
-            </thead>
-            <tbody>
-              {parties.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.name}</td>
-                  <td>{p.phone || '—'}</td>
-                  <td>{displayPartyGstin(p.gstin)}</td>
-                  <td>
-                    {p.state || '—'}
-                    {p.stateCode ? ` (${p.stateCode})` : ''}
-                  </td>
-                  <td>{p.transactionType}</td>
-                  <td>{p.licenseNo || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      </>
+      )}
 
       {Toast}
     </div>

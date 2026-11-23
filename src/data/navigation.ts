@@ -139,7 +139,14 @@ const NAV_GROUPS: NavGroupDef[] = [
       'request-list',
       'qm-request-list',
       'print-job-card',
-      'billing',
+      {
+        folder: 'billing-menu',
+        title: 'Billing',
+        icon: Receipt,
+        accent: 'cyan',
+        description: 'Issue bills and open saved invoices.',
+        children: ['billing', 'generated-bills', 'monthly-billing', 'monthly-bills'],
+      },
       'fund-entry',
       'expense-entry',
     ],
@@ -238,7 +245,7 @@ function catalog(): Map<string, NavItem> {
 function visibleLeaf(item: NavItem | undefined): NavItem | undefined {
   if (!item) return undefined
   if (!canAccessPath(item.path)) return undefined
-  if (item.id === 'reports') return { ...item, title: 'Daily' }
+  if (item.id === 'reports') return { ...item, title: 'Reports' }
   return item
 }
 

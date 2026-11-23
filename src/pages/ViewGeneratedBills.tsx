@@ -121,10 +121,20 @@ export function ViewGeneratedBills() {
   }
 
   const options = useMemo(() => {
-    return invoices.map((inv) => ({
-      key: inv.id,
-      label: `${inv.requestNo} / Inv ${inv.invoiceNo} — ${inv.partyName}`,
-    }))
+    // Store keeps the newest bill first. Next must open the following bill, not the one behind it.
+    return [...invoices]
+      .sort((a, b) => {
+        const byDate = String(a.date || '').localeCompare(String(b.date || ''))
+        if (byDate !== 0) return byDate
+        return String(a.invoiceNo || '').localeCompare(String(b.invoiceNo || ''), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        })
+      })
+      .map((inv) => ({
+        key: inv.id,
+        label: `${inv.requestNo} / Inv ${inv.invoiceNo} — ${inv.partyName}`,
+      }))
   }, [invoices])
 
   const currentIndex = useMemo(() => {
