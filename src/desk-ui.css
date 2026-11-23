@@ -273,8 +273,8 @@ html[data-density='compact'] .top-header {
 /* Claymorphism — screen desk only. Print sheets stay flat. */
 @media screen {
   :root {
-    --bg: #d6e0ec;
-    --surface: #e7eef6;
+    --bg: #f3f8fd;
+    --surface: #ffffff;
     --border: rgba(130, 148, 172, 0.5);
     --radius: 22px;
     --card-radius: 26px;
@@ -311,10 +311,10 @@ html[data-density='compact'] .top-header {
 
   body {
     background:
-      radial-gradient(880px 420px at 0% -8%, rgba(232, 186, 142, 0.42), transparent 58%),
-      radial-gradient(760px 460px at 100% 0%, rgba(146, 178, 224, 0.48), transparent 56%),
-      radial-gradient(640px 420px at 78% 100%, rgba(186, 164, 224, 0.26), transparent 52%),
-      #d4deeb;
+      radial-gradient(880px 420px at 0% -8%, rgba(186, 224, 255, 0.55), transparent 58%),
+      radial-gradient(760px 460px at 100% 0%, rgba(198, 236, 220, 0.42), transparent 56%),
+      radial-gradient(640px 420px at 78% 100%, rgba(214, 206, 255, 0.28), transparent 52%),
+      #f4f8fd;
   }
 
   .app-sidebar {
@@ -460,18 +460,21 @@ html[data-density='compact'] .top-header {
     }
   }
 
-  .app-shell,
+  .app-shell {
+    background: transparent;
+  }
+
   .app-frame,
   .app-main,
   .main-content {
-    background: transparent;
+    background: #f7fbff;
   }
 
   .top-header {
     margin: 12px 16px 0;
     border: 1px solid var(--border);
     border-radius: 22px;
-    background: #e6edf5;
+    background: #f8fbfe;
     box-shadow:
       8px 8px 18px rgba(163, 177, 198, 0.4),
       -6px -6px 14px rgba(255, 255, 255, 0.95);
@@ -483,7 +486,7 @@ html[data-density='compact'] .top-header {
   .header-icon-btn {
     border: 1px solid var(--border);
     border-radius: 999px;
-    background: #e1e9f2;
+    background: #f4f8fc;
     box-shadow:
       inset 3px 3px 7px rgba(163, 177, 198, 0.4),
       inset -3px -3px 7px rgba(255, 255, 255, 0.9);
@@ -492,7 +495,7 @@ html[data-density='compact'] .top-header {
   .top-header .search-box {
     border: none;
     border-radius: 999px;
-    background: #e1e9f2;
+    background: #f4f8fc;
     box-shadow:
       inset 3px 3px 7px rgba(163, 177, 198, 0.4),
       inset -3px -3px 7px rgba(255, 255, 255, 0.9);
@@ -556,7 +559,7 @@ html[data-density='compact'] .top-header {
   .app-main .module-card {
     border: 1px solid var(--border);
     border-radius: 26px;
-    background: linear-gradient(160deg, #eef3f8 0%, #e3ebf4 100%);
+    background: linear-gradient(160deg, #ffffff 0%, #f4f9ff 100%);
     box-shadow:
       8px 8px 18px rgba(163, 177, 198, 0.4),
       -7px -7px 16px rgba(255, 255, 255, 0.95),
@@ -623,7 +626,7 @@ html[data-density='compact'] .top-header {
   .app-main .home-hero-pill {
     border: 1px solid var(--border);
     border-radius: 999px;
-    background: #e6edf5;
+    background: #f7fbff;
     color: #1a365d;
     box-shadow:
       5px 5px 12px rgba(163, 177, 198, 0.45),
@@ -669,7 +672,7 @@ html[data-density='compact'] .top-header {
   .app-main .party-tabs {
     border: 1px solid var(--border);
     border-radius: 16px;
-    background: #e1e9f2;
+    background: #f4f8fc;
     box-shadow:
       inset 4px 4px 8px rgba(163, 177, 198, 0.4),
       inset -4px -4px 8px rgba(255, 255, 255, 0.9);
@@ -696,7 +699,7 @@ html[data-density='compact'] .top-header {
   .app-main .data-table-wrap {
     border: 1px solid var(--border);
     border-radius: 20px;
-    background: #e6eef6;
+    background: #f8fbfe;
     box-shadow:
       inset 4px 4px 10px rgba(163, 177, 198, 0.28),
       inset -3px -3px 8px rgba(255, 255, 255, 0.8);
