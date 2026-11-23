@@ -205,9 +205,21 @@ export function listFireAssaySheetNos(purity?: string, shift?: string, date?: st
   return listFireAssaySheetNosFrom(Object.values(loadFireAssaySheetArchive()), purity, shift, date)
 }
 
-/** Next free sheet number for purity+shift+date (if that date has 1 → 2; empty date → 1). */
-export function nextAvailableSheetNo(purity: string, shift = 'Day', date?: string): string {
-  return nextSheetNoAfter(listFireAssaySheetNos(purity, shift, date))
+/**
+ * Next free sheet number for this shift and date.
+ * 916, 750, and every other purity share one sequence: the first sheet is 1,
+ * the next sheet is 2 even when its purity changes. Each purity does not restart at 1.
+ */
+export function nextSharedSheetNo(
+  sheets: Iterable<ManakFireAssaySheet>,
+  shift?: string,
+  date?: string,
+): string {
+  return nextSheetNoAfter(listFireAssaySheetNosFrom(sheets, undefined, shift, date))
+}
+
+export function nextAvailableSheetNo(_purity: string, shift = 'Day', date?: string): string {
+  return nextSharedSheetNo(Object.values(loadFireAssaySheetArchive()), shift, date)
 }
 
 /** Positive integer sheet id, or 0 if the raw value is not a real sheet number. */

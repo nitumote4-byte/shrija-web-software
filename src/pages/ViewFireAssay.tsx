@@ -9,7 +9,7 @@ import {
   getFireAssaySheet,
   listFireAssaySheetNos,
   loadFireAssaySheetArchive,
-  nextSheetNoAfter,
+  nextSharedSheetNo,
   publishManakFireAssaySheetAndFlush,
   type ManakFireAssaySheet,
 } from '../data/manakFireAssayBridge'
@@ -188,7 +188,9 @@ export function ViewFireAssay() {
       .map((a) => a.assayNo.replace(/^FS-/, ''))
       .filter(Boolean)
     const saved = [...new Set([...fromArchive, ...fromStore])]
-    return fireAssaySheetSelectOptions(saved, nextSheetNoAfter(saved)).map((o) => o.value)
+    const archive = Object.values(loadFireAssaySheetArchive())
+    const nextNew = nextSharedSheetNo(archive, shift || undefined, date)
+    return fireAssaySheetSelectOptions(saved, nextNew).map((o) => o.value)
   }, [tick, purityFilter, shift, date, data.fireAssays])
 
   const applySheet = (sheet: ManakFireAssaySheet, silent?: boolean) => {

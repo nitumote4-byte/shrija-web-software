@@ -401,7 +401,7 @@ function FireAssaySheet({ mode }: { mode: Mode }) {
       setSheetNo(opts.sheetNoOverride)
       setSheetTick((t) => t + 1)
     } else {
-      // Auto next sheet no for THIS date (if that date has sheet 1 → 2). State flushes after this tick.
+      // Next sheet number is shared across purities for this date and shift.
       syncNextSheetNo(nextPurity, shift || 'Day', activeDate)
     }
     const bis = getBisDefaults(nextPurity)

@@ -1,6 +1,6 @@
 /**
  * Fire Assay date-wise sheet numbers.
- * Each calendar date has its own 1, 2, 3… sequence.
+ * Each calendar date and shift has one 1, 2, 3… sequence shared by every purity.
  * Run: npx --yes tsx scripts/fire-assay-sheet-date.selftest.ts
  */
 import {
@@ -9,6 +9,7 @@ import {
   fireAssaySheetSelectOptions,
   listFireAssaySheetNosFrom,
   lookupFireAssaySheet,
+  nextSharedSheetNo,
   nextSheetNoAfter,
   type ManakFireAssaySheet,
 } from '../src/data/manakFireAssayBridge.ts'
@@ -67,7 +68,7 @@ function seedLegacy(map: Record<string, ManakFireAssaySheet>, sheet: ManakFireAs
 
 function dropdown(map: Record<string, ManakFireAssaySheet>, date: string, purity = '916', shift = 'Day') {
   const saved = listFireAssaySheetNosFrom(Object.values(map), purity, shift, date)
-  const nextNew = nextSheetNoAfter(saved)
+  const nextNew = nextSharedSheetNo(Object.values(map), shift, date)
   const options = fireAssaySheetSelectOptions(saved, nextNew)
   return { saved, nextNew, options, values: options.map((o) => o.value) }
 }
@@ -338,6 +339,25 @@ function simulateSave(
     createdAt: `${AUG30}T02:00:00.000Z`,
   })
   assertEq(fireAssayArchiveWriteKey(map, updated), '916|Day|2', 'overwrite same date stays on legacy key')
+}
+
+// Sheet numbers continue across purities on the same date and shift.
+{
+  const map: Record<string, ManakFireAssaySheet> = {}
+  simulateSave(map, AUG30, '1')
+  assertEq(dropdown(map, AUG30, '750').values.join(','), '2', 'first 750 sheet after 916 is 2, not 1')
+  const other = stubSheet({
+    sheetNo: '2',
+    purity: '750',
+    date: AUG30,
+    createdAt: `${AUG30}T13:00:00.000Z`,
+  })
+  map[`${AUG30}|750|Day|2`] = other
+  assertEq(nextSharedSheetNo(Object.values(map), 'Day', AUG30), '3', '916 then 750 continues at 3')
+  assertEq(dropdown(map, AUG30, '916').values.join(','), '1,3', '916 keeps its sheet and offers the shared next')
+  assertEq(dropdown(map, AUG30, '750').values.join(','), '2,3', '750 does not restart at 1')
+  assertEq(nextSharedSheetNo(Object.values(map), 'Night', AUG30), '1', 'night shift still starts at 1')
+  assertEq(dropdown(map, AUG31, '750').values.join(','), '1', 'another date still starts at 1')
 }
 
 console.log('fire-assay-sheet-date.selftest: ok')
