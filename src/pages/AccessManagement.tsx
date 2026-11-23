@@ -348,7 +348,7 @@ export function ManagePassword() {
       <ChangePasswordForm toast={toast} />
 
       {!isAdmin && (
-        <p className="auto-manak-hint">
+        <p className="auto-manak-hint is-guide">
           User list, reception credentials, and Auto Tool files are available to centre administrators
           only.
         </p>

@@ -365,7 +365,7 @@ export function AutoRequest() {
       {showSettings && (
         <div className="panel auto-manak-settings">
           <h3>Manak Online + Gold Shark–FAST</h3>
-          <p className="auto-manak-hint">
+          <p className="auto-manak-hint is-guide">
             Super fast (recommended): PC pe{' '}
             <code>tools\shrija-scrap\GO-FAST.bat</code> ya pehle{' '}
             <code>start-chrome-for-manak.bat</code> → Manak login once → scrap tool Online → yahan{' '}
@@ -428,7 +428,7 @@ export function AutoRequest() {
             </button>
           </div>
           {!scrapOnline && (
-            <p className="auto-manak-hint" style={{ marginTop: '0.85rem', marginBottom: 0 }}>
+            <p className="auto-manak-hint is-guide" style={{ marginTop: '0.85rem', marginBottom: 0 }}>
               Scrap tool offline. PC par folder kholo → <code>tools\shrija-scrap\start.bat</code> →
               window khula rakho → yahan Offline se Online ho jayega.
             </p>

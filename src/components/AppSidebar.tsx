@@ -10,7 +10,7 @@ import {
   type NavGroup,
   type NavItem,
 } from '../data/navigation'
-import { PRODUCT_VERSION } from '../data/modules'
+import { PRODUCT_NAME, PRODUCT_VERSION } from '../data/modules'
 
 export function AppSidebar({
   collapsed,
@@ -67,7 +67,7 @@ export function AppSidebar({
           <BrandLogo markOnly size={42} />
         </div>
         <div className="sidebar-brand-copy">
-          <span className="sidebar-brand-name">Shrija Hallmarking</span>
+          <span className="sidebar-brand-name">{PRODUCT_NAME}</span>
           <span className="sidebar-brand-centre">{centreName || 'Centre A'}</span>
         </div>
       </div>

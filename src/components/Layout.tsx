@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Bell, ChevronDown, KeyRound, LogOut, Menu, Search, Settings, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppSidebar } from './AppSidebar'
 import { PRODUCT_NAME } from '../data/modules'
 import { getPageTitle, getSearchableNav } from '../data/navigation'
@@ -27,6 +27,7 @@ const EDGE_CLONES = [
 
 function dayGreeting() {
   const hour = new Date().getHours()
+  if (hour < 5 || hour >= 21) return 'Good night'
   if (hour < 12) return 'Good morning'
   if (hour < 17) return 'Good afternoon'
   return 'Good evening'
@@ -50,7 +51,12 @@ export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const pageTitle = getPageTitle(location.pathname)
-  const greeting = useMemo(() => dayGreeting(), [])
+  const [greeting, setGreeting] = useState(dayGreeting)
+  useEffect(() => {
+    const tick = () => setGreeting(dayGreeting())
+    const id = window.setInterval(tick, 60_000)
+    return () => window.clearInterval(id)
+  }, [])
   const session = getSession()
   const displayName = session?.username || 'User'
   const displayRole = roleLabel(session?.role || 'user')

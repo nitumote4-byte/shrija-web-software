@@ -536,8 +536,6 @@ export function ViewGeneratedBills() {
         {options.length > 0 ? (
           <p className="gb-browse-hint">
             {currentIndex >= 0 ? `${currentIndex + 1} / ${options.length}` : `0 / ${options.length}`}
-            {' · '}
-            Previous / Next, or keyboard ← → (PageUp / PageDown)
           </p>
         ) : null}
       </section>
@@ -700,7 +698,7 @@ export function ViewGeneratedBills() {
                   autoFocus
                 />
               </div>
-              {deleteError ? <p className="field-hint">{deleteError}</p> : null}
+              {deleteError ? <p className="field-error">{deleteError}</p> : null}
               <div className="form-actions">
                 <button type="button" className="btn btn-secondary" onClick={resetBillDelete}>
                   Cancel

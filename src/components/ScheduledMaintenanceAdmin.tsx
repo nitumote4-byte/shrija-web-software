@@ -77,7 +77,7 @@ export function ScheduledMaintenanceAdmin({
         <Megaphone size={18} style={{ verticalAlign: 'middle', marginRight: 8 }} aria-hidden />
         Scheduled Maintenance / निर्धारित रखरखाव
       </h2>
-      <p className="auto-manak-hint">
+      <p className="auto-manak-hint is-guide">
         Write the notice for each maintenance event. The login page and the notification bell use
         this same text. Leave a language blank to keep the standard professional wording. This
         notice does not enable Maintenance Mode.

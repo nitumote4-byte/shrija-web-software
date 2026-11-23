@@ -103,7 +103,7 @@ export function ChangePasswordForm({ toast, onSuccess, forced }: Props) {
             minLength={MIN_PASSWORD_LENGTH}
           />
         </div>
-        <p className="auto-manak-hint">At least {MIN_PASSWORD_LENGTH} characters. Do not reuse a shared default.</p>
+        <p className="auto-manak-hint is-guide">At least {MIN_PASSWORD_LENGTH} characters. Do not reuse a shared default.</p>
         <div className="auto-manak-actions">
           <button type="submit" className="btn btn-navy" disabled={busy} aria-busy={busy}>
             {busy ? (

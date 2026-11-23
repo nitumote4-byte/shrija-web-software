@@ -699,7 +699,7 @@ export function CompanyProfile() {
             </div>
 
             {oscOutlets.length === 0 ? (
-              <p className="field-hint">No Off-Site outlet added yet.</p>
+              <p className="field-hint is-keep">No Off-Site outlet added yet.</p>
             ) : (
               oscOutlets.map((o, idx) => (
                 <div

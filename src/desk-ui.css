@@ -273,17 +273,17 @@ html[data-density='compact'] .top-header {
 /* Claymorphism — screen desk only. Print sheets stay flat. */
 @media screen {
   :root {
-    --bg: #e4ebf5;
-    --surface: #f4f7fb;
-    --border: rgba(255, 255, 255, 0.72);
+    --bg: #d6e0ec;
+    --surface: #e7eef6;
+    --border: rgba(130, 148, 172, 0.5);
     --radius: 22px;
     --card-radius: 26px;
     --shadow:
       8px 8px 18px rgba(163, 177, 198, 0.42),
-      -7px -7px 16px rgba(255, 255, 255, 0.92);
+      -7px -7px 16px rgba(255, 255, 255, 0.62);
     --shadow-hover:
       10px 12px 22px rgba(163, 177, 198, 0.48),
-      -8px -8px 18px rgba(255, 255, 255, 0.95);
+      -8px -8px 18px rgba(255, 255, 255, 0.68);
     --card-shadow: var(--shadow);
     --card-hover-shadow: var(--shadow-hover);
   }
@@ -311,18 +311,18 @@ html[data-density='compact'] .top-header {
 
   body {
     background:
-      radial-gradient(880px 420px at 0% -8%, rgba(255, 214, 176, 0.72), transparent 58%),
-      radial-gradient(760px 460px at 100% 0%, rgba(176, 206, 255, 0.85), transparent 56%),
-      radial-gradient(640px 420px at 78% 100%, rgba(214, 190, 255, 0.4), transparent 52%),
-      #e6eef8;
+      radial-gradient(880px 420px at 0% -8%, rgba(232, 186, 142, 0.42), transparent 58%),
+      radial-gradient(760px 460px at 100% 0%, rgba(146, 178, 224, 0.48), transparent 56%),
+      radial-gradient(640px 420px at 78% 100%, rgba(186, 164, 224, 0.26), transparent 52%),
+      #d4deeb;
   }
 
   .app-sidebar {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 28%),
-      linear-gradient(180deg, #f7f9fd 0%, #e7eef8 100%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 28%),
+      linear-gradient(180deg, #e4ecf5 0%, #d3deea 100%);
     color: #243044;
-    border-right: none;
+    border-right: 1px solid var(--border);
     box-shadow:
       10px 0 24px rgba(163, 177, 198, 0.32),
       inset -8px 0 16px rgba(255, 255, 255, 0.45);
@@ -335,10 +335,24 @@ html[data-density='compact'] .top-header {
     color: #5c6b82;
   }
 
+  .app-sidebar .sidebar-brand {
+    background:
+      radial-gradient(120% 150% at 0% 0%, rgba(232, 186, 120, 0.62), transparent 54%),
+      radial-gradient(110% 160% at 100% 100%, rgba(146, 184, 232, 0.58), transparent 58%),
+      radial-gradient(70% 90% at 62% 0%, rgba(190, 166, 230, 0.38), transparent 50%),
+      linear-gradient(135deg, #f3e7d4, #e4ecf8 55%, #e8e0f4);
+    box-shadow: inset 0 -1px 0 rgba(180, 150, 90, 0.28);
+  }
+
   .app-sidebar .sidebar-brand-name,
   .app-sidebar .sidebar-link,
   .app-sidebar .sidebar-folder-toggle {
     color: #243044;
+  }
+
+  .app-sidebar .sidebar-brand-name {
+    font-size: 0.86rem;
+    letter-spacing: -0.03em;
   }
 
   .app-sidebar .sidebar-brand-centre,
@@ -353,7 +367,7 @@ html[data-density='compact'] .top-header {
   .app-sidebar .sidebar-link:hover,
   .app-sidebar .sidebar-group.is-upcoming .sidebar-link:hover,
   .app-sidebar .sidebar-group-label.is-toggle:hover {
-    background: rgba(255, 255, 255, 0.72);
+    background: rgba(255, 255, 255, 0.42);
     color: #1a365d;
     box-shadow:
       4px 4px 10px rgba(163, 177, 198, 0.35),
@@ -362,7 +376,7 @@ html[data-density='compact'] .top-header {
 
   .app-sidebar .sidebar-link.is-active,
   .app-sidebar .sidebar-group.is-upcoming .sidebar-link.is-active {
-    background: #f7f9fd;
+    background: #e4ecf5;
     color: #1a365d;
     box-shadow:
       inset 4px 4px 8px rgba(163, 177, 198, 0.38),
@@ -371,10 +385,79 @@ html[data-density='compact'] .top-header {
 
   .app-sidebar .sidebar-group.is-upcoming {
     background: rgba(255, 255, 255, 0.35);
-    border: none;
+    border: 1px solid var(--border);
     box-shadow:
       inset 3px 3px 8px rgba(163, 177, 198, 0.28),
       inset -2px -2px 6px rgba(255, 255, 255, 0.7);
+  }
+
+  .app-sidebar .sidebar-group > ul > li::after {
+    content: '';
+    display: block;
+    width: 50%;
+    height: 1px;
+    margin: 0.28rem auto 0.08rem;
+    background: rgba(109, 91, 50, 0.38);
+    border-radius: 1px;
+  }
+
+  .app-sidebar.is-collapsed .sidebar-group > ul > li::after {
+    display: none;
+  }
+
+  @media (min-width: 900px) {
+    .app-sidebar {
+      margin: 12px 0 12px 12px;
+      height: calc(100vh - 24px);
+      top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      overflow: hidden;
+      box-shadow:
+        8px 12px 24px rgba(140, 156, 178, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    }
+
+    .app-sidebar .sidebar-brand {
+      margin: 10px 10px 2px;
+      min-height: 72px;
+      padding: 0.65rem 0.72rem;
+      border: 1px solid rgba(180, 150, 90, 0.4);
+      border-radius: 18px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.7),
+        0 6px 14px rgba(163, 177, 198, 0.2);
+    }
+
+    .app-sidebar .sidebar-nav {
+      padding: 0.45rem 0.7rem 0.65rem;
+    }
+
+    .app-sidebar .sidebar-link,
+    .app-sidebar .sidebar-folder-toggle {
+      border-radius: 14px;
+    }
+
+    .app-sidebar .sidebar-link.is-active,
+    .app-sidebar .sidebar-group.is-upcoming .sidebar-link.is-active {
+      border: 1px solid rgba(180, 150, 90, 0.45);
+      background: linear-gradient(90deg, rgba(232, 186, 120, 0.42), rgba(255, 255, 255, 0.28));
+    }
+
+    .app-sidebar .sidebar-foot {
+      margin: 0 10px 10px;
+      padding: 0.55rem 0.75rem;
+      border: 1px solid var(--border);
+      border-top: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.4);
+    }
+
+    .app-sidebar.is-collapsed .sidebar-brand {
+      margin: 8px 6px;
+      min-height: 0;
+      padding: 0.45rem 0.15rem;
+    }
   }
 
   .app-shell,
@@ -386,9 +469,9 @@ html[data-density='compact'] .top-header {
 
   .top-header {
     margin: 12px 16px 0;
-    border: none;
+    border: 1px solid var(--border);
     border-radius: 22px;
-    background: #f4f7fb;
+    background: #e6edf5;
     box-shadow:
       8px 8px 18px rgba(163, 177, 198, 0.4),
       -6px -6px 14px rgba(255, 255, 255, 0.95);
@@ -396,15 +479,59 @@ html[data-density='compact'] .top-header {
 
   .header-density-btn,
   .header-menu-btn,
-  .top-header .search-box,
   .icon-btn,
   .header-icon-btn {
-    border: none;
+    border: 1px solid var(--border);
     border-radius: 999px;
-    background: #eef3f9;
+    background: #e1e9f2;
     box-shadow:
       inset 3px 3px 7px rgba(163, 177, 198, 0.4),
       inset -3px -3px 7px rgba(255, 255, 255, 0.9);
+  }
+
+  .top-header .search-box {
+    border: none;
+    border-radius: 999px;
+    background: #e1e9f2;
+    box-shadow:
+      inset 3px 3px 7px rgba(163, 177, 198, 0.4),
+      inset -3px -3px 7px rgba(255, 255, 255, 0.9);
+  }
+
+  .top-header .search-box input,
+  .top-header .search-box input[type='search'] {
+    border: 1px solid var(--border);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .header-bell-btn {
+    color: #d4920a;
+  }
+
+  .header-bell-btn:hover {
+    color: #b8860b;
+  }
+
+  .top-header .user-chip {
+    border-color: rgba(196, 168, 120, 0.35);
+    background:
+      radial-gradient(130% 170% at 0% 0%, rgba(232, 186, 120, 0.62), transparent 54%),
+      radial-gradient(130% 180% at 100% 100%, rgba(146, 184, 232, 0.58), transparent 58%),
+      radial-gradient(80% 110% at 58% 0%, rgba(190, 166, 230, 0.4), transparent 52%),
+      linear-gradient(135deg, #f3e7d4, #e4ecf8 55%, #e8e0f4);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.85),
+      0 4px 10px rgba(163, 177, 198, 0.28);
+  }
+
+  .top-header .user-chip:hover {
+    border-color: rgba(196, 168, 120, 0.55);
+    background:
+      radial-gradient(130% 170% at 0% 0%, rgba(232, 186, 120, 0.68), transparent 54%),
+      radial-gradient(130% 180% at 100% 100%, rgba(146, 184, 232, 0.62), transparent 58%),
+      radial-gradient(80% 110% at 58% 0%, rgba(190, 166, 230, 0.44), transparent 52%),
+      linear-gradient(135deg, #f3e7d4, #e4ecf8 55%, #e8e0f4);
   }
 
   .header-density-btn.is-compact {
@@ -427,9 +554,9 @@ html[data-density='compact'] .top-header {
   .app-main .party-dossier,
   .app-main .party-quick-card,
   .app-main .module-card {
-    border: none;
+    border: 1px solid var(--border);
     border-radius: 26px;
-    background: linear-gradient(160deg, #fbfcfe 0%, #f3f6fb 100%);
+    background: linear-gradient(160deg, #eef3f8 0%, #e3ebf4 100%);
     box-shadow:
       8px 8px 18px rgba(163, 177, 198, 0.4),
       -7px -7px 16px rgba(255, 255, 255, 0.95),
@@ -437,6 +564,7 @@ html[data-density='compact'] .top-header {
   }
 
   .app-main .home-hero.home-welcome-card {
+    border: 1px solid rgba(240, 212, 138, 0.45);
     background:
       radial-gradient(ellipse 55% 90% at 100% 0%, rgba(240, 212, 138, 0.55), transparent 58%),
       linear-gradient(145deg, #35609a 0%, #1a365d 58%, #8a6428 145%);
@@ -493,9 +621,9 @@ html[data-density='compact'] .top-header {
   .app-main .party-add-btn,
   .app-main .party-send-btn,
   .app-main .home-hero-pill {
-    border: none;
+    border: 1px solid var(--border);
     border-radius: 999px;
-    background: #f4f7fb;
+    background: #e6edf5;
     color: #1a365d;
     box-shadow:
       5px 5px 12px rgba(163, 177, 198, 0.45),
@@ -510,6 +638,7 @@ html[data-density='compact'] .top-header {
   .app-main .home-hero-pill.is-primary {
     background: linear-gradient(160deg, #31598f, #1a365d);
     color: #fff;
+    border-color: rgba(255, 255, 255, 0.32);
     box-shadow:
       6px 6px 14px rgba(26, 54, 93, 0.32),
       -3px -3px 8px rgba(255, 255, 255, 0.7),
@@ -530,7 +659,7 @@ html[data-density='compact'] .top-header {
   .app-main .gb-btn-del {
     background: linear-gradient(160deg, #e06a62, #b42318);
     color: #fff;
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.28);
   }
 
   .app-main input:not([type='checkbox']):not([type='radio']):not([type='file']),
@@ -538,9 +667,9 @@ html[data-density='compact'] .top-header {
   .app-main textarea,
   .app-main .party-search-box,
   .app-main .party-tabs {
-    border: none;
+    border: 1px solid var(--border);
     border-radius: 16px;
-    background: #eef3f9;
+    background: #e1e9f2;
     box-shadow:
       inset 4px 4px 8px rgba(163, 177, 198, 0.4),
       inset -4px -4px 8px rgba(255, 255, 255, 0.9);
@@ -550,6 +679,7 @@ html[data-density='compact'] .top-header {
   .app-main .search-box input {
     background: transparent;
     box-shadow: none;
+    border: none;
     border-radius: 0;
   }
 
@@ -564,9 +694,9 @@ html[data-density='compact'] .top-header {
 
   .app-main .table-wrap,
   .app-main .data-table-wrap {
-    border: none;
+    border: 1px solid var(--border);
     border-radius: 20px;
-    background: #f7f9fd;
+    background: #e6eef6;
     box-shadow:
       inset 4px 4px 10px rgba(163, 177, 198, 0.28),
       inset -3px -3px 8px rgba(255, 255, 255, 0.8);
@@ -636,6 +766,27 @@ html[data-density='compact'] .top-header {
     box-shadow:
       4px 4px 8px rgba(163, 177, 198, 0.45),
       -3px -3px 7px rgba(255, 255, 255, 0.75);
+  }
+
+  .app-main .page-header p,
+  .app-main .reqlist-hint,
+  .app-main .cg-flow-hint,
+  .app-main .fund-tds-hint,
+  .app-main .field-hint:not(.is-keep),
+  .app-main .invlist-filter-hint,
+  .app-main .invset-hint,
+  .app-main .rough-note,
+  .app-main .party-rate-note,
+  .app-main .home-osc-note,
+  .app-main .instructions-box,
+  .app-main .btn-instructions,
+  .app-main .dash-cal-hint,
+  .app-main .voucher-hint,
+  .app-main .att-notes,
+  .app-main .nse-calc-note,
+  .app-main .invoice-hint,
+  .app-main .auto-manak-hint.is-guide {
+    display: none;
   }
 }
 
