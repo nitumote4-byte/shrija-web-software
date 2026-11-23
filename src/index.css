@@ -5017,6 +5017,39 @@ button {
   background: #fffbeb;
 }
 
+.reqlist-request-gap td {
+  height: 12px;
+  padding: 0 !important;
+  background: #e7eef6 !important;
+  border: none !important;
+}
+
+.reqlist-request-head td {
+  background: #1e3a5f !important;
+  color: #fff !important;
+  padding: 0.42rem 0.75rem !important;
+  font-size: 0.8rem;
+  border-bottom: none !important;
+}
+
+.reqlist-request-head strong {
+  margin-right: 0.75rem;
+}
+
+.reqlist-request-head span {
+  font-weight: 500;
+  opacity: 0.88;
+}
+
+.reqlist-table tbody tr.reqlist-request-gap:hover td,
+.reqlist-table tbody tr.reqlist-request-head:hover td {
+  background: #1e3a5f !important;
+}
+
+.reqlist-table tbody tr.reqlist-request-gap:hover td {
+  background: #e7eef6 !important;
+}
+
 .reqlist-totals td {
   background: #f1f5f9;
   font-weight: 700;

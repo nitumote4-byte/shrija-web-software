@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CloudUpload } from 'lucide-react'
 import { useToast } from '../components/ui'
@@ -117,6 +117,23 @@ export function RequestList() {
       return true
     })
   }, [rows, date, shift, metal, purity, status, requestNo, jobCardQ])
+
+  const requestGroups = useMemo(() => {
+    const groups: { key: string; rows: typeof filtered }[] = []
+    const at = new Map<string, number>()
+    for (const row of filtered) {
+      const request = (row.requestNo || '').trim()
+      const key = request || `row:${row.id}`
+      const index = at.get(key)
+      if (index == null) {
+        at.set(key, groups.length)
+        groups.push({ key, rows: [row] })
+      } else {
+        groups[index].rows.push(row)
+      }
+    }
+    return groups
+  }, [filtered])
 
   const allChecked = filtered.length > 0 && filtered.every((r) => r.checked)
   const selected = filtered.filter((r) => r.checked)
@@ -388,7 +405,23 @@ export function RequestList() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => {
+                requestGroups.map((group, groupIndex) => (
+                  <Fragment key={group.key}>
+                    {groupIndex > 0 ? (
+                      <tr className="reqlist-request-gap" aria-hidden="true">
+                        <td colSpan={18} />
+                      </tr>
+                    ) : null}
+                    <tr className="reqlist-request-head">
+                      <td colSpan={18}>
+                        <strong>{group.rows[0].requestNo?.trim() || 'No request number'}</strong>
+                        <span>
+                          {group.rows[0].partyName} · {group.rows.length} job
+                          {group.rows.length === 1 ? '' : 's'}
+                        </span>
+                      </td>
+                    </tr>
+                    {group.rows.map((r) => {
                   const req = r.requestNo ? store.getRequestByNo(r.requestNo) : undefined
                   const transfer = oscTransferLabel(req?.oscTransferStatus)
                   return (
@@ -514,7 +547,9 @@ export function RequestList() {
                     </td>
                   </tr>
                   )
-                })
+                    })}
+                  </Fragment>
+                ))
               )}
             </tbody>
             {filtered.length > 0 && (
