@@ -415,6 +415,7 @@ export function Dashboard() {
 
   return (
     <div className="home-page page-content">
+      <div className="home-scroll">
       <section className="home-hero home-welcome-card">
         <div className="home-welcome-copy">
           <p className="home-eyebrow">{PRODUCT_NAME}</p>
@@ -583,6 +584,7 @@ export function Dashboard() {
       </div>
 
       <LiveJobTracking />
+      </div>
 
       {stripActions.length > 0 && (
         <section className="home-quick-panel" data-accent="slate">

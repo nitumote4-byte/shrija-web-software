@@ -14453,6 +14453,38 @@ body:has(.app-shell),
   min-height: 0;
 }
 
+.main-content:has(.home-page) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.home-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.home-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+}
+
+.home-scroll > * {
+  flex: 0 0 auto;
+}
+
+.home-quick-panel {
+  flex-shrink: 0;
+  z-index: 4;
+}
+
 @media (min-width: 1200px) and (max-height: 820px) {
   .home-page {
     min-height: 0;
@@ -14495,6 +14527,13 @@ body:has(.app-shell),
     height: auto !important;
     max-height: none !important;
     min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .home-page,
+  .home-scroll {
+    height: auto !important;
+    max-height: none !important;
     overflow: visible !important;
   }
 
