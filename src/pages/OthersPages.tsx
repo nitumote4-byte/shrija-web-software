@@ -460,7 +460,15 @@ export function PartyDetails() {
   )
 }
 
-export function CompanyProfile() {
+export function CompanyProfile({
+  backTo = '/others',
+  backLabel = 'Back to Others',
+  heading = 'Firm Details',
+}: {
+  backTo?: string
+  backLabel?: string
+  heading?: string
+} = {}) {
   const { toast, Toast } = useToast()
   const session = getSession()
   const canEdit = Boolean(session?.isAdmin)
@@ -588,8 +596,8 @@ export function CompanyProfile() {
 
   return (
     <div className="firm-page">
-      <Link to="/others" className="back-link">
-        <ArrowLeft size={16} /> Back to Others
+      <Link to={backTo} className="back-link">
+        <ArrowLeft size={16} /> {backLabel}
       </Link>
 
       <div className="firm-card">
@@ -615,10 +623,11 @@ export function CompanyProfile() {
           </button>
         </div>
 
-        <h1 className="firm-title">Firm Details</h1>
+        <h1 className="firm-title">{heading}</h1>
         <p className="field-hint" style={{ marginTop: '-0.5rem', marginBottom: '1rem' }}>
           One GSTIN for the firm. Off-Site Centres are outlets under the same GST — invoices show Main
           GSTIN with the outlet address.
+          {!canEdit ? ' Only an admin can save changes.' : ''}
         </p>
 
         <div className={`firm-form ${locked ? 'is-locked' : ''}`}>

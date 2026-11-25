@@ -180,5 +180,10 @@ export function roleLabel(role: string) {
   const r = normalizeRole(role)
   if (r === 'assay_lab' || r === 'in_lab' || r === 'inlab') return 'In Lab'
   if (r === 'reception') return 'Reception'
-  return role.replace(/_/g, ' ')
+  if (r === 'quality_manager') return 'Quality Manager'
+  if (r === 'accountant') return 'Accountant'
+  if (r === 'admin') return 'Admin'
+  const raw = role.replace(/_/g, ' ').trim()
+  if (!raw) return ''
+  return raw.replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
