@@ -156,7 +156,20 @@ function tryParseJson(raw: string): unknown {
   }
 }
 
-/** Merge Fire Assay archive maps so pending sheet keys win without dropping server-only sheets. */
+function filledFireAssayRows(sheet: unknown): number {
+  if (!sheet || typeof sheet !== 'object') return 0
+  const rows = (sheet as { rows?: unknown }).rows
+  if (!Array.isArray(rows)) return 0
+  return rows.filter((row) => {
+    if (!row || typeof row !== 'object') return false
+    const job = String((row as { jobCardNo?: unknown }).jobCardNo || '').trim()
+    const weight = Number((row as { sampleWeight?: unknown }).sampleWeight)
+    const fineness = Number((row as { fineness?: unknown }).fineness)
+    return Boolean(job) || weight > 0 || fineness > 0
+  }).length
+}
+
+/** Merge Fire Assay archive maps. Server-only sheets stay. A thinner copy cannot wipe a filled sheet. */
 export function mergeFireAssayArchiveJson(serverRaw: string | null, pendingRaw: string): string {
   const server = tryParseJson(serverRaw || '')
   const pending = tryParseJson(pendingRaw)
@@ -168,7 +181,16 @@ export function mergeFireAssayArchiveJson(serverRaw: string | null, pendingRaw: 
     pending && typeof pending === 'object' && !Array.isArray(pending)
       ? (pending as Record<string, unknown>)
       : {}
-  return JSON.stringify({ ...serverObj, ...pendingObj })
+  const merged: Record<string, unknown> = { ...serverObj }
+  for (const [key, sheet] of Object.entries(pendingObj)) {
+    const kept = serverObj[key]
+    if (kept && filledFireAssayRows(sheet) < filledFireAssayRows(kept)) {
+      merged[key] = kept
+      continue
+    }
+    merged[key] = sheet
+  }
+  return JSON.stringify(merged)
 }
 
 /** Union CG weight rows by id; pending/local rows win on the same id. */

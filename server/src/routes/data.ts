@@ -35,6 +35,12 @@ import { reconcileFinancialTombstonesForReplaceAll } from '../financialTombstone
 import { letterheadRouter } from './letterhead.js'
 import { applyReceptionWrite, publicReception, reduceReception } from '../receptionCreds.js'
 import { isManakKvKey, isReceptionKvKey, mergeManakKvWrite, redactKvEntry } from '../secretKv.js'
+import {
+  fireAssayArchivePrevKey,
+  isFireAssayArchiveKvKey,
+  isFireAssayArchivePrevKvKey,
+  mergeFireAssayArchiveWrite,
+} from '../fireAssayArchive.js'
 
 export const dataRouter = Router()
 
@@ -428,6 +434,38 @@ dataRouter.put('/kv/:key', async (req, res) => {
     return
   }
 
+  if (isFireAssayArchivePrevKvKey(key)) {
+    res.status(403).json({ error: 'Fire assay archive backup is kept on the server' })
+    return
+  }
+
+  if (isFireAssayArchiveKvKey(key)) {
+    const merged = await withTransaction(async (client) => {
+      const locked = await client.query(
+        `SELECT value FROM kv_docs WHERE tenant_id = $1 AND key = $2 FOR UPDATE`,
+        [tenantId, key],
+      )
+      const existing = locked.rows[0] ? asJson((locked.rows[0] as { value: unknown }).value) : null
+      const next = mergeFireAssayArchiveWrite(existing, parsed.data.value)
+      const updatedAt = nowIso()
+      if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+        await client.query(
+          `INSERT INTO kv_docs (tenant_id, key, value, updated_at) VALUES ($1, $2, $3::jsonb, $4)
+           ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+          [tenantId, fireAssayArchivePrevKey(key), JSON.stringify(existing), updatedAt],
+        )
+      }
+      await client.query(
+        `INSERT INTO kv_docs (tenant_id, key, value, updated_at) VALUES ($1, $2, $3::jsonb, $4)
+         ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+        [tenantId, key, JSON.stringify(next), updatedAt],
+      )
+      return next
+    })
+    res.json({ ok: true, value: merged })
+    return
+  }
+
   if (isManakKvKey(key)) {
     const merged = await withTransaction(async (client) => {
       const locked = await client.query(
@@ -471,6 +509,10 @@ dataRouter.delete('/kv/:key', async (req, res) => {
   }
   if (isAdminOnlyKvKey(key) && !isAdminUser(req.user!)) {
     res.status(403).json({ error: 'Admin access required' })
+    return
+  }
+  if (isFireAssayArchiveKvKey(key) || isFireAssayArchivePrevKvKey(key)) {
+    res.status(403).json({ error: 'Fire assay sheets are kept for audit' })
     return
   }
   await pool.query(`DELETE FROM kv_docs WHERE tenant_id = $1 AND key = $2`, [tenantId, key])

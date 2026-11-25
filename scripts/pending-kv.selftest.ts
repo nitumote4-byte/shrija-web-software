@@ -84,6 +84,17 @@ assert.equal(
   JSON.stringify({ a: 1, b: 9, c: 3 }),
 )
 
+const keptSheet = { sheetNo: '1', rows: [{ jobCardNo: '1_100', sampleWeight: 1, fineness: 916 }] }
+assert.deepEqual(
+  JSON.parse(
+    mergeFireAssayArchiveJson(
+      JSON.stringify({ '2026-11-05|916|Day|1': keptSheet }),
+      JSON.stringify({ '2026-11-05|916|Day|1': { sheetNo: '1', rows: [] }, '2026-11-23|916|Day|1': keptSheet }),
+    ),
+  ),
+  { '2026-11-05|916|Day|1': keptSheet, '2026-11-23|916|Day|1': keptSheet },
+)
+
 rememberPendingKvRemove(scope, 'manak-fire-assay-sheet')
 const withRemove = applyPendingKvToDocs(
   { ...applied.docs, 'manak-fire-assay-sheet': '{"x":1}' },
