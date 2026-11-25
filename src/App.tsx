@@ -161,9 +161,6 @@ const ChangePasswordPage = lazy(() =>
   import('./pages/ChangePassword').then((m) => ({ default: m.ChangePasswordPage })),
 )
 const LicensePage = lazy(() => import('./pages/License').then((m) => ({ default: m.LicensePage })))
-const AccountSettingsPage = lazy(() =>
-  import('./pages/AccountSettings').then((m) => ({ default: m.AccountSettingsPage })),
-)
 const PlatformOperator = lazy(() =>
   import('./pages/PlatformOperator').then((m) => ({ default: m.PlatformOperator })),
 )
@@ -293,7 +290,7 @@ export default function App() {
               <Route path="others/add-to-group" element={<AddToGroup />} />
               <Route path="others/touch-fund" element={<TouchFundEntry />} />
               <Route path="others/manage-password" element={<ManagePassword />} />
-              <Route path="account-settings" element={<AccountSettingsPage />} />
+              <Route path="account-settings" element={<ManagePassword />} />
               <Route path="others/add-staff" element={<AddStaff />} />
               <Route path="others/staff-attendance" element={<StaffAttendance />} />
               <Route path="others/invoice-settings" element={<InvoiceSettings />} />

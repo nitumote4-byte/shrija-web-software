@@ -399,7 +399,7 @@ export function Layout() {
                     className="user-dropdown-item"
                     onClick={() => {
                       setMenuOpen(false)
-                      navigate('/change-password')
+                      navigate('/account-settings')
                     }}
                   >
                     <KeyRound size={16} /> Change Password
