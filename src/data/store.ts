@@ -10,6 +10,7 @@ import {
 import { getActiveTenantId, tenantGet } from './tenant'
 import { getStoreCache, getStoreVersion, setStoreCache } from './tenantCache'
 import { getSession } from './auth'
+import { canChangeLockedRecords, LOCKED_RECORD_MESSAGE } from './roles'
 import {
   BILL_GENERATED_DELETE_BLOCKED,
   deleteInvoiceById as removeInvoiceRecord,
@@ -1590,6 +1591,10 @@ function scopedCacheToken() {
   return `${getStoreVersion()}|${s?.tenantId || ''}|${s?.centreId || ''}|${s?.centreKind || ''}|${numberingPeriod()}`
 }
 
+function lockedRecordChangeBlocked() {
+  return !canChangeLockedRecords()
+}
+
 export const store = {
   /** UI lists — OSC sessions are centre-scoped; Main excludes OSC operational data */
   getAll: () => {
@@ -1671,6 +1676,7 @@ export const store = {
   },
 
   updateParty(id: string, patch: Partial<Omit<Party, 'id' | 'createdAt'>>) {
+    if (lockedRecordChangeBlocked()) return null
     const data = load()
     const party = data.parties.find((p) => p.id === id)
     if (!party) return null
@@ -1681,6 +1687,7 @@ export const store = {
   },
 
   deleteParty(id: string) {
+    if (lockedRecordChangeBlocked()) return false
     const data = load()
     const before = data.parties.length
     data.parties = data.parties.filter((p) => p.id !== id)
@@ -1690,11 +1697,13 @@ export const store = {
   },
 
   updatePartyGroup(partyId: string, groupName: string) {
+    if (lockedRecordChangeBlocked()) return false
     const data = load()
     const party = data.parties.find((p) => p.id === partyId)
     if (!party) return
     party.groupName = groupName
     save(data)
+    return true
   },
 
   addCategory(input: Omit<Category, 'id'>) {
@@ -2218,6 +2227,7 @@ export const store = {
   },
 
   updateInvoice(id: string, patch: Partial<Omit<Invoice, 'id'>>) {
+    if (lockedRecordChangeBlocked()) return null
     const data = load()
     const row = data.invoices.find((i) => i.id === id)
     if (!row) return null
@@ -2237,6 +2247,7 @@ export const store = {
   },
 
   deleteInvoice(id: string) {
+    if (lockedRecordChangeBlocked()) return false
     const data = load()
     const row = data.invoices.find((i) => i.id === id)
     if (!row) return false
@@ -2319,6 +2330,7 @@ export const store = {
   },
 
   updateMonthlyInvoice(id: string, patch: Partial<Omit<MonthlyInvoice, 'id'>>) {
+    if (lockedRecordChangeBlocked()) return null
     const data = load()
     const row = (data.monthlyInvoices || []).find((i) => i.id === id)
     if (!row) return null
@@ -2336,6 +2348,7 @@ export const store = {
   },
 
   deleteMonthlyInvoice(id: string) {
+    if (lockedRecordChangeBlocked()) return false
     const data = load()
     const row = (data.monthlyInvoices || []).find((i) => i.id === id)
     if (!row) return false
@@ -2393,6 +2406,7 @@ export const store = {
     id: string,
     patch: Partial<Omit<FundEntry, 'id' | 'voucherNo' | 'centreId' | 'centreKind'>>,
   ) {
+    if (lockedRecordChangeBlocked()) return null
     const data = load()
     const row = data.funds.find((f) => f.id === id)
     if (!row) return null
@@ -2420,6 +2434,7 @@ export const store = {
   },
 
   deleteFund(id: string) {
+    if (lockedRecordChangeBlocked()) return false
     const data = load()
     const row = data.funds.find((f) => f.id === id)
     if (!row) return false
@@ -2505,6 +2520,7 @@ export const store = {
   },
 
   updatePurchaseParty(id: string, patch: Partial<Omit<PurchaseParty, 'id' | 'createdAt'>>) {
+    if (lockedRecordChangeBlocked()) return null
     const data = load()
     const row = (data.purchaseParties || []).find((p) => p.id === id)
     if (!row) return null
@@ -2517,6 +2533,7 @@ export const store = {
   },
 
   deletePurchaseParty(id: string) {
+    if (lockedRecordChangeBlocked()) return false
     const data = load()
     const before = (data.purchaseParties || []).length
     data.purchaseParties = (data.purchaseParties || []).filter((p) => p.id !== id)
@@ -2526,6 +2543,7 @@ export const store = {
   },
 
   deleteExpense(id: string) {
+    if (lockedRecordChangeBlocked()) return false
     const data = load()
     const row = data.expenses.find((e) => e.id === id)
     if (!row) return false
@@ -3581,6 +3599,9 @@ export const store = {
     kind?: OtherServiceKind
     slipPrefix?: string
   }) {
+    if (lockedRecordChangeBlocked()) {
+      return { ok: false as const, error: LOCKED_RECORD_MESSAGE }
+    }
     const data = load()
     data.otherServiceTypes = ensureOtherServiceTypes(data.otherServiceTypes)
     const name = String(input.name || '').trim()
@@ -3618,6 +3639,9 @@ export const store = {
     id: string,
     patch: Partial<Pick<OtherServiceType, 'name' | 'kind' | 'slipPrefix' | 'active'>>,
   ) {
+    if (lockedRecordChangeBlocked()) {
+      return { ok: false as const, error: LOCKED_RECORD_MESSAGE }
+    }
     const data = load()
     data.otherServiceTypes = ensureOtherServiceTypes(data.otherServiceTypes)
     const row = data.otherServiceTypes.find((t) => t.id === id)

@@ -27,6 +27,7 @@ type AppUser = {
   role: string
   password: string
   centreId: string
+  isAdmin: boolean
 }
 
 type ReceptionCreds = {
@@ -39,7 +40,7 @@ type ReceptionCreds = {
 const RECEPTION_KEY = 'shrija-reception-creds'
 
 const ROLE_OPTIONS = [
-  { value: 'quality_manager', label: 'Quality Manager (full)' },
+  { value: 'quality_manager', label: 'Quality Manager' },
   { value: 'assay_lab', label: 'In Lab (Fire Assay + Stock only)' },
   { value: 'in_lab', label: 'In Lab (alias)' },
   { value: 'reception', label: 'Reception (all except Lab)' },
@@ -145,6 +146,7 @@ export function ManagePassword() {
           role: u.role,
           password: u.password,
           centreId: u.centreId || 'main',
+          isAdmin: Boolean(u.isAdmin) || u.role === 'admin',
         }))
         setUsers(nextUsers)
         const fromServer = centresFromServer(result.centres)
@@ -194,10 +196,14 @@ export function ManagePassword() {
       }
     }
 
+    const selfName = getSession()?.username?.toLowerCase() || ''
+    const current = editingId ? users.find((u) => u.id === editingId) : undefined
+    const editingSelf = Boolean(current && current.username.toLowerCase() === selfName)
+    const role = editingSelf && current ? current.role : form.role
     const centreId = form.centreId || 'main'
     const centre = centres.find((c) => c.id === centreId)
     // OSC outlet users should not be In Lab roles
-    if (centre?.kind === 'osc' && /assay_lab|in_lab|inlab/.test(form.role)) {
+    if (centre?.kind === 'osc' && /assay_lab|in_lab|inlab/.test(role)) {
       toast('Off-Site users cannot be In Lab — lab stays at Main Centre')
       return
     }
@@ -209,9 +215,10 @@ export function ManagePassword() {
           ? {
               ...u,
               username: form.username.trim(),
-              role: form.role,
+              role,
               password: form.password.trim() || u.password,
               centreId,
+              isAdmin: u.isAdmin,
             }
           : u,
       )
@@ -220,9 +227,10 @@ export function ManagePassword() {
         {
           id: `u-${Date.now()}`,
           username: form.username.trim(),
-          role: form.role,
+          role,
           password: form.password,
           centreId,
+          isAdmin: form.role === 'admin',
         },
         ...users,
       ]
@@ -361,7 +369,10 @@ export function ManagePassword() {
         <div className="access-card-head">
           <div>
             <h2>Active Users</h2>
-            <p>System Access List</p>
+            <p>
+              A user cannot make their own login an admin. Only an existing admin can assign the
+              Admin role to someone else.
+            </p>
           </div>
           <button type="button" className="btn btn-primary" onClick={openCreate}>
             <Plus size={16} /> Create User
@@ -388,7 +399,8 @@ export function ManagePassword() {
                     </div>
                   </td>
                   <td>
-                    <span className="role-badge">{u.role}</span>
+                    <span className="role-badge">{u.role.replace(/_/g, ' ')}</span>
+                    {u.isAdmin ? <div className="field-hint">Can change saved records</div> : null}
                   </td>
                   <td>
                     <span className="role-badge">
@@ -543,6 +555,11 @@ export function ManagePassword() {
                 <label>Role</label>
                 <select
                   value={form.role}
+                  disabled={
+                    Boolean(editingId) &&
+                    users.find((u) => u.id === editingId)?.username.toLowerCase() ===
+                      getSession()?.username?.toLowerCase()
+                  }
                   onChange={(e) => setForm((p) => ({ ...p, role: e.target.value }))}
                 >
                   {ROLE_OPTIONS.map((r) => (
@@ -551,6 +568,16 @@ export function ManagePassword() {
                     </option>
                   ))}
                 </select>
+                {Boolean(editingId) &&
+                users.find((u) => u.id === editingId)?.username.toLowerCase() ===
+                  getSession()?.username?.toLowerCase() ? (
+                  <small className="field-hint">You cannot change your own role.</small>
+                ) : (
+                  <small className="field-hint">
+                    Choosing Admin lets that other user change saved bills, payments, expenses,
+                    parties, and rates.
+                  </small>
+                )}
               </div>
               <div className="field">
                 <label>Centre / Outlet</label>

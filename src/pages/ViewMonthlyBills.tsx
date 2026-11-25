@@ -8,6 +8,7 @@ import {
 } from '../components/MonthlyInvoiceSheet'
 import { useToast } from '../components/ui'
 import { store } from '../data/store'
+import { canChangeLockedRecords } from '../data/roles'
 import {
   applyInvoicePaperForPrint,
   clearInvoicePaperForPrint,
@@ -18,6 +19,7 @@ import {
 } from '../utils/invoicePaper'
 
 export function ViewMonthlyBills() {
+  const canEditLocked = canChangeLockedRecords()
   const data = store.getAll()
   const { toast, Toast } = useToast()
   const [selectedKey, setSelectedKey] = useState('')
@@ -136,9 +138,11 @@ export function ViewMonthlyBills() {
             >
               Download PDF
             </button>
-            <button type="button" className="gb-btn gb-btn-del" onClick={deleteBill}>
-              Delete
-            </button>
+            {canEditLocked ? (
+              <button type="button" className="gb-btn gb-btn-del" onClick={deleteBill}>
+                Delete
+              </button>
+            ) : null}
           </div>
         </div>
       </section>

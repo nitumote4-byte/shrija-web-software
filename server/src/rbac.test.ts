@@ -5,6 +5,8 @@ import {
   filterKvForRole,
   isAdminOnlyKvKey,
   isAdminUser,
+  planCentreAdminRepair,
+  resolveUserAdminGrant,
   isKnownRole,
   pickStoreForRole,
   redactFirmProfileForRole,
@@ -118,21 +120,18 @@ describe('RBAC secrets', () => {
     }
   })
 
-  it('lets centre admin and quality_manager retain admin-only KV', () => {
+  it('lets only the Admin role retain admin-only KV', () => {
     const docs = {
       staff: [{ name: 'X' }],
       'reception-creds': { username: 'desk' },
       manak_credentials: { username: 'm' },
     }
-    for (const user of [
-      { role: 'admin', isAdmin: true },
-      { role: 'quality_manager', isAdmin: false },
-    ]) {
-      const filtered = filterKvForRole(docs, user)
-      assert.ok(filtered.staff, `${user.role} keeps staff`)
-      assert.ok(filtered['reception-creds'], `${user.role} keeps reception-creds`)
-      assert.ok(filtered.manak_credentials, `${user.role} keeps manak_credentials`)
-    }
+    const admin = filterKvForRole(docs, { role: 'admin', isAdmin: false })
+    assert.ok(admin.staff)
+    assert.ok(admin.manak_credentials)
+    const flaggedQm = filterKvForRole(docs, { role: 'quality_manager', isAdmin: true })
+    assert.equal('staff' in flaggedQm, false)
+    assert.equal('manak_credentials' in flaggedQm, false)
   })
 
   it('redacts bank fields from lab firm profile', () => {
@@ -147,14 +146,60 @@ describe('RBAC secrets', () => {
 
   it('allows Manak desk for reception and admin only', () => {
     assert.equal(canUseManakDesk({ role: 'reception', isAdmin: false }), true)
-    assert.equal(canUseManakDesk({ role: 'quality_manager', isAdmin: true }), true)
+    assert.equal(canUseManakDesk({ role: 'quality_manager', isAdmin: true }), false)
+    assert.equal(canUseManakDesk({ role: 'admin', isAdmin: false }), true)
     assert.equal(canUseManakDesk({ role: 'assay_lab', isAdmin: false }), false)
     assert.equal(canUseManakDesk({ role: 'accountant', isAdmin: false }), false)
   })
 
-  it('treats quality_manager as admin even if isAdmin flag is stale false', () => {
-    assert.equal(isAdminUser({ role: 'quality_manager', isAdmin: false }), true)
-    assert.equal(isAdminUser({ role: 'reception', isAdmin: false }), false)
+  it('does not let a user grant admin permission to their own login', () => {
+    const self = resolveUserAdminGrant({
+      role: 'admin',
+      selfUserId: 'usr_self',
+      previous: { id: 'usr_self', role: 'reception', isAdmin: false },
+    })
+    assert.equal(self.isAdmin, false)
+    assert.equal(self.role, 'reception')
+    const other = resolveUserAdminGrant({
+      role: 'admin',
+      selfUserId: 'usr_owner',
+      previous: { id: 'usr_desk', role: 'reception', isAdmin: false },
+    })
+    assert.equal(other.isAdmin, true)
+    const ticked = resolveUserAdminGrant({
+      role: 'reception',
+      selfUserId: 'usr_owner',
+      previous: { id: 'usr_desk', role: 'reception', isAdmin: true },
+    })
+    assert.equal(ticked.isAdmin, false)
+    assert.equal(ticked.role, 'reception')
+  })
+
+  it('does not treat a database flag or Quality Manager role as admin', () => {
+    assert.equal(isAdminUser({ role: 'quality_manager', isAdmin: false }), false)
+    assert.equal(isAdminUser({ role: 'quality_manager', isAdmin: true }), false)
+    assert.equal(isAdminUser({ role: 'reception', isAdmin: true }), false)
+    assert.equal(isAdminUser({ role: 'admin', isAdmin: false }), true)
+  })
+
+  it('promotes only the oldest account when nobody has the Admin role', () => {
+    const updates = planCentreAdminRepair([
+      { id: 'usr_desk', role: 'quality_manager', isAdmin: true, createdAt: '2026-02-01T00:00:00.000Z' },
+      { id: 'usr_owner', role: 'quality_manager', isAdmin: true, createdAt: '2026-01-01T00:00:00.000Z' },
+    ])
+    const owner = updates.find((u) => u.id === 'usr_owner')
+    const desk = updates.find((u) => u.id === 'usr_desk')
+    assert.equal(owner?.role, 'admin')
+    assert.equal(owner?.isAdmin, true)
+    assert.equal(desk?.role, 'quality_manager')
+    assert.equal(desk?.isAdmin, false)
+    assert.deepEqual(
+      planCentreAdminRepair([
+        { id: 'usr_owner', role: 'admin', isAdmin: true, createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'usr_desk', role: 'reception', isAdmin: false, createdAt: '2026-02-01T00:00:00.000Z' },
+      ]),
+      [],
+    )
   })
 })
 

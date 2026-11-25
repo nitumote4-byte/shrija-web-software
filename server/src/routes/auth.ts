@@ -30,6 +30,8 @@ import {
   resolveCentreFromList,
   selectPasswordMatch,
 } from '../tenantIsolation.js'
+import { isAdminUser, resolveUserAdminGrant } from '../rbac.js'
+import { repairCentreAdminRoles } from '../centreAdminRepair.js'
 import {
   changePasswordLimiter,
   forgotLimiter,
@@ -311,13 +313,21 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   // Expired centres can still log in to activate a new key (blocked from data APIs)
 
   const centre = await resolveUserCentre(user.tenantId, user.firmName, user.centreId)
+  await repairCentreAdminRoles(user.tenantId)
+  const freshAdmin = await pool.query(
+    `SELECT role, COALESCE(is_admin, FALSE) AS "isAdmin" FROM users WHERE id = $1 AND tenant_id = $2`,
+    [user.id, user.tenantId],
+  )
+  const freshRow = freshAdmin.rows[0] as { role?: string; isAdmin?: boolean } | undefined
+  if (freshRow?.role) user.role = freshRow.role
+  if (freshRow) user.isAdmin = Boolean(freshRow.isAdmin)
 
   const authUser: AuthUser = {
     userId: user.id,
     tenantId: user.tenantId,
     username: user.username,
     role: user.role,
-    isAdmin: Boolean(user.isAdmin) || user.role === 'quality_manager' || user.role === 'admin',
+    isAdmin: isAdminUser({ role: user.role, isAdmin: Boolean(user.isAdmin) }),
     tenantName: user.firmName,
     centreId: centre.centreId,
     centreKind: centre.centreKind,
@@ -671,7 +681,9 @@ const upsertUsersSchema = z.object({
 type ExistingUserRow = {
   id: string
   username: string
+  role: string
   passwordHash: string
+  isAdmin: boolean
   centreId: string
   mustChangePassword: boolean
 }
@@ -702,7 +714,8 @@ authRouter.put(
   }
 
   const existing = await pool.query(
-    `SELECT id, username, password_hash AS "passwordHash",
+    `SELECT id, username, role, password_hash AS "passwordHash",
+            COALESCE(is_admin, FALSE) AS "isAdmin",
             COALESCE(centre_id, 'main') AS "centreId",
             COALESCE(must_change_password, FALSE) AS "mustChangePassword"
      FROM users WHERE tenant_id = $1`,
@@ -766,7 +779,14 @@ authRouter.put(
   const createdAt = nowIso()
   for (const u of parsed.data.users) {
     const prev = byName.get(u.username.toLowerCase())
-    const isAdmin = u.role === 'admin' || u.role === 'quality_manager'
+    const grant = resolveUserAdminGrant({
+      role: u.role,
+      selfUserId: req.user!.userId,
+      previous: prev
+        ? { id: prev.id, role: prev.role, isAdmin: Boolean(prev.isAdmin) }
+        : null,
+    })
+    const isAdmin = grant.isAdmin
     let hash: string
     let mustChange: boolean
     if (u.password === '******') {
@@ -790,7 +810,7 @@ authRouter.put(
     nextRows.push({
       id: prev?.id || uid('usr'),
       username: u.username,
-      role: u.role,
+      role: grant.role,
       hash,
       isAdmin,
       centreId: (u.centreId || 'main').trim() || 'main',

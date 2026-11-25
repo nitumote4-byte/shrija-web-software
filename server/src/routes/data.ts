@@ -31,6 +31,7 @@ import {
   requireKnownRole,
 } from '../rbac.js'
 import { resolveStoreWriteBaseRev } from '../storeWritePolicy.js'
+import { enforceLockedRecordMutations } from '../recordMutationGuard.js'
 import { reconcileFinancialTombstonesForReplaceAll } from '../financialTombstones.js'
 import { letterheadRouter } from './letterhead.js'
 import { applyReceptionWrite, publicReception, reduceReception } from '../receptionCreds.js'
@@ -218,6 +219,22 @@ dataRouter.put('/store', async (req, res) => {
       reconcileFinancialTombstonesForReplaceAll(payload)
     }
 
+    const recordLock = enforceLockedRecordMutations({
+      currentStore: currentPayload as Record<string, unknown>,
+      nextStore: payload,
+      isAdmin: isAdminUser(req.user!),
+      replaceAll,
+    })
+    if (!recordLock.ok) {
+      return {
+        stale: false as const,
+        lockError: recordLock,
+        rev: currentRev,
+        updatedAt: row ? toIso(row.updated_at) : updatedAt,
+        payload: currentPayload,
+      }
+    }
+
     enforceOtherServiceCancelImmutability({
       currentStore: currentPayload as Record<string, unknown>,
       nextStore: payload,
@@ -269,6 +286,14 @@ dataRouter.put('/store', async (req, res) => {
     res.status(written.identityError.status).json({
       error: written.identityError.error,
       code: written.identityError.code,
+    })
+    return
+  }
+
+  if ('lockError' in written && written.lockError) {
+    res.status(written.lockError.status).json({
+      error: written.lockError.error,
+      code: written.lockError.code,
     })
     return
   }

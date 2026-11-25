@@ -685,7 +685,9 @@ describe('hallmarking financial authority', () => {
     assert.equal(isAdminUser({ role: 'reception', isAdmin: false }), false)
     assert.equal(isAdminUser({ role: 'accountant', isAdmin: false }), false)
     assert.equal(isAdminUser({ role: 'admin', isAdmin: true }), true)
-    assert.equal(isAdminUser({ role: 'quality_manager', isAdmin: false }), true)
+    assert.equal(isAdminUser({ role: 'quality_manager', isAdmin: false }), false)
+    assert.equal(isAdminUser({ role: 'quality_manager', isAdmin: true }), false)
+    assert.equal(isAdminUser({ role: 'reception', isAdmin: true }), false)
   })
 
   it('TEST F: P1-5 OS/HM identity still enforced in authority pipeline', () => {

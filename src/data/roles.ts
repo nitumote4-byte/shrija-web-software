@@ -106,7 +106,7 @@ export function canAccessPath(pathname: string): boolean {
     const settingsPath = path === '/other-services/settings' || path.startsWith('/other-services/settings/')
     const role = normalizeRole(session.role || '')
     if (settingsPath) {
-      return Boolean(session.isAdmin) || role === 'admin' || role === 'quality_manager'
+      return Boolean(session.isAdmin) || role === 'admin'
     }
     if (session.isAdmin) return true
     const allowed = getRoleModules(role)
@@ -164,6 +164,16 @@ export function canAccessPath(pathname: string): boolean {
 
   const id = path.slice(1).split('/')[0]
   return allowed.some((m) => id === m || id.startsWith(m) || m.includes(id))
+}
+
+export const LOCKED_RECORD_MESSAGE =
+  'Only an admin can change or delete saved bills, payments, expenses, parties, or rates.'
+
+/** Saved bills, payments, expenses, parties, and rates. No session (scripts) is allowed. */
+export function canChangeLockedRecords(session = getSession()): boolean {
+  if (!session) return true
+  if (session.isAdmin) return true
+  return normalizeRole(session.role || '') === 'admin'
 }
 
 export function roleLabel(role: string) {

@@ -119,7 +119,13 @@ export function getCurrentTenantName() {
   return getSession()?.tenantName || ''
 }
 
-type StoredUser = { username: string; role: string; password: string; centreId?: string }
+type StoredUser = {
+  username: string
+  role: string
+  password: string
+  centreId?: string
+  isAdmin?: boolean
+}
 type StoredCentre = { id: string; kind?: 'main' | 'osc'; name?: string; address?: string }
 
 /** Access Management — server-enforced to JWT tenant */
@@ -129,7 +135,7 @@ export async function saveAccessUsers(users: StoredUser[]) {
 
 export async function loadAccessUsers(): Promise<{ users: StoredUser[]; centres: StoredCentre[] }> {
   const result = await api<{
-    users: { username: string; role: string; centreId?: string }[]
+    users: { username: string; role: string; centreId?: string; isAdmin?: boolean }[]
     centres?: StoredCentre[]
   }>('/api/auth/users')
   return {
@@ -138,6 +144,7 @@ export async function loadAccessUsers(): Promise<{ users: StoredUser[]; centres:
       role: u.role,
       password: '******',
       centreId: u.centreId || 'main',
+      isAdmin: Boolean(u.isAdmin) || String(u.role || '').toLowerCase() === 'admin',
     })),
     centres: Array.isArray(result.centres) ? result.centres : [],
   }

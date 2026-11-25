@@ -423,6 +423,22 @@ async function flushStore(opts: FlushOpts = {}): Promise<FlushResult> {
         console.error('Failed to persist store', e)
         const message = e instanceof Error ? e.message : 'Failed to save data'
         emitPersist(false, message)
+        const rejected = e instanceof ApiRequestError && (e.status === 403 || e.status === 400)
+        if (rejected) {
+          if (e.status === 403) {
+            try {
+              const remote = await api<{ data: StoreShape; rev?: number }>('/api/data/store')
+              if (remote?.data && typeof remote.data === 'object') {
+                storeCache = remote.data
+                if (typeof remote.rev === 'number' && Number.isFinite(remote.rev)) storeRev = remote.rev
+                storeVersion += 1
+              }
+            } catch {
+              /* The rejected edit stays local until the next successful load. */
+            }
+          }
+          return { ok: false, message }
+        }
         scheduleRetry()
         return { ok: false, message }
       }

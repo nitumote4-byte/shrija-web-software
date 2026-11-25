@@ -119,10 +119,63 @@ export function isLabRole(role?: string | null): boolean {
   return LAB_ROLES.has(normalizeRole(role))
 }
 
+/**
+ * Admin permission is the database role `admin` only.
+ * A browser tick, a forged isAdmin flag, or a request body cannot grant it.
+ * The signed-in user cannot change their own role.
+ */
+export function resolveUserAdminGrant(input: {
+  role: string
+  selfUserId: string
+  previous?: { id: string; role: string; isAdmin: boolean } | null
+}): { isAdmin: boolean; role: string } {
+  const prev = input.previous
+  if (prev && prev.id === input.selfUserId) {
+    return { role: prev.role, isAdmin: normalizeRole(prev.role) === 'admin' }
+  }
+  return { role: input.role, isAdmin: normalizeRole(input.role) === 'admin' }
+}
+
+export type CentreAdminSnapshot = {
+  id: string
+  role: string
+  isAdmin: boolean
+  createdAt?: string | Date | null
+}
+
+function createdAtMillis(value: CentreAdminSnapshot['createdAt']): number {
+  if (value instanceof Date) return value.getTime()
+  const n = Date.parse(String(value || ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * If the centre has no Admin role, the oldest account becomes Admin.
+ * Every other account loses a leftover is_admin flag. Returns rows to write.
+ */
+export function planCentreAdminRepair(users: CentreAdminSnapshot[]): CentreAdminSnapshot[] {
+  if (!users.length) return []
+  const oldest = [...users].sort((a, b) => {
+    const delta = createdAtMillis(a.createdAt) - createdAtMillis(b.createdAt)
+    if (delta !== 0) return delta
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })[0]
+  const hasAdmin = users.some((u) => normalizeRole(u.role) === 'admin')
+  const updates: CentreAdminSnapshot[] = []
+  for (const user of users) {
+    const promote = !hasAdmin && user.id === oldest.id
+    const role = promote ? 'admin' : user.role
+    const isAdmin = normalizeRole(role) === 'admin'
+    if (normalizeRole(role) !== normalizeRole(user.role) || isAdmin !== Boolean(user.isAdmin)) {
+      updates.push({ id: user.id, role, isAdmin, createdAt: user.createdAt })
+    }
+  }
+  return updates
+}
+
 export function isAdminUser(user: Pick<AuthUser, 'role' | 'isAdmin'> | null | undefined): boolean {
   if (!user) return false
-  if (user.isAdmin) return true
-  return ADMIN_ROLES.has(normalizeRole(user.role))
+  return normalizeRole(user.role) === 'admin'
 }
 
 export function storeKeysForRole(role?: string | null): '*' | readonly string[] {

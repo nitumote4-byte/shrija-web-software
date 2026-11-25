@@ -39,6 +39,7 @@ export const SAFE_USER_FACING_MESSAGES: readonly string[] = [
   'Invalid licence key',
   'This licence key is already used by another centre',
   'Only a centre administrator can replace the full store',
+  'Only an admin can change or delete saved bills, payments, expenses, parties, or rates.',
   'Off-site users cannot update firm-wide centre details',
   'Off-Site users cannot be In Lab — lab stays at Main Centre',
   'You cannot remove your own login while signed in',

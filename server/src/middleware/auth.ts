@@ -8,6 +8,8 @@ import {
   isCrossTenantOverride,
   stripClientTenantOverrides,
 } from '../tenantIsolation.js'
+import { isAdminUser } from '../rbac.js'
+import { repairCentreAdminRoles } from '../centreAdminRepair.js'
 
 function jwtSecret() {
   const secret = process.env.JWT_SECRET
@@ -96,6 +98,7 @@ export async function requireLiveUser(req: Request, res: Response, next: NextFun
     return
   }
   try {
+    await repairCentreAdminRoles(req.user.tenantId)
     const { rows } = await pool.query(
       `SELECT username, role, is_admin AS "isAdmin",
               COALESCE(centre_id, 'main') AS "centreId",
@@ -120,7 +123,7 @@ export async function requireLiveUser(req: Request, res: Response, next: NextFun
     const role = String(row.role || '')
     req.user.username = String(row.username || req.user.username)
     req.user.role = role
-    req.user.isAdmin = Boolean(row.isAdmin) || role === 'quality_manager' || role === 'admin'
+    req.user.isAdmin = isAdminUser({ role, isAdmin: Boolean(row.isAdmin) })
     req.user.centreId = String(row.centreId || 'main')
     req.user.centreKind = req.user.centreId !== 'main' ? 'osc' : 'main'
     req.user.mustChangePassword = Boolean(row.mustChangePassword)

@@ -8,6 +8,7 @@ import { CENTRE_NAME } from '../data/modules'
 import { getFirmProfile, saveFirmProfile, type CentreOutlet } from '../data/firmProfile'
 import { tenantGet, tenantSet } from '../data/tenant'
 import { getSession, verifyLoginPassword } from '../data/auth'
+import { canChangeLockedRecords, LOCKED_RECORD_MESSAGE } from '../data/roles'
 import { getWorkingPeriodName } from '../data/operationalPeriod'
 import { DEFAULT_MIN_BILL_AMOUNT, parseMinBillAmount } from '../utils/minBillCharge'
 import {
@@ -48,6 +49,7 @@ function flagLabel(on: boolean) {
 
 export function PartyDetails() {
   const { toast, Toast } = useToast()
+  const canEditLocked = canChangeLockedRecords()
   const [tick, setTick] = useState(0)
   const parties = useMemo(() => {
     void tick
@@ -261,22 +263,26 @@ export function PartyDetails() {
                   <td>{flagLabel(p.minBillCalc)}</td>
                   <td>{p.transactionType}</td>
                   <td>
-                    <div className="party-row-actions">
-                      <button
-                        type="button"
-                        className="btn btn-navy party-action-btn"
-                        onClick={() => setEditing({ ...p })}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn party-action-btn party-action-delete"
-                        onClick={() => remove(p.id, p.name)}
-                      >
-                        Delete
-                      </button>
-                    </div>
+                    {canEditLocked ? (
+                      <div className="party-row-actions">
+                        <button
+                          type="button"
+                          className="btn btn-navy party-action-btn"
+                          onClick={() => setEditing({ ...p })}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn party-action-btn party-action-delete"
+                          onClick={() => remove(p.id, p.name)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1233,6 +1239,10 @@ export function AddToGroup() {
   const [group, setGroup] = useState('Main Group')
 
   const save = () => {
+    if (!canChangeLockedRecords()) {
+      toast(LOCKED_RECORD_MESSAGE)
+      return
+    }
     store.updatePartyGroup(partyId, group)
     const party = parties.find((p) => p.id === partyId)
     toast(`${party?.name ?? 'Party'} linked to ${group}`)

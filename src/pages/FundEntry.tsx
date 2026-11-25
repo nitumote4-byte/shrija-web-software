@@ -11,6 +11,7 @@ import {
   type Party,
 } from '../data/store'
 import { isOtherServiceFund } from '../data/otherServices'
+import { canChangeLockedRecords } from '../data/roles'
 
 function money(n: number) {
   return `₹ ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -185,6 +186,7 @@ function openFundReceiptPrint(
 export function FundEntry() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
+  const canEditLocked = canChangeLockedRecords()
   const [tick, setTick] = useState(0)
   void tick
 
@@ -651,22 +653,26 @@ export function FundEntry() {
                       <td>{f.remarks || '—'}</td>
                       <td>
                         <div className="fund-row-actions">
-                          <button
-                            type="button"
-                            className="fund-print-icon"
-                            title="Edit"
-                            onClick={() => startEdit(f)}
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            type="button"
-                            className="fund-print-icon fund-delete-icon"
-                            title="Delete"
-                            onClick={() => removeFund(f)}
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          {canEditLocked ? (
+                            <>
+                              <button
+                                type="button"
+                                className="fund-print-icon"
+                                title="Edit"
+                                onClick={() => startEdit(f)}
+                              >
+                                <Pencil size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                className="fund-print-icon fund-delete-icon"
+                                title="Delete"
+                                onClick={() => removeFund(f)}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </>
+                          ) : null}
                           <button
                             type="button"
                             className="fund-print-icon"

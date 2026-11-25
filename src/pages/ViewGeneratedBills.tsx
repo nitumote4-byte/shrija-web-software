@@ -6,6 +6,7 @@ import { InvoicePreviewPanel } from '../components/InvoicePreviewPanel'
 import { useToast } from '../components/ui'
 import { verifyLoginPassword } from '../data/auth'
 import { store, type InvoiceLine } from '../data/store'
+import { canChangeLockedRecords } from '../data/roles'
 import {
     BILL_DELETE_CONFIRM_1,
     BILL_DELETE_CONFIRM_2,
@@ -75,6 +76,7 @@ function recalc(
 export function ViewGeneratedBills() {
   const data = store.getAll()
   const { toast, Toast } = useToast()
+  const canEditLocked = canChangeLockedRecords()
   const minBillSettings = loadMinBillSettings()
   const [selectedKey, setSelectedKey] = useState('')
   const [preview, setPreview] = useState<ChallanView | null>(null)
@@ -519,18 +521,22 @@ export function ViewGeneratedBills() {
             <button type="button" className="gb-btn gb-btn-pdf" onClick={downloadPdf}>
               Download PDF
             </button>
-            <button type="button" className="gb-btn gb-btn-del" onClick={deleteBill}>
-              Delete
-            </button>
-            {!editing ? (
-              <button type="button" className="gb-btn gb-btn-upd" onClick={startUpdate}>
-                Update
-              </button>
-            ) : (
-              <button type="button" className="gb-btn gb-btn-upd" onClick={saveUpdate}>
-                Save Update
-              </button>
-            )}
+            {canEditLocked ? (
+              <>
+                <button type="button" className="gb-btn gb-btn-del" onClick={deleteBill}>
+                  Delete
+                </button>
+                {!editing ? (
+                  <button type="button" className="gb-btn gb-btn-upd" onClick={startUpdate}>
+                    Update
+                  </button>
+                ) : (
+                  <button type="button" className="gb-btn gb-btn-upd" onClick={saveUpdate}>
+                    Save Update
+                  </button>
+                )}
+              </>
+            ) : null}
           </div>
         </div>
         {options.length > 0 ? (

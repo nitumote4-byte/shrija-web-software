@@ -35,7 +35,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 function session(partial: Partial<ApiSession> & Pick<ApiSession, 'role'>): ApiSession {
   return {
     username: 'tester',
-    isAdmin: partial.role === 'admin' || partial.role === 'quality_manager',
+    isAdmin: partial.role === 'admin',
     loggedInAt: new Date().toISOString(),
     tenantId: 'tn_test',
     tenantName: 'Test Centre',
@@ -109,7 +109,7 @@ activate(session({ role: 'quality_manager' }))
   assert(has(paths, '/billing'), 'QM sees Billing')
   assert(titles.includes('Other Services'), 'QM sees Other Services')
   assert(has(paths, '/other-services/entry'), 'QM sees New Service Entry')
-  assert(has(paths, '/other-services/settings'), 'QM sees Service Settings')
+  assert(!has(paths, '/other-services/settings'), 'QM without admin permission does not see Service Settings')
   assert(topLevel.includes('/billing'), 'Billing is a top-level sidebar item, not a dropdown')
   assert(has(paths, '/fund-entry'), 'QM sees Fund Entry')
   assert(topLevel.includes('/fund-entry'), 'Fund Entry is a top-level sidebar item')
